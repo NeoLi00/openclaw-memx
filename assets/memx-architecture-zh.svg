@@ -52,38 +52,38 @@
 
   <g filter="url(#shadow)">
     <rect x="405" y="202" width="390" height="270" rx="34" fill="url(#center)"/>
-    <text x="508" y="306" class="centerTitle">MemX</text>
-    <text x="486" y="344" class="centerSmall">给 agent 用的长期记忆</text>
+    <text x="600" y="306" text-anchor="middle" class="centerTitle">MemX</text>
+    <text x="600" y="344" text-anchor="middle" class="centerSmall">给 agent 用的长期记忆</text>
     <rect x="464" y="382" width="272" height="42" rx="21" fill="#0F172A" opacity="0.88"/>
-    <text x="518" y="408" class="pill">回答时注入关键证据</text>
+    <text x="600" y="408" text-anchor="middle" class="pill">回答时注入关键证据</text>
   </g>
 
   <g filter="url(#shadow)">
     <rect x="96" y="156" width="286" height="154" rx="28" fill="url(#blue)"/>
-    <text x="130" y="207" class="cardTitle">记住工作</text>
-    <text x="130" y="240" class="cardText">事实、偏好、任务</text>
-    <text x="130" y="266" class="cardText">事件、决策、上下文</text>
+    <text x="239" y="207" text-anchor="middle" class="cardTitle">记住工作</text>
+    <text x="239" y="240" text-anchor="middle" class="cardText">事实、偏好、任务</text>
+    <text x="239" y="266" text-anchor="middle" class="cardText">事件、决策、上下文</text>
   </g>
 
   <g filter="url(#shadow)">
     <rect x="818" y="156" width="286" height="154" rx="28" fill="url(#green)"/>
-    <text x="852" y="207" class="darkTitle">连接关系</text>
-    <text x="852" y="240" class="darkText">项目、人、工具</text>
-    <text x="852" y="266" class="darkText">文件、资源、结果</text>
+    <text x="961" y="207" text-anchor="middle" class="darkTitle">连接关系</text>
+    <text x="961" y="240" text-anchor="middle" class="darkText">项目、人、工具</text>
+    <text x="961" y="266" text-anchor="middle" class="darkText">文件、资源、结果</text>
   </g>
 
   <g filter="url(#shadow)">
     <rect x="96" y="424" width="286" height="154" rx="28" fill="url(#purple)"/>
-    <text x="130" y="475" class="cardTitle">学习习惯</text>
-    <text x="130" y="508" class="cardText">协作偏好</text>
-    <text x="130" y="534" class="cardText">常用工作方式</text>
+    <text x="239" y="475" text-anchor="middle" class="cardTitle">学习习惯</text>
+    <text x="239" y="508" text-anchor="middle" class="cardText">协作偏好</text>
+    <text x="239" y="534" text-anchor="middle" class="cardText">常用工作方式</text>
   </g>
 
   <g filter="url(#shadow)">
     <rect x="818" y="424" width="286" height="154" rx="28" fill="url(#gold)"/>
-    <text x="852" y="475" class="darkTitle">自动整理</text>
-    <text x="852" y="508" class="darkText">更新、纠错</text>
-    <text x="852" y="534" class="darkText">过期状态、证据来源</text>
+    <text x="961" y="475" text-anchor="middle" class="darkTitle">自动整理</text>
+    <text x="961" y="508" text-anchor="middle" class="darkText">更新、纠错</text>
+    <text x="961" y="534" text-anchor="middle" class="darkText">过期状态、证据来源</text>
   </g>
 
   <path d="M390 234C430 238 455 247 492 277" stroke="#93C5FD" stroke-width="5" stroke-linecap="round" opacity="0.68"/>
