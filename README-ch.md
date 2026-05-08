@@ -9,6 +9,10 @@
 </p>
 
 <p align="center">
+  交流联系：<a href="mailto:neoliriven@gmail.com">neoliriven@gmail.com</a>
+</p>
+
+<p align="center">
   <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a>
 </p>
 
