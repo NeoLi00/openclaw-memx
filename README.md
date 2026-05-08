@@ -14,17 +14,11 @@
 
 ---
 
-MemX is a local-first long-term memory plugin for OpenClaw. It is built for agents that keep
-working with you across days, projects, decisions, corrections, and evolving preferences.
+MemX is a local-first long-term memory plugin for OpenClaw. It helps agents keep working with you
+across days, projects, decisions, corrections, and evolving preferences.
 
-Instead of storing a pile of notes, MemX helps an agent:
-
-- remember stable facts, preferences, and working context;
-- track active tasks, blockers, next steps, and resolved work;
-- connect people, projects, tools, files, resources, and decisions;
-- learn repeated working habits from ongoing collaboration;
-- clean up stale or corrected memory so old context does not dominate;
-- inject only the evidence that helps the current answer.
+**What it adds:** stable work memory, task state, relationship recall, learned habits, automatic
+cleanup, and compact evidence injection.
 
 ## What it can do
 
@@ -33,6 +27,8 @@ Instead of storing a pile of notes, MemX helps an agent:
 MemX keeps the useful parts of long conversations: project decisions, user preferences, task status,
 important events, and raw evidence. Long inputs and long agent replies are split into linked segments
 so precise slices can be recalled without losing the original turn.
+
+---
 
 ### Connect related things
 
@@ -43,6 +39,8 @@ different names, MemX can use aliases and identity evidence to keep the memory c
 Example: if a project is later called "Raven API", "the auth repo", or just "Raven", MemX can keep
 those references tied together when the evidence supports it.
 
+---
+
 ### Learn from repeated collaboration
 
 MemX can notice stable patterns across repeated work. For example, it can learn that you prefer small
@@ -51,6 +49,8 @@ usually follows the same review flow.
 
 These learned patterns remain tied to supporting evidence. They are not loose summaries with no
 source.
+
+---
 
 ### Maintain itself
 
@@ -64,6 +64,8 @@ MemX continuously keeps memory usable:
 
 The result is a memory store that evolves with the work instead of becoming a stale transcript.
 
+---
+
 ### Recall useful evidence
 
 When the agent needs memory, MemX does not dump everything into the prompt. It searches across
@@ -72,7 +74,7 @@ evidence lines for the current question.
 
 The agent sees what matters now, with enough source context to answer reliably.
 
-## Current evaluation signal
+## Evaluation signal
 
 In the current internal long-running engineering-memory replay suite, MemX reached **100% recall of
 the expected memory evidence**. That means the expected evidence was written, retrievable, and
@@ -81,16 +83,11 @@ available to prompt injection in the tested scenarios.
 This is an evaluation signal for the current replay suite, not a universal guarantee for every future
 workload.
 
-## Installation
+## Quick install
 
-Requirements:
+Requirements: OpenClaw with Node.js 22+, `git`, and Python 3 if you use local embeddings.
 
-- OpenClaw with Node.js 22+
-- `git`
-- Python 3 for local sentence-transformers embeddings
-- A configured OpenClaw LLM provider, or the DeepSeek example below
-
-Clone and install:
+Install the plugin:
 
 ```bash
 git clone https://github.com/NeoLi00/openclaw-memx.git
@@ -100,13 +97,55 @@ openclaw plugins install .
 openclaw plugins enable memory-memx
 ```
 
-Install local embedding dependencies:
+Enable memory:
+
+```bash
+openclaw config set plugins.entries.memory-memx.config.enabled true
+openclaw config set plugins.entries.memory-memx.config.autoCapture true
+openclaw config set plugins.entries.memory-memx.config.autoRecall true
+openclaw config set plugins.entries.memory-memx.config.reflectionEnabled true
+```
+
+Restart and verify:
+
+```bash
+openclaw gateway run --bind loopback --force
+
+openclaw plugins list
+openclaw plugins info memory-memx
+openclaw plugins doctor
+```
+
+## Model and embedding setup
+
+MemX can reuse your existing OpenClaw provider. If OpenClaw already has a non-subscription API
+provider configured, you can simply point MemX at that provider/model:
+
+```bash
+openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel provider/model
+```
+
+For embeddings, MemX defaults to local `sentence-transformers-local`. To use the recommended local
+embedding setup:
 
 ```bash
 python3 -m pip install --user sentence-transformers torch
+openclaw config set plugins.entries.memory-memx.config.embedding.provider sentence-transformers-local
+openclaw config set plugins.entries.memory-memx.config.embedding.model intfloat/multilingual-e5-small
+openclaw config set plugins.entries.memory-memx.config.embedding.localDevice auto
 ```
 
-Configure DeepSeek V4 Flash as the OpenClaw model provider:
+### Recommended cost-quality setup
+
+The following combination is recommended for a practical balance of cost, quality, multilingual
+retrieval, and local-first operation:
+
+| Layer | Recommended choice | Why |
+| --- | --- | --- |
+| LLM compiler | DeepSeek V4 Flash or your existing API provider | Low-cost semantic planning with enough quality for memory compilation |
+| Embedding | `intfloat/multilingual-e5-small` | Fast local multilingual retrieval with no embedding API bill |
+
+DeepSeek example:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-your-deepseek-key"
@@ -119,41 +158,13 @@ openclaw config set agents.defaults.model.primary deepseek/deepseek-v4-flash
 openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel deepseek/deepseek-v4-flash
 ```
 
-Configure MemX with multilingual E5 local embeddings:
-
-```bash
-openclaw config set plugins.entries.memory-memx.config.enabled true
-openclaw config set plugins.entries.memory-memx.config.autoCapture true
-openclaw config set plugins.entries.memory-memx.config.autoRecall true
-openclaw config set plugins.entries.memory-memx.config.reflectionEnabled true
-
-openclaw config set plugins.entries.memory-memx.config.embedding.provider sentence-transformers-local
-openclaw config set plugins.entries.memory-memx.config.embedding.model intfloat/multilingual-e5-small
-openclaw config set plugins.entries.memory-memx.config.embedding.localDevice auto
-```
-
-Restart the OpenClaw gateway after installation or config changes:
-
-```bash
-openclaw gateway run --bind loopback --force
-```
-
-Verify:
-
-```bash
-openclaw plugins list
-openclaw plugins info memory-memx
-openclaw plugins doctor
-```
-
 ## Provider key reuse
 
-MemX does not need a separate LLM API key when OpenClaw already has a provider configured. It reads
-the selected provider from OpenClaw config and reuses `models.providers.<provider>.apiKey` and custom
-headers.
+MemX does not need a separate LLM key when OpenClaw already has a provider configured. It reuses
+`models.providers.<provider>.apiKey` and custom headers from OpenClaw config.
 
-For embeddings, the default local provider does not need an API key. If you switch embeddings to
-`openai-compatible`, configure the MemX embedding key separately:
+The default local embedding provider does not need an API key. If you choose a remote
+OpenAI-compatible embedding provider, configure that embedding key separately:
 
 ```bash
 openclaw config set plugins.entries.memory-memx.config.embedding.provider openai-compatible
@@ -161,4 +172,3 @@ openclaw config set plugins.entries.memory-memx.config.embedding.baseURL https:/
 openclaw config set plugins.entries.memory-memx.config.embedding.apiKey '${OPENAI_API_KEY}'
 openclaw config set plugins.entries.memory-memx.config.embedding.model text-embedding-3-small
 ```
-
