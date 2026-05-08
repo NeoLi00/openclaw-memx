@@ -1,0 +1,258 @@
+{
+  "id": "memory-memx",
+  "kind": "memory",
+  "uiHints": {
+    "enabled": {
+      "label": "Enabled"
+    },
+    "dbPath": {
+      "label": "Database Path",
+      "placeholder": "~/.openclaw/agents/{agentId}/memory/memx.sqlite",
+      "advanced": true
+    },
+    "autoCapture": {
+      "label": "Auto Capture",
+      "help": "Capture turns by default and derive memory through the turn scheduler."
+    },
+    "autoRecall": {
+      "label": "Auto Recall",
+      "help": "Inject recalled memory context and proactive reply guidance before each run."
+    },
+    "reflectionEnabled": {
+      "label": "Reflection Enabled",
+      "help": "Allow bounded end-of-run reflection over turn memory and derived memory."
+    },
+    "consentMode": {
+      "label": "Consent Mode",
+      "help": "implicit matches the default MemOS-style automatic capture flow; off disables background capture."
+    },
+    "piiMode": {
+      "label": "PII Mode",
+      "help": "allow stores raw memory text; redact and off remain available when stricter governance is needed."
+    },
+    "embedding.provider": {
+      "label": "Embedding Provider"
+    },
+    "embedding.apiKey": {
+      "label": "Embedding API Key",
+      "sensitive": true,
+      "advanced": true
+    },
+    "advanced.enableCompatibilityMemoryTools": {
+      "label": "Legacy Memory Tools",
+      "help": "Opt in to legacy memory_search and memory_get compatibility tools.",
+      "advanced": true
+    },
+    "advanced.enableTurnScheduler": {
+      "label": "Turn Scheduler",
+      "help": "Use the MemOS-style turn capture to chunk to task to derived-memory pipeline.",
+      "advanced": true
+    },
+    "advanced.chunkDedupThreshold": {
+      "label": "Chunk Dedup Threshold",
+      "advanced": true
+    },
+    "advanced.taskIdleTimeoutMinutes": {
+      "label": "Task Idle Timeout Minutes",
+      "advanced": true
+    },
+    "advanced.recallChunkBudget": {
+      "label": "Recall Chunk Budget",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "dbPath": {
+        "type": "string"
+      },
+      "autoCapture": {
+        "type": "boolean"
+      },
+      "autoRecall": {
+        "type": "boolean"
+      },
+      "reflectionEnabled": {
+        "type": "boolean"
+      },
+      "consentMode": {
+        "type": "string",
+        "enum": ["explicit", "implicit", "off"]
+      },
+      "maxInjectedChars": {
+        "type": "number",
+        "minimum": 200,
+        "maximum": 12000
+      },
+      "captureMaxChars": {
+        "type": "number",
+        "minimum": 100,
+        "maximum": 10000
+      },
+      "reflectionMaxChars": {
+        "type": "number",
+        "minimum": 100,
+        "maximum": 4000
+      },
+      "reflectionMaxItems": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 32
+      },
+      "piiMode": {
+        "type": "string",
+        "enum": ["off", "redact", "allow"]
+      },
+      "defaultScope": {
+        "type": "string"
+      },
+      "allowedScopes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "minSalienceDurable": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minSalienceSession": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "minUtilityForGraph": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "maxSensitivityAllowed": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "stateTtlHours": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 8760
+      },
+      "episodicDedupWindowDays": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 365
+      },
+      "graphMaxHops": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 4
+      },
+      "maxGraphNodes": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 64
+      },
+      "maxGraphEdges": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 128
+      },
+      "embedding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["off", "openai-compatible", "ollama", "sentence-transformers-local"]
+          },
+          "baseURL": {
+            "type": "string"
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "ollamaBaseURL": {
+            "type": "string"
+          },
+          "ollamaModel": {
+            "type": "string"
+          },
+          "localPythonBin": {
+            "type": "string"
+          },
+          "localCacheDir": {
+            "type": "string"
+          },
+          "localDevice": {
+            "type": "string",
+            "enum": ["auto", "cpu", "mps", "cuda"]
+          }
+        }
+      },
+      "advanced": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "llmClassifierEnabled": {
+            "type": "boolean"
+          },
+          "llmClassifierModel": {
+            "type": "string"
+          },
+          "enableMaintenanceJobs": {
+            "type": "boolean"
+          },
+          "enableGraphPromotion": {
+            "type": "boolean"
+          },
+          "enableFactPromotion": {
+            "type": "boolean"
+          },
+          "enableTelemetryAudit": {
+            "type": "boolean"
+          },
+          "enableCompatibilityMemoryTools": {
+            "type": "boolean"
+          },
+          "enableTurnScheduler": {
+            "type": "boolean"
+          },
+          "chunkDedupThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "taskIdleTimeoutMinutes": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1440
+          },
+          "recallChunkBudget": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,127 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">MemX architecture</title>
+  <desc id="desc">A high-level architecture image showing write, memory layers, maintenance, recall, and prompt injection.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#101827"/>
+      <stop offset="0.52" stop-color="#172035"/>
+      <stop offset="1" stop-color="#0C1220"/>
+    </linearGradient>
+    <linearGradient id="write" x1="105" y1="132" x2="430" y2="315" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3A8BFF"/>
+      <stop offset="1" stop-color="#6CC5FF"/>
+    </linearGradient>
+    <linearGradient id="memory" x1="460" y1="125" x2="790" y2="574" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E8F0FF"/>
+      <stop offset="1" stop-color="#B9D5FF"/>
+    </linearGradient>
+    <linearGradient id="maint" x1="820" y1="138" x2="1085" y2="335" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8E7CFF"/>
+      <stop offset="1" stop-color="#E38BFF"/>
+    </linearGradient>
+    <linearGradient id="recall" x1="130" y1="462" x2="1080" y2="645" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4FD1B6"/>
+      <stop offset="0.52" stop-color="#A7E36D"/>
+      <stop offset="1" stop-color="#FFD36A"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#020617" flood-opacity="0.32"/>
+    </filter>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020617" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 800 44px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #F8FAFC; letter-spacing: 0; }
+      .subtitle { font: 500 18px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #B9C6D9; letter-spacing: 0; }
+      .section { font: 800 24px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0F172A; letter-spacing: 0; }
+      .sectionLight { font: 800 24px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #F8FAFC; letter-spacing: 0; }
+      .label { font: 700 16px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #142033; letter-spacing: 0; }
+      .small { font: 500 13px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; letter-spacing: 0; }
+      .smallLight { font: 600 13px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #E2E8F0; letter-spacing: 0; }
+      .micro { font: 700 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748B; letter-spacing: 0; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" rx="34" fill="url(#bg)"/>
+  <path d="M72 86C118 44 195 40 244 75L295 111C340 142 405 134 439 92C479 42 553 33 604 70L641 97C690 132 759 124 798 79C840 31 914 31 956 80L1112 262C1155 312 1152 386 1106 432L1012 526C979 559 966 607 978 652L986 682C995 715 970 748 936 748H96C57 748 26 716 29 677L72 86Z" fill="#FFFFFF" opacity="0.035"/>
+
+  <text x="72" y="78" class="title">MemX Memory</text>
+  <text x="72" y="112" class="subtitle">Local-first long-term memory for OpenClaw agents: write, upgrade, recall, and inject evidence.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="150" width="330" height="218" rx="26" fill="url(#write)"/>
+    <text x="102" y="194" class="sectionLight">Write Pipeline</text>
+    <text x="102" y="224" class="smallLight">Compiler-first capture with deterministic gates</text>
+    <rect x="102" y="252" width="116" height="48" rx="16" fill="#F8FAFC" opacity="0.92"/>
+    <text x="123" y="281" class="label">Capture</text>
+    <rect x="235" y="252" width="136" height="48" rx="16" fill="#F8FAFC" opacity="0.92"/>
+    <text x="256" y="281" class="label">Compiler</text>
+    <rect x="102" y="314" width="116" height="48" rx="16" fill="#F8FAFC" opacity="0.92"/>
+    <text x="130" y="343" class="label">Policy</text>
+    <rect x="235" y="314" width="136" height="48" rx="16" fill="#F8FAFC" opacity="0.92"/>
+    <text x="257" y="343" class="label">Normalize</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="450" y="142" width="310" height="330" rx="28" fill="url(#memory)"/>
+    <text x="480" y="187" class="section">Memory Layers</text>
+    <text x="480" y="216" class="small">Source-traceable objects, not flat notes</text>
+
+    <rect x="480" y="246" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
+    <text x="504" y="275" class="label">Scene</text>
+    <text x="590" y="275" class="small">chunks · tasks · turns</text>
+
+    <rect x="480" y="306" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
+    <text x="504" y="335" class="label">Canonical</text>
+    <text x="612" y="335" class="small">facts · states · events</text>
+
+    <rect x="480" y="366" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
+    <text x="504" y="395" class="label">Graph</text>
+    <text x="590" y="395" class="small">entities · aliases · edges</text>
+
+    <rect x="480" y="426" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
+    <text x="504" y="455" class="label">Control</text>
+    <text x="598" y="455" class="small">beliefs · strategies</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="808" y="150" width="320" height="218" rx="26" fill="url(#maint)"/>
+    <text x="838" y="194" class="sectionLight">Maintenance</text>
+    <text x="838" y="224" class="smallLight">Structured upgrade layer with lineage</text>
+    <rect x="838" y="252" width="118" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
+    <text x="857" y="281" class="label">Consolidate</text>
+    <rect x="976" y="252" width="122" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
+    <text x="998" y="281" class="label">Promote</text>
+    <rect x="838" y="314" width="118" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
+    <text x="866" y="343" class="label">Beliefs</text>
+    <rect x="976" y="314" width="122" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
+    <text x="995" y="343" class="label">Strategies</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="520" width="1056" height="156" rx="28" fill="url(#recall)"/>
+    <text x="102" y="565" class="section">Recall and Prompt Evidence</text>
+    <text x="102" y="594" class="small">Query compiler → candidate generation → source expansion → evidence packets → compact prompt</text>
+
+    <g filter="url(#soft)">
+      <rect x="102" y="619" width="152" height="38" rx="14" fill="#FFFFFF" opacity="0.94"/>
+      <text x="127" y="643" class="label">Query Plan</text>
+      <rect x="281" y="619" width="170" height="38" rx="14" fill="#FFFFFF" opacity="0.94"/>
+      <text x="309" y="643" class="label">Candidates</text>
+      <rect x="478" y="619" width="184" height="38" rx="14" fill="#FFFFFF" opacity="0.94"/>
+      <text x="503" y="643" class="label">Source Expansion</text>
+      <rect x="689" y="619" width="176" height="38" rx="14" fill="#FFFFFF" opacity="0.94"/>
+      <text x="718" y="643" class="label">Evidence Packets</text>
+      <rect x="892" y="619" width="180" height="38" rx="14" fill="#FFFFFF" opacity="0.94"/>
+      <text x="928" y="643" class="label">System Prompt</text>
+    </g>
+  </g>
+
+  <path d="M402 260H450" stroke="#93C5FD" stroke-width="4" stroke-linecap="round"/>
+  <path d="M760 260H808" stroke="#C4B5FD" stroke-width="4" stroke-linecap="round"/>
+  <path d="M968 368V520" stroke="#F0ABFC" stroke-width="4" stroke-linecap="round"/>
+  <path d="M605 472V520" stroke="#BFDBFE" stroke-width="4" stroke-linecap="round"/>
+  <path d="M235 368V520" stroke="#86EFAC" stroke-width="4" stroke-linecap="round"/>
+
+  <text x="72" y="720" class="micro">Compiler-guided write · Entity-aware graph · Belief lifecycle · Source-traceable maintenance · Evidence-grade recall</text>
+</svg>

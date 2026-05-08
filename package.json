@@ -1,0 +1,23 @@
+{
+  "name": "@openclaw/memory-memx",
+  "version": "2026.3.14",
+  "private": true,
+  "description": "Compiler-guided, entity-aware long-term memory for OpenClaw agents.",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.11"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}
