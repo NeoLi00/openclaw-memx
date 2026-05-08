@@ -157,18 +157,3 @@ openclaw config set models.providers.deepseek.apiKey '${DEEPSEEK_API_KEY}'
 openclaw config set agents.defaults.model.primary deepseek/deepseek-v4-flash
 openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel deepseek/deepseek-v4-flash
 ```
-
-## Provider key reuse
-
-MemX does not need a separate LLM key when OpenClaw already has a provider configured. It reuses
-`models.providers.<provider>.apiKey` and custom headers from OpenClaw config.
-
-The default local embedding provider does not need an API key. If you choose a remote
-OpenAI-compatible embedding provider, configure that embedding key separately:
-
-```bash
-openclaw config set plugins.entries.memory-memx.config.embedding.provider openai-compatible
-openclaw config set plugins.entries.memory-memx.config.embedding.baseURL https://api.openai.com/v1
-openclaw config set plugins.entries.memory-memx.config.embedding.apiKey '${OPENAI_API_KEY}'
-openclaw config set plugins.entries.memory-memx.config.embedding.model text-embedding-3-small
-```
