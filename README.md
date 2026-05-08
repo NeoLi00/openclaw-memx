@@ -143,7 +143,7 @@ retrieval, and local-first operation:
 
 | Layer | Recommended choice | Why |
 | --- | --- | --- |
-| LLM compiler | DeepSeek V4 Flash or your existing API provider | Low-cost semantic planning with enough quality for memory compilation |
+| LLM compiler | DeepSeek V4 Flash | Low-cost semantic planning with enough quality for memory compilation |
 | Embedding | `intfloat/multilingual-e5-small` | Fast local multilingual retrieval with no embedding API bill |
 
 DeepSeek example:

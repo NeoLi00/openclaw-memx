@@ -136,7 +136,7 @@ openclaw config set plugins.entries.memory-memx.config.embedding.localDevice aut
 
 | 层 | 推荐选择 | 原因 |
 | --- | --- | --- |
-| LLM compiler | DeepSeek V4 Flash 或你已有的 API provider | 成本低，语义规划质量足够做记忆编译 |
+| LLM compiler | DeepSeek V4 Flash | 成本低，语义规划质量足够做记忆编译 |
 | Embedding | `intfloat/multilingual-e5-small` | 本地运行，多语言召回，不产生 embedding API 费用 |
 
 DeepSeek 示例：
