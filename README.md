@@ -5,7 +5,7 @@
 <h1 align="center">MemX Memory for OpenClaw</h1>
 
 <p align="center">
-  <strong>Self-learning, self-maintaining graph memory for long-running OpenClaw agents.</strong>
+  <strong>Long-term agent memory with self-learning, self-maintenance, and relationship-aware recall.</strong>
 </p>
 
 <p align="center">
@@ -14,106 +14,63 @@
 
 ---
 
-MemX is a local-first long-term memory plugin for OpenClaw. It is designed for agents that
-work across days, projects, repos, decisions, corrections, and evolving user preferences.
+MemX is a local-first long-term memory plugin for OpenClaw. It is built for agents that keep
+working with you across days, projects, decisions, corrections, and evolving preferences.
 
-It is not a single memory table. MemX is a multi-layer memory system with:
+Instead of storing a pile of notes, MemX helps an agent:
 
-- **Graph memory** for entities, aliases, relationships, project identity, resources, and multi-hop recall.
-- **Self-learning memory** for beliefs, signals, habits, strategies, and workflow patterns.
-- **Self-maintaining memory** for consolidation, abstraction, supersession, promotion, decay, and source-traceable upgrades.
-- **Evidence-grade recall** that injects compact, auditable prompt evidence instead of dumping raw memory.
+- remember stable facts, preferences, and working context;
+- track active tasks, blockers, next steps, and resolved work;
+- connect people, projects, tools, files, resources, and decisions;
+- learn repeated working habits from ongoing collaboration;
+- clean up stale or corrected memory so old context does not dominate;
+- inject only the evidence that helps the current answer.
 
-The goal is to let an agent keep working with you over time: remember what changed, connect related
-objects, learn repeated patterns, avoid stale state, and recover the right evidence when the current
-task needs it.
+## What it can do
 
-## Why MemX exists
+### Remember work over time
 
-Most memory plugins are good at storing notes. Real agents need more:
+MemX keeps the useful parts of long conversations: project decisions, user preferences, task status,
+important events, and raw evidence. Long inputs and long agent replies are split into linked segments
+so precise slices can be recalled without losing the original turn.
 
-- A project may be called by several names across weeks.
-- A user may correct a prior fact.
-- A task can move from active to blocked to resolved.
-- A workflow habit may only become clear after repeated interactions.
-- A graph relationship may matter more than any single sentence.
-- Long engineering conversations need precise evidence, not fuzzy summaries.
+### Connect related things
 
-MemX treats memory as an evolving system. It captures raw evidence, materializes canonical objects,
-maintains graph and learning layers, and recalls only the evidence that helps the current turn.
+MemX includes relationship-aware memory. It can keep track of how projects, repos, tools, people,
+resources, blockers, and outcomes relate to each other. When the same object is mentioned with
+different names, MemX can use aliases and identity evidence to keep the memory connected.
 
-## Core capabilities
+Example: if a project is later called "Raven API", "the auth repo", or just "Raven", MemX can keep
+those references tied together when the evidence supports it.
 
-### Graph memory
+### Learn from repeated collaboration
 
-MemX tracks entities and relationships instead of relying only on text similarity.
+MemX can notice stable patterns across repeated work. For example, it can learn that you prefer small
+reversible patches, that a certain project needs API checks before UI work, or that a recurring task
+usually follows the same review flow.
 
-- Entity mentions, aliases, and identity links are resolved into canonical entities.
-- Graph edges connect people, projects, tools, repos, resources, locations, blockers, and outcomes.
-- Query-time entity expansion can recall related facts, events, states, strategies, and graph paths.
-- Old aliases can still route to the current canonical entity.
+These learned patterns remain tied to supporting evidence. They are not loose summaries with no
+source.
 
-This is what lets an agent remember that "Raven", "Raven API", and "the auth repo" may refer to the
-same project when the evidence supports that identity.
+### Maintain itself
 
-### Self-learning memory
+MemX continuously keeps memory usable:
 
-MemX has a control layer for signals, beliefs, and strategy hypotheses.
+- repeated evidence can become a stable memory;
+- corrected information can replace older information;
+- old task state can stop competing with current state;
+- high-level summaries can point back to raw evidence;
+- noisy control turns such as OpenClaw heartbeat checks are ignored.
 
-- Retrieval support, contradictions, corrections, and outcomes are recorded as learning signals.
-- Repeated evidence can form beliefs with lifecycle stages.
-- Resolved task outcomes and explicit workflow guidance can become strategies.
-- Beliefs and strategies are source-backed, not free-floating summaries.
+The result is a memory store that evolves with the work instead of becoming a stale transcript.
 
-This lets the agent learn durable working patterns such as "the user prefers small reversible patches"
-or "this project usually needs API contract checks before UI changes", while still keeping source
-evidence available.
+### Recall useful evidence
 
-### Self-maintaining memory
+When the agent needs memory, MemX does not dump everything into the prompt. It searches across
+facts, events, state, chunks, relationships, resources, and learned patterns, then builds compact
+evidence lines for the current question.
 
-MemX maintenance is a fidelity upgrade layer, not a second raw-text parser.
-
-- Consolidation turns repeated structured evidence into stable facts or graph edges.
-- Abstraction jobs propose derived state, workflow patterns, graph hypotheses, and concepts.
-- Promotion materializes durable objects only when lineage and support refs are available.
-- Supersession and currentness logic keep stale facts, old blockers, and expired task state from
-  dominating recall.
-
-Maintenance preserves provenance so recall can expand from a high-level object back to raw evidence.
-
-### Evidence-grade recall
-
-MemX recall is compiler-guided and packet-based.
-
-- Query compilation produces evidence goals, roles, and semantic bridges.
-- Candidate generation searches facts, events, states, chunks, graph neighborhoods, resources, and
-  strategies separately.
-- Source expansion pulls raw support and neighboring context when needed.
-- Evidence packets are ranked and packed into the prompt as compact, readable lines.
-
-The agent gets usable evidence, not a noisy memory dump.
-
-### Local-first hybrid search
-
-MemX defaults to local embeddings using `sentence-transformers` and
-`intfloat/multilingual-e5-small`.
-
-- No embedding API key is required by default.
-- If the local embedding runtime is cold or unavailable, MemX falls back to lexical retrieval.
-- Long inputs and outputs are stored as linked source segments so precise slices can be recalled
-  without losing the identity of the original turn.
-
-### Heartbeat-safe capture
-
-OpenClaw heartbeat and control turns are filtered so background liveness checks do not create memory,
-trigger semantic compilation, or pollute maintenance.
-
-## Memory layers
-
-- **Scene layer**: turns, chunks, tasks, sessions, working continuity.
-- **Canonical layer**: facts, states, events, entities, graph edges.
-- **Control layer**: beliefs, signals, strategies, abstractions, promotion lifecycle.
-- **Recall layer**: vector docs, candidate traces, source expansion, prompt evidence packets.
+The agent sees what matters now, with enough source context to answer reliably.
 
 ## Current evaluation signal
 
