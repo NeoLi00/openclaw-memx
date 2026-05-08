@@ -1,6 +1,6 @@
 <svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">MemX architecture</title>
-  <desc id="desc">A high-level architecture image showing write, memory layers, maintenance, recall, and prompt injection.</desc>
+  <desc id="desc">A high-level architecture image showing graph memory, self-learning control, self-maintenance, recall, and prompt injection.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#101827"/>
@@ -46,7 +46,7 @@
   <path d="M72 86C118 44 195 40 244 75L295 111C340 142 405 134 439 92C479 42 553 33 604 70L641 97C690 132 759 124 798 79C840 31 914 31 956 80L1112 262C1155 312 1152 386 1106 432L1012 526C979 559 966 607 978 652L986 682C995 715 970 748 936 748H96C57 748 26 716 29 677L72 86Z" fill="#FFFFFF" opacity="0.035"/>
 
   <text x="72" y="78" class="title">MemX Memory</text>
-  <text x="72" y="112" class="subtitle">Local-first long-term memory for OpenClaw agents: write, upgrade, recall, and inject evidence.</text>
+  <text x="72" y="112" class="subtitle">Self-learning, self-maintaining graph memory for long-running OpenClaw agents.</text>
 
   <g filter="url(#shadow)">
     <rect x="72" y="150" width="330" height="218" rx="26" fill="url(#write)"/>
@@ -64,7 +64,7 @@
 
   <g filter="url(#shadow)">
     <rect x="450" y="142" width="310" height="330" rx="28" fill="url(#memory)"/>
-    <text x="480" y="187" class="section">Memory Layers</text>
+    <text x="480" y="187" class="section">Graph Memory Core</text>
     <text x="480" y="216" class="small">Source-traceable objects, not flat notes</text>
 
     <rect x="480" y="246" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
@@ -80,14 +80,14 @@
     <text x="590" y="395" class="small">entities · aliases · edges</text>
 
     <rect x="480" y="426" width="250" height="46" rx="15" fill="#FFFFFF" opacity="0.96"/>
-    <text x="504" y="455" class="label">Control</text>
-    <text x="598" y="455" class="small">beliefs · strategies</text>
+    <text x="504" y="455" class="label">Learning</text>
+    <text x="604" y="455" class="small">beliefs · strategies</text>
   </g>
 
   <g filter="url(#shadow)">
     <rect x="808" y="150" width="320" height="218" rx="26" fill="url(#maint)"/>
-    <text x="838" y="194" class="sectionLight">Maintenance</text>
-    <text x="838" y="224" class="smallLight">Structured upgrade layer with lineage</text>
+    <text x="838" y="194" class="sectionLight">Self-Maintenance</text>
+    <text x="838" y="224" class="smallLight">Structured upgrades with lineage</text>
     <rect x="838" y="252" width="118" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
     <text x="857" y="281" class="label">Consolidate</text>
     <rect x="976" y="252" width="122" height="48" rx="16" fill="#F8FAFC" opacity="0.93"/>
@@ -123,5 +123,5 @@
   <path d="M605 472V520" stroke="#BFDBFE" stroke-width="4" stroke-linecap="round"/>
   <path d="M235 368V520" stroke="#86EFAC" stroke-width="4" stroke-linecap="round"/>
 
-  <text x="72" y="720" class="micro">Compiler-guided write · Entity-aware graph · Belief lifecycle · Source-traceable maintenance · Evidence-grade recall</text>
+  <text x="72" y="720" class="micro">Graph memory · Self-learning beliefs · Self-maintaining lifecycle · Source-traceable upgrades · Evidence-grade recall</text>
 </svg>
