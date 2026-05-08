@@ -84,9 +84,6 @@ In the current internal long-running engineering-memory replay suite, MemX reach
 the expected memory evidence**. That means the expected evidence was written, retrievable, and
 available to prompt injection in the tested scenarios.
 
-This is an evaluation signal for the current replay suite, not a universal guarantee for every future
-workload.
-
 ## Quick install
 
 Requirements: OpenClaw with Node.js 22+, `git`, and Python 3 if you use local embeddings.
