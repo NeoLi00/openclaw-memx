@@ -8,7 +8,7 @@
     "@sinclair/typebox": "0.34.48"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.11"
+    "openclaw": ">=2026.3.25"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -18,6 +18,14 @@
   "openclaw": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.25",
+      "minGatewayVersion": "2026.3.25"
+    },
+    "build": {
+      "openclawVersion": "2026.3.25",
+      "pluginSdkVersion": "2026.3.25"
+    }
   }
 }
