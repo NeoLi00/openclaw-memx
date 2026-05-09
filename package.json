@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/memory-memx",
+  "name": "@neoli00/memory-memx",
   "version": "2026.3.14",
   "private": true,
   "description": "Compiler-guided, entity-aware long-term memory for OpenClaw agents.",
