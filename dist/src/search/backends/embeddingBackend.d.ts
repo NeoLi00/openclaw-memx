@@ -1,0 +1,30 @@
+import type { VectorRepo } from "../../db/repositories/vectorRepo.js";
+import type { EmbeddingConfig, RetrievalBackend, RetrievalSearchParams, SearchHit, VectorDocRecord } from "../../types.js";
+import type { MemxLogger } from "../../types.js";
+type EmbedMode = "query" | "passage";
+export declare class OptionalEmbeddingBackend implements RetrievalBackend {
+    private readonly repo;
+    private readonly embedding;
+    private readonly logger;
+    private readonly lexical;
+    private readonly localWorker;
+    private warnedUnavailable;
+    private acceptingUpserts;
+    private localUnavailableForProcess;
+    private closed;
+    private upsertQueue;
+    constructor(repo: VectorRepo, embedding: EmbeddingConfig, logger: MemxLogger);
+    upsertDocs(docs: VectorDocRecord[]): void;
+    flushPendingUpserts(): Promise<void>;
+    close(): Promise<void>;
+    deleteDocs(docIds: string[]): void;
+    keywordSearch(params: RetrievalSearchParams): SearchHit[];
+    similaritySearch(params: RetrievalSearchParams): Promise<SearchHit[]>;
+    hybridSearch(params: RetrievalSearchParams): Promise<SearchHit[]>;
+    embedTextsBatch(texts: string[], mode?: EmbedMode): Promise<number[][]>;
+    private isEmbeddingDisabledForProcess;
+    private handleEmbeddingFailure;
+    private warnOnce;
+    private embedTexts;
+}
+export {};

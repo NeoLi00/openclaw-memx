@@ -8,6 +8,11 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
     "baseUrl": ".",
     "paths": {
       "openclaw/plugin-sdk/core": ["./types/openclaw-plugin-sdk-core.d.ts"]

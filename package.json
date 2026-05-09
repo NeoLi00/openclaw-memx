@@ -1,11 +1,26 @@
 {
   "name": "@neoli00/memory-memx",
   "version": "2026.3.14",
-  "private": true,
   "description": "Compiler-guided, entity-aware long-term memory for OpenClaw agents.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "README-ch.md",
+    "assets"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noCheck"
+  },
   "dependencies": {
-    "@sinclair/typebox": "0.34.48"
+    "@sinclair/typebox": "0.34.48",
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "openclaw": ">=2026.3.25"
@@ -17,7 +32,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./index.ts"
+      "./dist/index.js"
     ],
     "compat": {
       "pluginApi": ">=2026.3.25",
