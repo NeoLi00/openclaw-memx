@@ -1,11 +1,46 @@
-import { Type } from "@sinclair/typebox";
+type JsonSchema = Record<string, unknown>;
+type OptionalJsonSchema = JsonSchema & { __memxOptional?: true };
+
+const OPTIONAL_MARKER = "__memxOptional";
+
+export const Type = {
+  String(): JsonSchema {
+    return { type: "string" };
+  },
+  Number(): JsonSchema {
+    return { type: "number" };
+  },
+  Boolean(): JsonSchema {
+    return { type: "boolean" };
+  },
+  Optional(schema: JsonSchema): OptionalJsonSchema {
+    return { ...schema, [OPTIONAL_MARKER]: true };
+  },
+  Object(properties: Record<string, OptionalJsonSchema>): JsonSchema {
+    const cleanProperties = Object.fromEntries(
+      Object.entries(properties).map(([key, schema]) => {
+        const { [OPTIONAL_MARKER]: _optional, ...cleanSchema } = schema;
+        return [key, cleanSchema];
+      }),
+    );
+    const required = Object.entries(properties)
+      .filter(([, schema]) => schema[OPTIONAL_MARKER] !== true)
+      .map(([key]) => key);
+    return {
+      type: "object",
+      properties: cleanProperties,
+      ...(required.length > 0 ? { required } : {}),
+      additionalProperties: false,
+    };
+  },
+};
 
 export function stringEnum<T extends readonly string[]>(values: T, description?: string) {
-  return Type.Unsafe<T[number]>({
+  return {
     type: "string",
     enum: [...values],
     ...(description ? { description } : {}),
-  });
+  };
 }
 
 export function jsonToolResult(payload: unknown) {

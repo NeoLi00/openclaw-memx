@@ -16,11 +16,8 @@
     "build": "tsdown index.ts --no-config --clean --unbundle --root . --out-dir dist --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --deps.never-bundle openclaw/plugin-sdk/process-runtime --dts --copy src/search/backends/sentence_transformers_embedder.py",
     "test": "node --test tests/setup-config.test.mjs"
   },
-  "dependencies": {
-    "@sinclair/typebox": "0.34.48",
-    "commander": "^14.0.3"
-  },
   "devDependencies": {
+    "commander": "^14.0.3",
     "openclaw": "^2026.5.7",
     "tsdown": "^0.22.0",
     "typescript": "^5.9.3"

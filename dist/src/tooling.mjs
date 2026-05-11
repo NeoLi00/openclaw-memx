@@ -1,11 +1,41 @@
-import { Type } from "@sinclair/typebox";
 //#region src/tooling.ts
+const OPTIONAL_MARKER = "__memxOptional";
+const Type = {
+	String() {
+		return { type: "string" };
+	},
+	Number() {
+		return { type: "number" };
+	},
+	Boolean() {
+		return { type: "boolean" };
+	},
+	Optional(schema) {
+		return {
+			...schema,
+			[OPTIONAL_MARKER]: true
+		};
+	},
+	Object(properties) {
+		const cleanProperties = Object.fromEntries(Object.entries(properties).map(([key, schema]) => {
+			const { [OPTIONAL_MARKER]: _optional, ...cleanSchema } = schema;
+			return [key, cleanSchema];
+		}));
+		const required = Object.entries(properties).filter(([, schema]) => schema[OPTIONAL_MARKER] !== true).map(([key]) => key);
+		return {
+			type: "object",
+			properties: cleanProperties,
+			...required.length > 0 ? { required } : {},
+			additionalProperties: false
+		};
+	}
+};
 function stringEnum(values, description) {
-	return Type.Unsafe({
+	return {
 		type: "string",
 		enum: [...values],
 		...description ? { description } : {}
-	});
+	};
 }
 function jsonToolResult(payload) {
 	return {
@@ -33,4 +63,4 @@ function readBoolean(params, key) {
 	return typeof value === "boolean" ? value : void 0;
 }
 //#endregion
-export { jsonToolResult, readBoolean, readNumber, readString, stringEnum };
+export { Type, jsonToolResult, readBoolean, readNumber, readString, stringEnum };

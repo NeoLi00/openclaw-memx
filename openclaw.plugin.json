@@ -238,6 +238,20 @@
           "enableMaintenanceJobs": {
             "type": "boolean"
           },
+          "maintenanceTriggerMode": {
+            "type": "string",
+            "enum": ["batched", "per_turn"]
+          },
+          "maintenanceBatchTurns": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "maintenanceIdleFlushMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440
+          },
           "enableGraphPromotion": {
             "type": "boolean"
           },
@@ -247,11 +261,76 @@
           "enableTelemetryAudit": {
             "type": "boolean"
           },
+          "enableExplicitRecallTool": {
+            "type": "boolean"
+          },
+          "suggestExplicitRecallTool": {
+            "type": "boolean"
+          },
           "enableCompatibilityMemoryTools": {
             "type": "boolean"
           },
           "enableTurnScheduler": {
             "type": "boolean"
+          },
+          "enableTurnSemanticCompiler": {
+            "type": "boolean"
+          },
+          "enableQueryCompiler": {
+            "type": "boolean"
+          },
+          "enableEmbeddingCandidates": {
+            "type": "boolean"
+          },
+          "enableEmbeddingClustering": {
+            "type": "boolean"
+          },
+          "enableHotPathChunkSummaryLlm": {
+            "type": "boolean"
+          },
+          "enableHotPathTaskSummaryLlm": {
+            "type": "boolean"
+          },
+          "candidateSurfaceBudgets": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 16
+              },
+              "fact": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "event": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "task": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 16
+              },
+              "chunk": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "graph": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 16
+              },
+              "entityAlias": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 16
+              }
+            }
           },
           "chunkDedupThreshold": {
             "type": "number",
@@ -267,6 +346,71 @@
             "type": "number",
             "minimum": 1,
             "maximum": 32
+          },
+          "recallTotalObjectBudget": {
+            "type": "number",
+            "minimum": 4,
+            "maximum": 128
+          },
+          "recallBackgroundCharReserve": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 6000
+          },
+          "recallPromptBudgetFloor": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4000
+          },
+          "recallObjectiveMinWeight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallObjectiveOverflowRatio": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeWorkflowStrongThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeWorkflowContinuationThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeFactualStrongThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeFactualShortQueryThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeHybridStrongThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeHybridModerateThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeEscalateThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "recallProbeContinuationEscalateThreshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         }
       }

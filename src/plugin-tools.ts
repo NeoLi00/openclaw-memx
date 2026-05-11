@@ -1,4 +1,3 @@
-import { Type } from "@sinclair/typebox";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/core";
 import { runConsolidation } from "./pipeline/consolidate.js";
 import { buildStoredFactObjectValueJson } from "./pipeline/normalize.js";
@@ -8,7 +7,7 @@ import { expandStateKeyAliases, wantsHistoricalFacts } from "./pipeline/semantic
 import { buildOperationContext, type MemxRuntimeManager } from "./runtime.js";
 import { isScopeAllowed, resolveDefaultScope } from "./security/scopes.js";
 import { nowIso, normalizeName, normalizeText, stableHash } from "./support.js";
-import { jsonToolResult, readBoolean, readNumber, readString, stringEnum } from "./tooling.js";
+import { jsonToolResult, readBoolean, readNumber, readString, stringEnum, Type } from "./tooling.js";
 import type { MemoryPluginConfig, MemxLogger } from "./types.js";
 
 const FORGET_KINDS = ["doc", "event", "fact", "state"] as const;

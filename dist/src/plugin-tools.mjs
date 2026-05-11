@@ -6,8 +6,7 @@ import { isScopeAllowed, resolveDefaultScope } from "./security/scopes.mjs";
 import { buildOperationContext } from "./runtime.mjs";
 import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { retrieveEvidence } from "./pipeline/retrieve.mjs";
-import { jsonToolResult, readBoolean, readNumber, readString, stringEnum } from "./tooling.mjs";
-import { Type } from "@sinclair/typebox";
+import { Type, jsonToolResult, readBoolean, readNumber, readString, stringEnum } from "./tooling.mjs";
 //#region src/plugin-tools.ts
 const FORGET_KINDS = [
 	"doc",
