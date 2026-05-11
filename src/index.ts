@@ -19,9 +19,9 @@ import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.js";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.js";
 import { createMemxTools } from "./plugin-tools.js";
 import { buildOperationContext, type MemxStoreBundle, MemxRuntimeManager } from "./runtime.js";
-import { stripInjectedHistoricalBlock } from "./security/escaping.js";
+import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security/escaping.js";
 import { resolveDefaultScope } from "./security/scopes.js";
-import { nowIso, randomId, stableHash, truncateText } from "./support.js";
+import { nowIso, randomId, truncateText } from "./support.js";
 import type {
   BackgroundRecallBundle,
   EvidenceBundle,
@@ -29,8 +29,6 @@ import type {
   MemoryPluginConfig,
   QueryCompileResult,
 } from "./types.js";
-
-const HOOK_RECALL_DEDUPE_WINDOW_MS = 45_000;
 
 function shouldSuggestExplicitRecallTool(config: MemoryPluginConfig): boolean {
   return config.advanced.enableExplicitRecallTool && config.advanced.suggestExplicitRecallTool;
@@ -64,16 +62,6 @@ type PromptSectionSpec = {
   priority: number;
   minLines?: number;
 };
-
-function fitPromptBudget(parts: string[], maxChars: number): string {
-  const budget = Math.max(MIN_PROMPT_BUDGET, Math.trunc(maxChars));
-  const working = parts.filter(Boolean);
-  while (working.length > 1 && working.join("\n\n").length > budget) {
-    working.pop();
-  }
-  const combined = working.join("\n\n").trim();
-  return combined.length > budget ? truncateText(combined, budget) : combined;
-}
 
 function truncatePromptLines(lines: string[], maxChars: number): string[] {
   if (maxChars <= 0 || lines.length === 0) {
@@ -294,7 +282,7 @@ function evidencePacketPromptLine(packet: EvidencePacket): string {
   return `- ${slot}${datePart}${quantity} ${truncateText(packet.primaryText, 420)}${support}`;
 }
 
-// ── diagnostic probe: log injected systemPrompt ─────────────────────────
+// ── diagnostic probe: log injected prompt context ───────────────────────
 type ProbeLogContext = {
   agentId?: string;
   sessionKey?: string;
@@ -316,16 +304,17 @@ function formatProbeLogContext(ctx?: ProbeLogContext): string {
   return rendered.length > 0 ? ` ${rendered.join(" ")}` : "";
 }
 
-function _logSystemPrompt(
+function _logPromptContext(
   logger: { info: (msg: string) => void },
   tag: string,
   prompt: string,
   probeContext?: ProbeLogContext,
 ): string {
+  const promptContext = formatMemxContextBlock(prompt);
   logger.info(
-    `memory-memx: PROBE systemPrompt [${tag}] chars=${prompt.length}${formatProbeLogContext(probeContext)}\n--- BEGIN SYSTEMPROMPT ---\n${prompt}\n--- END SYSTEMPROMPT ---`,
+    `memory-memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`,
   );
-  return prompt;
+  return promptContext;
 }
 
 function buildNoRecallHint(config: MemoryPluginConfig, queryAnalysis: QueryCompileResult): string {
@@ -556,13 +545,6 @@ function extractPromptQuery(event: { prompt?: string; messages?: unknown[] }): s
   return best && best.score >= 0.18 ? best.candidate : promptCandidate;
 }
 
-function recallEventFingerprint(
-  rawQuery: string,
-  _event: { prompt?: string; messages?: unknown[] },
-): string {
-  return stableHash([rawQuery.trim()]);
-}
-
 function initializeCursor(messages: unknown[]): number {
   const roles = messages
     .filter(
@@ -603,15 +585,6 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
       }
 
       const manager = new MemxRuntimeManager(api.logger);
-      const recentRecallResults = new Map<
-        string,
-        {
-          fingerprint: string;
-          cachedAtMs: number;
-          result: { systemPrompt?: string };
-          recallPayload: { chunkIds: string[]; texts: string[] };
-        }
-      >();
       const warned = new Set<string>();
       const warnOnce = (key: string, message: string) => {
         if (warned.has(key)) {
@@ -699,32 +672,6 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           if (!rawQuery) {
             return;
           }
-          const recallCacheKey = `${ctx.agentId}:${ctx.sessionKey ?? "default"}`;
-          const recallFingerprint = recallEventFingerprint(rawQuery, event);
-          const cachedRecall = recentRecallResults.get(recallCacheKey);
-          if (
-            cachedRecall &&
-            cachedRecall.fingerprint === recallFingerprint &&
-            t0 - cachedRecall.cachedAtMs <= HOOK_RECALL_DEDUPE_WINDOW_MS
-          ) {
-            manager.rememberRecall(ctx.agentId, ctx.sessionKey, cachedRecall.recallPayload);
-            api.logger.debug?.(
-              `memory-memx: recall cache hit hook-dedupe query="${truncateText(rawQuery, 80)}"`,
-            );
-            return cachedRecall.result;
-          }
-          const cacheRecallResult = (
-            result: { systemPrompt?: string },
-            recallPayload: { chunkIds: string[]; texts: string[] },
-          ) => {
-            recentRecallResults.set(recallCacheKey, {
-              fingerprint: recallFingerprint,
-              cachedAtMs: performance.now(),
-              result,
-              recallPayload,
-            });
-            return result;
-          };
           const backgroundBundle = buildBackgroundRecallBundle(store, recallCtx);
           const tBackground = performance.now();
           const queryAnalysis = await compileQuery({
@@ -772,74 +719,56 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
                 routeType: bundle.routeType,
                 bundle: backgroundBundle,
               });
-              return cacheRecallResult(
-                {
-                  systemPrompt: _logSystemPrompt(
-                    api.logger,
-                    "full-no-material-bg",
-                    buildBackgroundRecallPrompt(
-                      config,
-                      promptBackground,
-                      rawQuery,
-                      queryAnalysis,
-                      config.maxInjectedChars,
-                    ),
-                    {
-                      agentId: ctx.agentId,
-                      sessionKey: ctx.sessionKey,
-                      runId: ctx.runId,
-                    },
-                  ),
-                },
-                {
-                  chunkIds: bundle.recalledChunkIds,
-                  texts: bundle.recalledChunkTexts,
-                },
-              );
-            }
-            return cacheRecallResult(
-              {
-                systemPrompt: _logSystemPrompt(
+              return {
+                prependContext: _logPromptContext(
                   api.logger,
-                  "full-no-material",
-                  buildNoRecallHint(config, queryAnalysis),
+                  "full-no-material-bg",
+                  buildBackgroundRecallPrompt(
+                    config,
+                    promptBackground,
+                    rawQuery,
+                    queryAnalysis,
+                    config.maxInjectedChars,
+                  ),
                   {
                     agentId: ctx.agentId,
                     sessionKey: ctx.sessionKey,
                     runId: ctx.runId,
                   },
                 ),
-              },
-              {
-                chunkIds: bundle.recalledChunkIds,
-                texts: bundle.recalledChunkTexts,
-              },
-            );
-          }
-          return cacheRecallResult(
-            {
-              systemPrompt: _logSystemPrompt(
+              };
+            }
+            return {
+              prependContext: _logPromptContext(
                 api.logger,
-                "full-recall",
-                buildMemxImplicitRecallPrompt(
-                  config,
-                  bundle,
-                  promptBackground,
-                  queryAnalysis,
-                  config.maxInjectedChars,
-                ),
+                "full-no-material",
+                buildNoRecallHint(config, queryAnalysis),
                 {
                   agentId: ctx.agentId,
                   sessionKey: ctx.sessionKey,
                   runId: ctx.runId,
                 },
               ),
-            },
-            {
-              chunkIds: bundle.recalledChunkIds,
-              texts: bundle.recalledChunkTexts,
-            },
-          );
+            };
+          }
+          return {
+            prependContext: _logPromptContext(
+              api.logger,
+              "full-recall",
+              buildMemxImplicitRecallPrompt(
+                config,
+                bundle,
+                promptBackground,
+                queryAnalysis,
+                config.maxInjectedChars,
+              ),
+              {
+                agentId: ctx.agentId,
+                sessionKey: ctx.sessionKey,
+                runId: ctx.runId,
+              },
+            ),
+          };
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : undefined;
@@ -849,20 +778,20 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           // Return a degraded prompt so downstream sees the failure rather than
           // silently losing all memory context.
           return {
-            systemPrompt: "[memory-memx: recall unavailable due to internal error]",
+            prependContext: formatMemxContextBlock(
+              "[memory-memx: recall unavailable due to internal error]",
+            ),
           };
         }
       };
 
       api.on("before_prompt_build", recallHandler as (...args: unknown[]) => unknown);
-      api.on("before_agent_start", recallHandler as (...args: unknown[]) => unknown);
 
       api.on("agent_end", async (event, ctx) => {
         const allMessages = Array.isArray(event.messages) ? event.messages : [];
         if (shouldSkipMemxForHeartbeat({ messages: allMessages }, ctx)) {
           return;
         }
-        recentRecallResults.delete(`${ctx.agentId}:${ctx.sessionKey ?? "default"}`);
         if (allMessages.length === 0) {
           return;
         }
