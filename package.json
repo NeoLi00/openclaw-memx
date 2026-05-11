@@ -3,8 +3,8 @@
   "version": "2026.3.14",
   "description": "Compiler-guided, entity-aware long-term memory for OpenClaw agents.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
   "files": [
     "dist",
     "openclaw.plugin.json",
@@ -13,17 +13,20 @@
     "assets"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json --noCheck"
+    "build": "tsdown index.ts --no-config --clean --unbundle --root . --out-dir dist --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --deps.never-bundle openclaw/plugin-sdk/process-runtime --dts --copy src/search/backends/sentence_transformers_embedder.py",
+    "test": "node --test tests/setup-config.test.mjs"
   },
   "dependencies": {
     "@sinclair/typebox": "0.34.48",
     "commander": "^14.0.3"
   },
   "devDependencies": {
+    "openclaw": "^2026.5.7",
+    "tsdown": "^0.22.0",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "openclaw": ">=2026.3.25"
+    "openclaw": ">=2026.5.7"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -32,15 +35,19 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./dist/index.mjs"
     ],
+    "install": {
+      "npmSpec": "@neoli00/memory-memx",
+      "minHostVersion": ">=2026.5.7"
+    },
     "compat": {
-      "pluginApi": ">=2026.3.25",
-      "minGatewayVersion": "2026.3.25"
+      "pluginApi": ">=2026.5.7",
+      "minGatewayVersion": "2026.5.7"
     },
     "build": {
-      "openclawVersion": "2026.3.25",
-      "pluginSdkVersion": "2026.3.25"
+      "openclawVersion": "2026.5.7",
+      "pluginSdkVersion": "2026.5.7"
     }
   }
 }

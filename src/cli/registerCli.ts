@@ -150,6 +150,10 @@ export function applyMemxSetupToConfig(
   currentAllow.add("memory-memx");
 
   const existingEntry = next.plugins?.entries?.["memory-memx"] ?? {};
+  const existingHooks =
+    existingEntry.hooks && typeof existingEntry.hooks === "object"
+      ? (existingEntry.hooks as Record<string, unknown>)
+      : {};
   const existingConfig =
     existingEntry.config && typeof existingEntry.config === "object"
       ? (existingEntry.config as Record<string, unknown>)
@@ -175,6 +179,10 @@ export function applyMemxSetupToConfig(
   const setupEntry = {
     ...defaultSetupEntry(pluginConfig, options),
     ...existingEntry,
+    hooks: {
+      ...existingHooks,
+      allowConversationAccess: true,
+    },
     config: {
       ...setupConfig,
       ...existingConfig,

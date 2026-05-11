@@ -1,6 +1,23 @@
 {
   "id": "memory-memx",
   "kind": "memory",
+  "contracts": {
+    "tools": [
+      "memory_event_append",
+      "memory_event_search",
+      "memory_fact_query",
+      "memory_fact_upsert",
+      "memory_forget",
+      "memory_get",
+      "memory_graph_query",
+      "memory_inspect",
+      "memory_recall",
+      "memory_search",
+      "memory_state_get",
+      "memory_state_set",
+      "memory_stats"
+    ]
+  },
   "uiHints": {
     "enabled": {
       "label": "Enabled"

@@ -1,0 +1,81 @@
+import { addHours, safeJsonParse } from "../../support.mjs";
+//#region src/db/repositories/stateRepo.ts
+var StateRepo = class {
+	db;
+	constructor(db) {
+		this.db = db;
+	}
+	upsert(state) {
+		this.db.prepare(`INSERT INTO state_kv(
+          key, value_json, scope, agent_id, state_kind, confidence, source_ref, updated_at, expires_at, materialized_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(agent_id, scope, key) DO UPDATE SET
+          value_json = excluded.value_json,
+          state_kind = excluded.state_kind,
+          confidence = excluded.confidence,
+          source_ref = excluded.source_ref,
+          updated_at = excluded.updated_at,
+          expires_at = excluded.expires_at,
+          materialized_epoch = excluded.materialized_epoch`).run(state.key, JSON.stringify(state.valueJson), state.scope, state.agentId, state.stateKind, state.confidence, state.sourceRef, state.updatedAt, state.expiresAt ?? null, state.materializedEpoch ?? 0);
+	}
+	get(params) {
+		if (params.scopes.length === 0) return [];
+		const placeholders = params.scopes.map(() => "?").join(", ");
+		const values = [params.agentId, ...params.scopes];
+		let sql = `
+      SELECT key, value_json, scope, agent_id, state_kind, confidence, source_ref, updated_at, expires_at
+             , materialized_epoch
+      FROM state_kv
+      WHERE agent_id = ?
+        AND scope IN (${placeholders})
+    `;
+		if (params.key) {
+			sql += " AND key = ?";
+			values.push(params.key);
+		}
+		if (!params.includeExpired) {
+			sql += " AND (expires_at IS NULL OR expires_at > ?)";
+			values.push(params.now ?? (/* @__PURE__ */ new Date()).toISOString());
+		}
+		if (typeof params.readEpoch === "number") {
+			sql += " AND materialized_epoch <= ?";
+			values.push(params.readEpoch);
+		}
+		sql += " ORDER BY updated_at DESC";
+		return this.db.prepare(sql).all(...values).map((row) => ({
+			key: row.key,
+			valueJson: safeJsonParse(row.value_json, {}),
+			scope: row.scope,
+			agentId: row.agent_id,
+			stateKind: row.state_kind,
+			confidence: row.confidence,
+			sourceRef: row.source_ref,
+			updatedAt: row.updated_at,
+			expiresAt: row.expires_at ?? void 0,
+			materializedEpoch: row.materialized_epoch
+		}));
+	}
+	delete(params) {
+		const clauses = ["agent_id = ?"];
+		const values = [params.agentId];
+		if (params.scope) {
+			clauses.push("scope = ?");
+			values.push(params.scope);
+		}
+		if (params.key) {
+			clauses.push("key = ?");
+			values.push(params.key);
+		}
+		const result = this.db.prepare(`DELETE FROM state_kv WHERE ${clauses.join(" AND ")}`).run(...values);
+		return Number(result.changes ?? 0);
+	}
+	expireSessionStates(agentId, now) {
+		const result = this.db.prepare("DELETE FROM state_kv WHERE agent_id = ? AND expires_at IS NOT NULL AND expires_at <= ?").run(agentId, now);
+		return Number(result.changes ?? 0);
+	}
+	createExpiry(updatedAt, ttlHours) {
+		return addHours(updatedAt, ttlHours);
+	}
+};
+//#endregion
+export { StateRepo };

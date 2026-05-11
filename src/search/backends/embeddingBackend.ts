@@ -1,5 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { VectorRepo } from "../../db/repositories/vectorRepo.js";
 import { cosineSimilarity, orderByScore } from "../../support.js";
 import type {
@@ -40,7 +40,7 @@ const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 120_000;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 300_000;
 const LOCAL_WORKER_PATH = fileURLToPath(
-  new URL("./sentence_transformers_embedder.py", import.meta.url),
+  new URL("../../../sentence_transformers_embedder.py", import.meta.url),
 );
 
 async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
@@ -49,10 +49,6 @@ async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
     throw new Error(`HTTP ${response.status} ${response.statusText}`);
   }
   return response.json();
-}
-
-function resolveLocalWorkerPath(): string {
-  return process.env.MEMX_SENTENCE_TRANSFORMERS_HELPER?.trim() || LOCAL_WORKER_PATH;
 }
 
 function resolveLocalModel(config: EmbeddingConfig): string {
@@ -67,31 +63,10 @@ function resolveLocalDevice(config: EmbeddingConfig): string {
   return config.localDevice?.trim() || DEFAULT_LOCAL_DEVICE;
 }
 
-function resolveTimeoutOverride(envName: string, fallback: number): number {
-  const raw = process.env[envName]?.trim();
-  if (!raw) {
-    return fallback;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
 class LocalSentenceTransformerWorker {
-  private proc: ChildProcessWithoutNullStreams | null = null;
-  private buffer = "";
   private nextId = 1;
-  private lastError = "";
   private hasCompletedRequest = false;
-  private hasColdStartTimedOut = false;
   private closed = false;
-  private readonly pending = new Map<
-    number,
-    {
-      resolve: (vectors: number[][]) => void;
-      reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
 
   constructor(
     private readonly config: EmbeddingConfig,
@@ -105,53 +80,17 @@ class LocalSentenceTransformerWorker {
     if (this.closed) {
       throw new Error("local sentence-transformers worker is closed");
     }
-    const proc = this.ensureProcess();
     const id = this.nextId++;
     const payload = JSON.stringify({
       id,
       mode,
       texts,
     });
-    return await new Promise<number[][]>((resolve, reject) => {
-      const isColdStartRequest = !this.hasCompletedRequest && !this.hasColdStartTimedOut;
-      const timeoutMs = !isColdStartRequest
-        ? resolveTimeoutOverride(
-            "MEMX_LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS",
-            LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS,
-          )
-        : resolveTimeoutOverride(
-            "MEMX_LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS",
-            LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS,
-          );
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        if (isColdStartRequest) {
-          this.hasColdStartTimedOut = true;
-        }
-        reject(
-          new LocalEmbeddingTimeoutError(
-            `local sentence-transformers request timed out (${mode}, ${timeoutMs}ms)`,
-          ),
-        );
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      const ok = proc.stdin.write(`${payload}\n`);
-      if (!ok) {
-        proc.stdin.once("drain", () => undefined);
-      }
-    });
-  }
-
-  private ensureProcess(): ChildProcessWithoutNullStreams {
-    if (this.closed) {
-      throw new Error("local sentence-transformers worker is closed");
-    }
-    if (this.proc && !this.proc.killed) {
-      return this.proc;
-    }
-
+    const timeoutMs = this.hasCompletedRequest
+      ? LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS
+      : LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS;
     const args = [
-      resolveLocalWorkerPath(),
+      LOCAL_WORKER_PATH,
       "--model",
       resolveLocalModel(this.config),
       "--device",
@@ -161,122 +100,49 @@ class LocalSentenceTransformerWorker {
       args.push("--cache-dir", this.config.localCacheDir.trim());
     }
 
-    const proc = spawn(resolveLocalPythonBin(this.config), args, {
-      stdio: ["pipe", "pipe", "pipe"],
+    const result = await runCommandWithTimeout([resolveLocalPythonBin(this.config), ...args], {
+      timeoutMs,
+      noOutputTimeoutMs: timeoutMs,
+      input: `${payload}\n`,
     });
-    proc.stdout.setEncoding("utf8");
-    proc.stderr.setEncoding("utf8");
-    proc.stdout.on("data", (chunk: string | Buffer) => {
-      this.consumeStdout(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
-    });
-    proc.stderr.on("data", (chunk: string | Buffer) => {
-      this.lastError =
-        `${this.lastError}${typeof chunk === "string" ? chunk : chunk.toString("utf8")}`.slice(
-          -4000,
-        );
-    });
-    proc.on("error", (error) => {
-      this.failAll(
-        new LocalEmbeddingHardFailureError(
-          `local sentence-transformers worker failed to start: ${String(error)}`,
-        ),
+
+    if (result.termination === "timeout" || result.termination === "no-output-timeout") {
+      throw new LocalEmbeddingTimeoutError(
+        `local sentence-transformers request timed out (${mode}, ${timeoutMs}ms)`,
       );
-      this.proc = null;
-    });
-    proc.on("close", (code) => {
-      const suffix = this.lastError.trim() ? `; stderr: ${this.lastError.trim()}` : "";
-      this.failAll(
-        new LocalEmbeddingHardFailureError(
-          `local sentence-transformers worker exited with code ${code ?? -1}${suffix}`,
-        ),
+    }
+    if (result.code !== 0) {
+      const suffix = result.stderr.trim() ? `; stderr: ${result.stderr.trim()}` : "";
+      throw new LocalEmbeddingHardFailureError(
+        `local sentence-transformers worker exited with code ${result.code ?? -1}${suffix}`,
       );
-      this.proc = null;
-    });
-    this.proc = proc;
-    return proc;
+    }
+
+    const line = result.stdout
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .at(-1);
+    if (!line) {
+      throw new LocalEmbeddingHardFailureError("local sentence-transformers worker returned no output");
+    }
+    try {
+      const response = JSON.parse(line) as LocalWorkerResponse;
+      if (response.error) {
+        throw new LocalEmbeddingHardFailureError(response.error);
+      }
+      this.hasCompletedRequest = true;
+      return response.embeddings ?? [];
+    } catch (error) {
+      this.logger.warn(
+        `memory-memx: failed to parse local embedding worker output (${String(error)})`,
+      );
+      throw error;
+    }
   }
 
   async close(): Promise<void> {
     this.closed = true;
-    const proc = this.proc;
-    this.proc = null;
-    this.buffer = "";
-    this.failAll(new Error("local sentence-transformers worker closed"));
-    if (!proc || proc.killed) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(killTimer);
-        proc.off("close", finish);
-        proc.off("error", finish);
-        resolve();
-      };
-      const killTimer = setTimeout(() => {
-        if (!proc.killed) {
-          proc.kill("SIGKILL");
-        }
-        finish();
-      }, 5_000);
-      proc.once("close", finish);
-      proc.once("error", finish);
-      try {
-        proc.stdin.end();
-      } catch {
-        // The worker may already be exiting.
-      }
-      proc.kill("SIGTERM");
-    });
-  }
-
-  private consumeStdout(chunk: string): void {
-    this.buffer += chunk;
-    while (true) {
-      const newline = this.buffer.indexOf("\n");
-      if (newline === -1) {
-        break;
-      }
-      const line = this.buffer.slice(0, newline).trim();
-      this.buffer = this.buffer.slice(newline + 1);
-      if (!line) {
-        continue;
-      }
-      try {
-        const response = JSON.parse(line) as LocalWorkerResponse;
-        const pending = this.pending.get(response.id);
-        if (!pending) {
-          if (!response.error && response.embeddings) {
-            this.hasCompletedRequest = true;
-          }
-          continue;
-        }
-        clearTimeout(pending.timer);
-        this.pending.delete(response.id);
-        if (response.error) {
-          pending.reject(new LocalEmbeddingHardFailureError(response.error));
-          continue;
-        }
-        this.hasCompletedRequest = true;
-        pending.resolve(response.embeddings ?? []);
-      } catch (error) {
-        this.logger.warn(
-          `memory-memx: failed to parse local embedding worker output (${String(error)})`,
-        );
-      }
-    }
-  }
-
-  private failAll(error: Error): void {
-    for (const [id, pending] of this.pending.entries()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-      this.pending.delete(id);
-    }
   }
 }
 

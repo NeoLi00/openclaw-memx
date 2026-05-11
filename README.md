@@ -86,35 +86,25 @@ available to prompt injection in the tested scenarios.
 
 ## Quick install
 
-Requirements: OpenClaw with Node.js 22+, `git`, and Python 3 if you use local embeddings.
+Requirements: OpenClaw 2026.5.7+ with Node.js 22.14+ or Node 24. Python 3 is required only
+when you use local embeddings.
 
-Install the plugin:
+Install from GitHub, write the recommended MemX config, restart the Gateway, then verify:
+
+```bash
+openclaw plugins install https://github.com/NeoLi00/openclaw-memx.git
+openclaw memx setup --local-embedding
+openclaw gateway restart
+openclaw memx doctor
+```
+
+For local development, clone the repository and link it instead of copying it into OpenClaw's
+managed plugin directory:
 
 ```bash
 git clone https://github.com/NeoLi00/openclaw-memx.git
 cd openclaw-memx
-
-openclaw plugins install .
-openclaw plugins enable memory-memx
-```
-
-Enable memory:
-
-```bash
-openclaw config set plugins.entries.memory-memx.config.enabled true
-openclaw config set plugins.entries.memory-memx.config.autoCapture true
-openclaw config set plugins.entries.memory-memx.config.autoRecall true
-openclaw config set plugins.entries.memory-memx.config.reflectionEnabled true
-```
-
-Restart and verify:
-
-```bash
-openclaw gateway run --bind loopback --force
-
-openclaw plugins list
-openclaw plugins info memory-memx
-openclaw plugins doctor
+openclaw plugins install --link .
 ```
 
 ## Model and embedding setup
@@ -126,14 +116,19 @@ provider configured, you can simply point MemX at that provider/model:
 openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel provider/model
 ```
 
-For embeddings, MemX defaults to local `sentence-transformers-local`. To use the recommended local
-embedding setup:
+For embeddings, `openclaw memx setup --local-embedding` selects the recommended local
+`sentence-transformers-local` provider and model. Install the Python dependencies for the Python
+runtime that OpenClaw will use:
 
 ```bash
 python3 -m pip install --user sentence-transformers torch
-openclaw config set plugins.entries.memory-memx.config.embedding.provider sentence-transformers-local
-openclaw config set plugins.entries.memory-memx.config.embedding.model intfloat/multilingual-e5-small
-openclaw config set plugins.entries.memory-memx.config.embedding.localDevice auto
+```
+
+If you use a virtual environment, pass its Python binary during setup:
+
+```bash
+openclaw memx setup --local-embedding --embedding-python /path/to/.venv/bin/python
+openclaw gateway restart
 ```
 
 ### Recommended cost-quality setup
