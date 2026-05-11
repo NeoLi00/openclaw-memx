@@ -13,6 +13,7 @@ import { sanitizeFocusedRecallQuery, summarizeBackgroundRecallBundle } from "./p
 import { buildBackgroundRecallBundle, hasBackgroundRecallMaterial, retrieveEvidence } from "./pipeline/retrieve.mjs";
 import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.mjs";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.mjs";
+import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.mjs";
 import { createMemxTools } from "./plugin-tools.mjs";
 //#region src/index.ts
 function shouldSuggestExplicitRecallTool(config) {
@@ -288,15 +289,6 @@ function extractPromptQuery(event) {
 	}).sort((left, right) => right.score - left.score)[0];
 	return best && best.score >= .18 ? best.candidate : promptCandidate;
 }
-function initializeCursor(messages) {
-	const roles = messages.filter((message) => Boolean(message) && typeof message === "object").map((message) => message.role).filter((role) => typeof role === "string");
-	if (roles.length > 0 && roles.every((role) => role === "user")) return 0;
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message && typeof message === "object" && message.role === "user") return index;
-	}
-	return messages.length;
-}
 function createMemoryMemxPlugin() {
 	return {
 		id: "memory-memx",
@@ -462,16 +454,14 @@ function createMemoryMemxPlugin() {
 					const store = await manager.getStore(opCtx);
 					const tAStore = performance.now();
 					const sessionKey = ctx.sessionKey ?? "default";
-					const looksTurnScopedPayload = allMessages.length <= 8;
-					let cursor = manager.getSessionCursor(ctx.agentId, sessionKey);
-					if (cursor === void 0 && !looksTurnScopedPayload) {
-						cursor = initializeCursor(allMessages);
-						manager.setSessionCursor(ctx.agentId, sessionKey, cursor);
-					}
-					if (cursor !== void 0 && cursor > allMessages.length) cursor = 0;
-					if (!looksTurnScopedPayload && cursor !== void 0 && cursor >= allMessages.length) return;
-					const newMessages = looksTurnScopedPayload ? allMessages : allMessages.slice(cursor ?? 0);
-					manager.setSessionCursor(ctx.agentId, sessionKey, allMessages.length);
+					const newMessages = selectAgentEndMessagesForCapture({
+						messages: allMessages,
+						ctx,
+						cursors: manager,
+						agentId: ctx.agentId,
+						sessionKey
+					});
+					if (newMessages.length === 0) return;
 					let captured = [];
 					if (config.advanced.enableTurnScheduler) {
 						const recall = manager.consumeRecall(ctx.agentId, ctx.sessionKey);

@@ -17,6 +17,7 @@ import { semanticTextSimilarity } from "./pipeline/semantic/textSimilarity.js";
 import { emitBackgroundRetrievalSignals } from "./pipeline/signalLedger.js";
 import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.js";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.js";
+import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.js";
 import { createMemxTools } from "./plugin-tools.js";
 import { buildOperationContext, type MemxStoreBundle, MemxRuntimeManager } from "./runtime.js";
 import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security/escaping.js";
@@ -545,30 +546,6 @@ function extractPromptQuery(event: { prompt?: string; messages?: unknown[] }): s
   return best && best.score >= 0.18 ? best.candidate : promptCandidate;
 }
 
-function initializeCursor(messages: unknown[]): number {
-  const roles = messages
-    .filter(
-      (message): message is Record<string, unknown> =>
-        Boolean(message) && typeof message === "object",
-    )
-    .map((message) => message.role)
-    .filter((role): role is string => typeof role === "string");
-  if (roles.length > 0 && roles.every((role) => role === "user")) {
-    return 0;
-  }
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (
-      message &&
-      typeof message === "object" &&
-      (message as Record<string, unknown>).role === "user"
-    ) {
-      return index;
-    }
-  }
-  return messages.length;
-}
-
 export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
   return {
     id: "memory-memx",
@@ -825,21 +802,16 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           const store = await manager.getStore(opCtx);
           const tAStore = performance.now();
           const sessionKey = ctx.sessionKey ?? "default";
-          const looksTurnScopedPayload = allMessages.length <= 8;
-          let cursor = manager.getSessionCursor(ctx.agentId, sessionKey);
-          if (cursor === undefined && !looksTurnScopedPayload) {
-            cursor = initializeCursor(allMessages);
-            manager.setSessionCursor(ctx.agentId, sessionKey, cursor);
-          }
-          if (cursor !== undefined && cursor > allMessages.length) {
-            cursor = 0;
-          }
-          if (!looksTurnScopedPayload && cursor !== undefined && cursor >= allMessages.length) {
+          const newMessages = selectAgentEndMessagesForCapture({
+            messages: allMessages,
+            ctx,
+            cursors: manager,
+            agentId: ctx.agentId,
+            sessionKey,
+          });
+          if (newMessages.length === 0) {
             return;
           }
-
-          const newMessages = looksTurnScopedPayload ? allMessages : allMessages.slice(cursor ?? 0);
-          manager.setSessionCursor(ctx.agentId, sessionKey, allMessages.length);
           let captured = [] as ReturnType<typeof captureAgentEndTurn>;
 
           if (config.advanced.enableTurnScheduler) {
