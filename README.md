@@ -86,10 +86,13 @@ available to prompt injection in the tested scenarios.
 
 ## Quick install
 
-Requirements: OpenClaw 2026.5.7+ with Node.js 22.14+ or Node 24. Python 3 is required only
+Requirements: OpenClaw 2026.4.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
 when you use local embeddings.
 
-Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify:
+Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify.
+This assumes OpenClaw already has a working model provider configured. If this is a fresh
+OpenClaw install, configure a provider first, or use the DeepSeek example below before relying on
+LLM-powered memory compilation.
 
 ```bash
 git clone https://github.com/NeoLi00/openclaw-memx.git
@@ -109,8 +112,73 @@ openclaw plugins install --link .
 
 ## Model and embedding setup
 
-MemX can reuse your existing OpenClaw provider. If OpenClaw already has a non-subscription API
-provider configured, you can simply point MemX at that provider/model:
+### Fresh OpenClaw with an LLM provider
+
+On a fresh OpenClaw install with no existing provider, configure an LLM provider first, point MemX
+at that provider/model, then restart and run the deep doctor probe. The commands below use DeepSeek
+only as an example; any compatible OpenClaw model provider can be used by replacing
+`deepseek/deepseek-v4-flash` with your own `provider/model`.
+
+```bash
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
+openclaw plugins install .
+
+python3 -m venv "$HOME/.openclaw/memx/.venv"
+"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
+
+openclaw config set models.providers.deepseek '{
+  "api": "openai-completions",
+  "baseUrl": "https://api.deepseek.com",
+  "apiKey": "sk-your-deepseek-key",
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "api": "openai-completions",
+      "reasoning": false,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 64000,
+      "maxTokens": 8192
+    }
+  ]
+}' --strict-json
+
+openclaw memx setup \
+  --local-embedding \
+  --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
+  --llm-model deepseek/deepseek-v4-flash
+openclaw gateway restart
+openclaw memx doctor --deep
+```
+
+If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, store an env
+template instead, and make sure the Gateway process has that environment variable:
+
+```bash
+export DEEPSEEK_API_KEY="sk-your-deepseek-key"
+openclaw config set models.providers.deepseek '{
+  "api": "openai-completions",
+  "baseUrl": "https://api.deepseek.com",
+  "apiKey": "${DEEPSEEK_API_KEY}",
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "api": "openai-completions",
+      "reasoning": false,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 64000,
+      "maxTokens": 8192
+    }
+  ]
+}' --strict-json
+```
+
+MemX can reuse your existing OpenClaw provider. If OpenClaw already has a compatible provider
+configured, you can simply point MemX at that provider/model:
 
 ```bash
 openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel provider/model
@@ -131,6 +199,54 @@ openclaw memx setup --local-embedding --embedding-python /path/to/.venv/bin/pyth
 openclaw gateway restart
 ```
 
+### Choose an embedding provider
+
+`openclaw memx setup --local-embedding` is only the recommended default. You can choose a different
+embedding provider with the same setup command and, where needed, `openclaw config set`.
+
+Local sentence-transformers with a custom model:
+
+```bash
+python3 -m pip install --user sentence-transformers torch
+openclaw memx setup \
+  --embedding-provider sentence-transformers-local \
+  --embedding-model BAAI/bge-m3 \
+  --embedding-device auto
+```
+
+OpenAI-compatible embeddings:
+
+```bash
+openclaw memx setup \
+  --embedding-provider openai-compatible \
+  --embedding-model text-embedding-3-small
+openclaw config set plugins.entries.memory-memx.config.embedding.baseURL https://api.openai.com/v1
+openclaw config set plugins.entries.memory-memx.config.embedding.apiKey "sk-your-embedding-key"
+```
+
+Ollama embeddings:
+
+```bash
+openclaw memx setup \
+  --embedding-provider ollama \
+  --embedding-model nomic-embed-text
+openclaw config set plugins.entries.memory-memx.config.embedding.ollamaBaseURL http://127.0.0.1:11434
+```
+
+Disable vector embeddings and use lexical fallback only:
+
+```bash
+openclaw memx setup --embedding-provider off
+```
+
+After changing embedding settings, restart the Gateway. If you already have stored memories, reindex
+them so the vector store matches the new embedding provider:
+
+```bash
+openclaw gateway restart
+openclaw memx reindex
+```
+
 ### Recommended cost-quality setup
 
 The following combination is recommended for a practical balance of cost, quality, multilingual
@@ -138,18 +254,5 @@ retrieval, and local-first operation:
 
 | Layer | Recommended choice | Why |
 | --- | --- | --- |
-| LLM compiler | DeepSeek V4 Flash | Low-cost semantic planning with enough quality for memory compilation |
+| LLM compiler | Any compatible OpenClaw LLM provider; DeepSeek V4 Flash is one low-cost example | Semantic planning with enough quality for memory compilation |
 | Embedding | `intfloat/multilingual-e5-small` | Fast local multilingual retrieval with no embedding API bill |
-
-DeepSeek example:
-
-```bash
-export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-
-openclaw config set models.providers.deepseek.api openai-completions
-openclaw config set models.providers.deepseek.baseUrl https://api.deepseek.com
-openclaw config set models.providers.deepseek.apiKey '${DEEPSEEK_API_KEY}'
-
-openclaw config set agents.defaults.model.primary deepseek/deepseek-v4-flash
-openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel deepseek/deepseek-v4-flash
-```
