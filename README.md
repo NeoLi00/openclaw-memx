@@ -89,21 +89,21 @@ available to prompt injection in the tested scenarios.
 Requirements: OpenClaw 2026.5.7+ with Node.js 22.14+ or Node 24. Python 3 is required only
 when you use local embeddings.
 
-Install from GitHub, write the recommended MemX config, restart the Gateway, then verify:
+Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify:
 
 ```bash
-openclaw plugins install https://github.com/NeoLi00/openclaw-memx.git
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
+openclaw plugins install .
 openclaw memx setup --local-embedding
 openclaw gateway restart
 openclaw memx doctor
 ```
 
-For local development, clone the repository and link it instead of copying it into OpenClaw's
-managed plugin directory:
+For local development with live edits, link the cloned repository instead of copying it into
+OpenClaw's managed plugin directory:
 
 ```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
 openclaw plugins install --link .
 ```
 
