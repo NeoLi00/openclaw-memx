@@ -1,9 +1,11 @@
 import { cosineSimilarity, orderByScore } from "../../support.mjs";
 import { SqliteFtsBackend } from "./ftsBackend.mjs";
 import { mergeHybridHits } from "./hybrid.mjs";
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 //#region src/search/backends/embeddingBackend.ts
 var LocalEmbeddingTimeoutError = class extends Error {
 	constructor(message) {
@@ -40,13 +42,10 @@ function resolveLocalDevice(config) {
 var LocalSentenceTransformerWorker = class {
 	config;
 	logger;
-	nextId = 1;
 	hasCompletedRequest = false;
 	closed = false;
-	child = null;
-	stdoutLines = null;
-	stderrBuffer = "";
-	pending = /* @__PURE__ */ new Map();
+	server = null;
+	starting = null;
 	constructor(config, logger) {
 		this.config = config;
 		this.logger = logger;
@@ -54,130 +53,113 @@ var LocalSentenceTransformerWorker = class {
 	async embed(texts, mode) {
 		if (texts.length === 0) return [];
 		if (this.closed) throw new Error("local sentence-transformers worker is closed");
-		const id = this.nextId++;
-		const payload = JSON.stringify({
-			id,
-			mode,
-			texts
-		});
 		const timeoutMs = this.hasCompletedRequest ? LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS : LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS;
-		const child = this.ensureWorker();
-		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => {
-				this.pending.delete(id);
-				const error = new LocalEmbeddingTimeoutError(`local sentence-transformers request timed out (${mode}, ${timeoutMs}ms)`);
-				this.stopWorker();
-				reject(error);
-			}, timeoutMs);
-			this.pending.set(id, {
-				resolve,
-				reject,
-				timer
-			});
-			child.stdin.write(`${payload}\n`, (error) => {
-				if (!error) return;
-				const pending = this.pending.get(id);
-				if (!pending) return;
-				this.pending.delete(id);
-				clearTimeout(pending.timer);
-				reject(new LocalEmbeddingHardFailureError(String(error)));
-			});
-		});
+		const server = await this.ensureServer(timeoutMs);
+		const embeddings = await this.requestEmbedding(server, texts, mode, timeoutMs);
+		this.hasCompletedRequest = true;
+		return embeddings;
 	}
 	async close() {
 		this.closed = true;
-		this.failPending(new LocalEmbeddingHardFailureError("local sentence-transformers worker closed"));
-		await this.stopWorker();
+		await this.stopServer();
 	}
-	ensureWorker() {
+	async ensureServer(timeoutMs) {
 		if (this.closed) throw new Error("local sentence-transformers worker is closed");
-		if (this.child && !this.child.killed) return this.child;
+		if (this.server) return this.server;
+		this.starting ??= this.launchServer(timeoutMs).finally(() => {
+			this.starting = null;
+		});
+		this.server = await this.starting;
+		return this.server;
+	}
+	async launchServer(timeoutMs) {
+		const token = randomUUID();
+		const stateFile = join(tmpdir(), `memory-memx-embedder-${token}.json`);
 		const args = [
 			LOCAL_WORKER_PATH,
+			"--launch-server",
 			"--model",
 			resolveLocalModel(this.config),
 			"--device",
-			resolveLocalDevice(this.config)
+			resolveLocalDevice(this.config),
+			"--token",
+			token,
+			"--state-file",
+			stateFile
 		];
 		if (this.config.localCacheDir?.trim()) args.push("--cache-dir", this.config.localCacheDir.trim());
-		const child = spawn(resolveLocalPythonBin(this.config), args, { stdio: [
-			"pipe",
-			"pipe",
-			"pipe"
-		] });
-		this.child = child;
-		this.stderrBuffer = "";
-		const stdoutLines = createInterface({ input: child.stdout });
-		this.stdoutLines = stdoutLines;
-		stdoutLines.on("line", (line) => this.handleWorkerLine(line));
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => {
-			this.stderrBuffer = `${this.stderrBuffer}${chunk}`.slice(-4e3);
+		const result = await runCommandWithTimeout([resolveLocalPythonBin(this.config), ...args], {
+			timeoutMs,
+			noOutputTimeoutMs: timeoutMs
 		});
-		child.on("error", (error) => {
-			this.failPending(new LocalEmbeddingHardFailureError(String(error)));
-			this.child = null;
-		});
-		child.on("exit", (code, signal) => {
-			if (this.child === child) {
-				this.child = null;
-				this.stdoutLines?.close();
-				this.stdoutLines = null;
-			} else stdoutLines.close();
-			if (this.closed || this.pending.size === 0) return;
-			const suffix = this.stderrBuffer.trim() ? `; stderr: ${this.stderrBuffer.trim()}` : "";
-			this.failPending(new LocalEmbeddingHardFailureError(`local sentence-transformers worker exited with code ${code ?? -1}${signal ? ` signal ${signal}` : ""}${suffix}`));
-		});
-		return child;
-	}
-	handleWorkerLine(rawLine) {
-		const line = rawLine.trim();
-		if (!line) return;
+		if (result.termination === "timeout" || result.termination === "no-output-timeout") throw new LocalEmbeddingTimeoutError(`local sentence-transformers server startup timed out (${timeoutMs}ms)`);
+		if (result.code !== 0) {
+			const suffix = result.stderr.trim() ? `; stderr: ${result.stderr.trim()}` : "";
+			throw new LocalEmbeddingHardFailureError(`local sentence-transformers server launcher exited with code ${result.code ?? -1}${suffix}`);
+		}
+		const line = result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).at(-1);
+		if (!line) throw new LocalEmbeddingHardFailureError("local sentence-transformers server launcher returned no output");
 		let response;
 		try {
 			response = JSON.parse(line);
 		} catch (error) {
-			this.logger.warn(`memory-memx: failed to parse local embedding worker output (${String(error)})`);
-			this.failPending(new LocalEmbeddingHardFailureError(String(error)));
-			this.stopWorker();
-			return;
+			throw new LocalEmbeddingHardFailureError(`local sentence-transformers server launcher returned invalid JSON (${String(error)})`);
 		}
-		const pending = this.pending.get(response.id);
-		if (!pending) return;
-		this.pending.delete(response.id);
-		clearTimeout(pending.timer);
-		if (response.error) {
-			pending.reject(new LocalEmbeddingHardFailureError(response.error));
-			return;
-		}
-		this.hasCompletedRequest = true;
-		pending.resolve(response.embeddings ?? []);
+		if (response.error) throw new LocalEmbeddingHardFailureError(response.error);
+		if (!response.url || response.token !== token) throw new LocalEmbeddingHardFailureError("local sentence-transformers server launcher returned invalid metadata");
+		return {
+			url: response.url.replace(/\/$/, ""),
+			token: response.token,
+			pid: response.pid
+		};
 	}
-	failPending(error) {
-		for (const [id, pending] of this.pending.entries()) {
-			this.pending.delete(id);
-			clearTimeout(pending.timer);
-			pending.reject(error);
-		}
-	}
-	async stopWorker() {
-		const child = this.child;
-		this.child = null;
-		this.stdoutLines?.close();
-		this.stdoutLines = null;
-		if (!child || child.killed) return;
-		child.stdin.destroy();
-		await new Promise((resolve) => {
-			const timer = setTimeout(() => {
-				child.kill("SIGKILL");
-				resolve();
-			}, 500);
-			child.once("exit", () => {
-				clearTimeout(timer);
-				resolve();
+	async requestEmbedding(server, texts, mode, timeoutMs) {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			const response = await fetch(`${server.url}/embed`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+					"x-memx-token": server.token
+				},
+				body: JSON.stringify({
+					mode,
+					texts
+				}),
+				signal: controller.signal
 			});
-			child.kill("SIGTERM");
-		});
+			if (!response.ok) throw new LocalEmbeddingHardFailureError(`local sentence-transformers server returned HTTP ${response.status}`);
+			const json = await response.json();
+			if (json.error) throw new LocalEmbeddingHardFailureError(json.error);
+			return json.embeddings ?? [];
+		} catch (error) {
+			if (error instanceof LocalEmbeddingHardFailureError) throw error;
+			if (error instanceof Error && error.name === "AbortError") {
+				this.server = null;
+				throw new LocalEmbeddingTimeoutError(`local sentence-transformers request timed out (${mode}, ${timeoutMs}ms)`);
+			}
+			this.server = null;
+			throw new LocalEmbeddingHardFailureError(String(error));
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+	async stopServer() {
+		const server = this.server;
+		this.server = null;
+		if (!server) return;
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), 2e3);
+		try {
+			await fetch(`${server.url}/shutdown`, {
+				method: "POST",
+				headers: { "x-memx-token": server.token },
+				signal: controller.signal
+			});
+		} catch {} finally {
+			clearTimeout(timer);
+		}
 	}
 };
 async function embedTextsRemote(config, texts) {
