@@ -84,49 +84,22 @@ In the current internal long-running engineering-memory replay suite, MemX reach
 the expected memory evidence**. That means the expected evidence was written, retrievable, and
 available to prompt injection in the tested scenarios.
 
-## Quick install
+## Install
 
-Requirements: OpenClaw 2026.4.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
-when you use local embeddings.
+Requirements: OpenClaw 2026.4.25+ with Node.js 22.14+ or Node 24. Python 3 is required only for
+local sentence-transformers embeddings.
 
-Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify.
-This assumes OpenClaw already has a working model provider configured. If this is a fresh
-OpenClaw install, configure a provider first, or use the DeepSeek example below before relying on
-LLM-powered memory compilation.
+Follow these steps in order. Run the clone and plugin install only once.
 
-```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
-openclaw plugins install .
-openclaw memx setup --local-embedding
-openclaw gateway restart
-openclaw memx doctor
-```
+### 1. Make sure OpenClaw has an LLM provider
 
-For local development with live edits, link the cloned repository instead of copying it into
-OpenClaw's managed plugin directory:
+MemX can reuse any compatible OpenClaw model provider. If OpenClaw already has one, keep its model
+name handy as `provider/model` and skip to step 2.
+
+For a fresh OpenClaw install, configure a provider first. The example below uses DeepSeek V4 Flash
+only as an example; you can use any compatible provider/model.
 
 ```bash
-openclaw plugins install --link .
-```
-
-## Model and embedding setup
-
-### Fresh OpenClaw with an LLM provider
-
-On a fresh OpenClaw install with no existing provider, configure an LLM provider first, point MemX
-at that provider/model, then restart and run the deep doctor probe. The commands below use DeepSeek
-only as an example; any compatible OpenClaw model provider can be used by replacing
-`deepseek/deepseek-v4-flash` with your own `provider/model`.
-
-```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
-openclaw plugins install .
-
-python3 -m venv "$HOME/.openclaw/memx/.venv"
-"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
-
 openclaw config set models.providers.deepseek '{
   "api": "openai-completions",
   "baseUrl": "https://api.deepseek.com",
@@ -144,110 +117,120 @@ openclaw config set models.providers.deepseek '{
     }
   ]
 }' --strict-json
+```
 
+After this example, the model name for MemX is `deepseek/deepseek-v4-flash`.
+
+If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, use an environment
+variable template in the same provider config:
+
+```bash
+export DEEPSEEK_API_KEY="sk-your-deepseek-key"
+```
+
+Then set `"apiKey": "${DEEPSEEK_API_KEY}"` in the provider JSON and make sure the Gateway process
+has that environment variable.
+
+### 2. Clone and install MemX
+
+```bash
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
+openclaw plugins install .
+```
+
+For local development with live edits, use the link form instead of the last command:
+
+```bash
+openclaw plugins install --link .
+```
+
+### 3. Set up local embeddings
+
+```bash
+python3 -m venv "$HOME/.openclaw/memx/.venv"
+"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
+```
+
+This installs the Python dependencies used by the recommended local embedding provider.
+
+### 4. Write the MemX config
+
+Replace `provider/model` with your OpenClaw model, for example `deepseek/deepseek-v4-flash`.
+
+```bash
 openclaw memx setup \
   --local-embedding \
   --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
-  --llm-model deepseek/deepseek-v4-flash
+  --llm-model provider/model
+```
+
+You may omit `--llm-model provider/model` only if you want MemX to use OpenClaw's current default
+model.
+
+### 5. Restart and verify
+
+```bash
 openclaw gateway restart
 openclaw memx doctor --deep
 ```
 
-If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, store an env
-template instead, and make sure the Gateway process has that environment variable:
+## Embedding options
+
+The install flow above uses the recommended local embedding setup. To use a different embedding
+provider, replace step 3 and step 4 with one of the options below, then run step 5.
+
+### Local sentence-transformers with a custom model
 
 ```bash
-export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-openclaw config set models.providers.deepseek '{
-  "api": "openai-completions",
-  "baseUrl": "https://api.deepseek.com",
-  "apiKey": "${DEEPSEEK_API_KEY}",
-  "models": [
-    {
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
-      "api": "openai-completions",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 64000,
-      "maxTokens": 8192
-    }
-  ]
-}' --strict-json
-```
+python3 -m venv "$HOME/.openclaw/memx/.venv"
+"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
 
-MemX can reuse your existing OpenClaw provider. If OpenClaw already has a compatible provider
-configured, you can simply point MemX at that provider/model:
-
-```bash
-openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel provider/model
-```
-
-For embeddings, `openclaw memx setup --local-embedding` selects the recommended local
-`sentence-transformers-local` provider and model. Install the Python dependencies for the Python
-runtime that OpenClaw will use:
-
-```bash
-python3 -m pip install --user sentence-transformers torch
-```
-
-If you use a virtual environment, pass its Python binary during setup:
-
-```bash
-openclaw memx setup --local-embedding --embedding-python /path/to/.venv/bin/python
-openclaw gateway restart
-```
-
-### Choose an embedding provider
-
-`openclaw memx setup --local-embedding` is only the recommended default. You can choose a different
-embedding provider with the same setup command and, where needed, `openclaw config set`.
-
-Local sentence-transformers with a custom model:
-
-```bash
-python3 -m pip install --user sentence-transformers torch
 openclaw memx setup \
   --embedding-provider sentence-transformers-local \
   --embedding-model BAAI/bge-m3 \
-  --embedding-device auto
+  --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
+  --embedding-device auto \
+  --llm-model provider/model
 ```
 
-OpenAI-compatible embeddings:
+### OpenAI-compatible embeddings
 
 ```bash
 openclaw memx setup \
   --embedding-provider openai-compatible \
-  --embedding-model text-embedding-3-small
+  --embedding-model text-embedding-3-small \
+  --llm-model provider/model
 openclaw config set plugins.entries.memory-memx.config.embedding.baseURL https://api.openai.com/v1
 openclaw config set plugins.entries.memory-memx.config.embedding.apiKey "sk-your-embedding-key"
 ```
 
-Ollama embeddings:
+### Ollama embeddings
 
 ```bash
 openclaw memx setup \
   --embedding-provider ollama \
-  --embedding-model nomic-embed-text
+  --embedding-model nomic-embed-text \
+  --llm-model provider/model
 openclaw config set plugins.entries.memory-memx.config.embedding.ollamaBaseURL http://127.0.0.1:11434
 ```
 
-Disable vector embeddings and use lexical fallback only:
+### No vector embeddings
 
 ```bash
-openclaw memx setup --embedding-provider off
+openclaw memx setup --embedding-provider off --llm-model provider/model
 ```
 
-After changing embedding settings, restart the Gateway. If you already have stored memories, reindex
-them so the vector store matches the new embedding provider:
+This disables vector embeddings and uses lexical fallback only.
+
+After changing embedding settings on an existing memory database, restart the Gateway and reindex:
 
 ```bash
 openclaw gateway restart
 openclaw memx reindex
 ```
 
-### Recommended cost-quality setup
+## Recommended cost-quality setup
 
 The following combination is recommended for a practical balance of cost, quality, multilingual
 retrieval, and local-first operation:
