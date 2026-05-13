@@ -268,7 +268,7 @@ const uiHints = {
 	},
 	"advanced.enableTurnSemanticCompiler": {
 		label: "Turn Semantic Compiler",
-		help: "Compile a turn into a single semantic draft before deterministic materialization.",
+		help: "Compile a turn into a single LLM semantic draft before storage materialization.",
 		advanced: true
 	},
 	"advanced.enableQueryCompiler": {
@@ -288,12 +288,12 @@ const uiHints = {
 	},
 	"advanced.enableHotPathChunkSummaryLlm": {
 		label: "Hot Path Chunk Summary LLM",
-		help: "Deprecated no-op. Write hot path chunk summaries stay heuristic; LLM summary upgrades are maintenance-only.",
+		help: "Deprecated no-op. Semantic extraction is LLM-only; hot-path chunk summaries remain local summaries.",
 		advanced: true
 	},
 	"advanced.enableHotPathTaskSummaryLlm": {
 		label: "Hot Path Task Summary LLM",
-		help: "Deprecated no-op. Write hot path task summaries stay heuristic; LLM upgrades happen only in maintenance.",
+		help: "Deprecated no-op. Semantic extraction is LLM-only; task summary upgrades happen in maintenance.",
 		advanced: true
 	},
 	"advanced.candidateSurfaceBudgets": {

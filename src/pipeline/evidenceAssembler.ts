@@ -2524,7 +2524,7 @@ function packetFromGroup(params: {
         Boolean(role) && role !== "unknown",
     ),
     coverage: {
-      filled: adjustedEligibility.eligible,
+      filled: adjustedEligibility.eligible && missing.length === 0,
       missing,
       confidence: adjustedGrade.finalScore,
     },
@@ -2690,6 +2690,36 @@ function packetHasSoftPenaltyPrefix(packet: EvidencePacket, prefix: string): boo
   return (packet.softPenalties ?? []).some((penalty) => penalty.startsWith(prefix));
 }
 
+function packetCoverageSatisfied(packet: EvidencePacket): boolean {
+  return packet.coverage.filled && packet.coverage.missing.length === 0;
+}
+
+function packetEligibleForPromptInjection(
+  queryAnalysis: QueryCompileResult,
+  packet: EvidencePacket,
+  floor: number,
+): boolean {
+  if (packetCoverageSatisfied(packet)) {
+    return true;
+  }
+  if (packetHasSoftPenaltyPrefix(packet, "missing-context:")) {
+    return false;
+  }
+  if (packetHasSoftPenalty(packet, "answer-without-bound-context")) {
+    return false;
+  }
+  if (
+    operationType(queryAnalysis) === "return_value" &&
+    packetHasSoftPenalty(packet, "weak-query-context-binding")
+  ) {
+    return false;
+  }
+  return (
+    (packet.grade?.finalScore ?? 0) >= Math.max(0.62, floor + 0.12) &&
+    (packet.grade?.slotCoverageScore ?? 0) >= 0.45
+  );
+}
+
 function packetHasAnswerDisplayForQuery(
   queryAnalysis: QueryCompileResult,
   packet: EvidencePacket,
@@ -2715,6 +2745,7 @@ function selectInjectedPackets(
   const selectedAnswerDisplays = new Set<string>();
   const ranked = packets
     .filter((packet) => !packet.dropReason && packet.eligibility?.eligible !== false)
+    .filter((packet) => packetEligibleForPromptInjection(queryAnalysis, packet, floor))
     .sort((left, right) => packetSortValue(right) - packetSortValue(left));
   const nonContrastAnswerAvailable = ranked.some(
     (packet) =>
@@ -3170,12 +3201,7 @@ export function assembleEvidencePackets(input: EvidenceAssemblerInput): Evidence
         ? (packet.selectionReason ?? "packet-final-score")
         : packet.protectionReason,
       dropReason: injected ? undefined : packet.dropReason,
-      coverage: injected
-        ? {
-            ...packet.coverage,
-            filled: true,
-          }
-        : packet.coverage,
+      coverage: packet.coverage,
     };
   });
   const markedPromptEvidence = markPromptEvidenceFromPackets({

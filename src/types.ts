@@ -947,6 +947,12 @@ export type QueryEvidenceCoverage = {
   minProtectedItems: number;
   maxProtectedItems: number;
 };
+export type QueryEntityRole = "subject" | "object" | "context" | "resource";
+export type QueryEntityHint = {
+  name: string;
+  type?: EntityType;
+  role?: QueryEntityRole;
+};
 export type CandidateSurface =
   | "state"
   | "fact"
@@ -1056,8 +1062,11 @@ export type QuerySemanticBridgeMatch = {
 
 export type QueryCompileResult = {
   queryText: string;
+  shouldRecall: boolean;
   focusedQuery: string;
+  queryEntities: QueryEntityHint[];
   queryShape: RecallQueryShape;
+  primaryRoute?: MemoryPrimaryRouteType;
   answerGranularity: AnswerGranularity;
   evidenceFidelity: EvidenceFidelity;
   routeWeights: Partial<Record<MemoryPrimaryRouteType, number>>;

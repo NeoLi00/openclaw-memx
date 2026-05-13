@@ -14,7 +14,6 @@ import type {
   ShallowRecallResult,
 } from "../types.js";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.js";
-import { seedEntityNamesFromQuery } from "./semantics.js";
 
 export type RetrievalAuditOptions = {
   recallMode?: "full" | "background-only" | "no-recall";
@@ -100,13 +99,6 @@ export function sanitizeFocusedRecallQuery(rawQuery: string, focusedQuery?: stri
   }
   const normalizedFocused = focused.toLowerCase().replace(/\s+/g, " ");
   if (GENERIC_RECALL_QUERIES.has(normalizedFocused)) {
-    return raw;
-  }
-  const rawEntitySeeds = new Set(seedEntityNamesFromQuery(raw).map((entry) => entry.toLowerCase()));
-  const focusedEntitySeeds = new Set(
-    seedEntityNamesFromQuery(focused).map((entry) => entry.toLowerCase()),
-  );
-  if (rawEntitySeeds.size >= 2 && focusedEntitySeeds.size === 0) {
     return raw;
   }
   if (semanticTextSimilarity(raw, focused) < 0.18 && focused.length < raw.length * 0.7) {

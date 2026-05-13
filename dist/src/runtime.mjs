@@ -61,6 +61,7 @@ function buildOperationContext(config, actor, overrides) {
 var MemxRuntimeManager = class {
 	logger;
 	stores = /* @__PURE__ */ new Map();
+	storeContexts = /* @__PURE__ */ new Map();
 	sessionCursors = /* @__PURE__ */ new Map();
 	lastRecall = /* @__PURE__ */ new Map();
 	maintenanceTimers = /* @__PURE__ */ new Map();
@@ -72,6 +73,10 @@ var MemxRuntimeManager = class {
 	}
 	async getStore(ctx) {
 		const key = storeKey(ctx.agentId, ctx.dbPath);
+		this.storeContexts.set(key, {
+			...ctx,
+			sessionKey: ctx.sessionKey ?? "default"
+		});
 		const existing = this.stores.get(key);
 		if (existing) return existing;
 		const created = this.createStore(ctx);
@@ -97,6 +102,7 @@ var MemxRuntimeManager = class {
 			}
 		}
 		this.stores.clear();
+		this.storeContexts.clear();
 		this.sessionCursors.clear();
 		this.lastRecall.clear();
 		this.maintenanceContexts.clear();
@@ -137,10 +143,11 @@ var MemxRuntimeManager = class {
 		const sessionKey = ctx.sessionKey ?? "default";
 		const store = params.store ?? await this.getStore(ctx);
 		const key = maintenanceKey(ctx.agentId, ctx.dbPath, sessionKey);
-		this.maintenanceContexts.set(key, {
+		const template = {
 			...ctx,
 			sessionKey
-		});
+		};
+		this.maintenanceContexts.set(key, template);
 		const state = store.maintenanceRepo.recordPendingTurn({
 			agentId: ctx.agentId,
 			sessionKey,
@@ -151,10 +158,10 @@ var MemxRuntimeManager = class {
 		const threshold = ctx.config.advanced.maintenanceTriggerMode === "per_turn" ? 1 : Math.max(1, ctx.config.advanced.maintenanceBatchTurns);
 		if (state.pendingTurnCount >= threshold) {
 			this.clearMaintenanceTimer(key);
-			this.startMaintenanceLoop(store, ctx, "threshold");
+			this.startMaintenanceLoop(store, template, "threshold");
 			return;
 		}
-		if (ctx.config.advanced.maintenanceTriggerMode === "batched" && ctx.config.advanced.maintenanceIdleFlushMinutes > 0) this.scheduleIdleFlush(store, ctx);
+		if (ctx.config.advanced.maintenanceTriggerMode === "batched" && ctx.config.advanced.maintenanceIdleFlushMinutes > 0) this.scheduleIdleFlush(store, template);
 	}
 	startMaintenanceLoop(store, template, reason) {
 		const sessionKey = template.sessionKey ?? "default";
@@ -280,17 +287,34 @@ var MemxRuntimeManager = class {
 			const pendingStates = store.maintenanceRepo.listPendingStates();
 			for (const state of pendingStates) {
 				const key = maintenanceKey(state.agentId, store.client.dbPath, state.sessionKey);
-				const template = this.maintenanceContexts.get(key);
+				const template = this.maintenanceContextForPendingState(store, state);
 				if (!template) continue;
+				this.maintenanceContexts.set(key, template);
 				const existing = this.maintenanceLoops.get(key);
 				if (existing) await existing;
 				await this.runMaintenanceLoop(store, template, reason);
 			}
 		}
 	}
+	maintenanceContextForPendingState(store, state) {
+		const sessionKey = state.sessionKey || "default";
+		const exactKey = maintenanceKey(state.agentId, store.client.dbPath, sessionKey);
+		const exact = this.maintenanceContexts.get(exactKey);
+		if (exact) return exact;
+		const base = this.storeContexts.get(storeKey(state.agentId, store.client.dbPath));
+		if (!base) return;
+		return {
+			...base,
+			agentId: state.agentId,
+			sessionKey,
+			dbPath: store.client.dbPath
+		};
+	}
 	async createStore(ctx) {
 		const client = await MemxDbClient.open(ctx.dbPath);
 		const vectorRepo = new VectorRepo(client);
+		const retrievalBackend = new OptionalEmbeddingBackend(vectorRepo, ctx.config.embedding, this.logger);
+		retrievalBackend.prewarmLocalEmbeddings();
 		const bundle = {
 			client,
 			stateRepo: new StateRepo(client),
@@ -306,7 +330,7 @@ var MemxRuntimeManager = class {
 			beliefRepo: new BeliefRepo(client),
 			abstractionRepo: new AbstractionRepo(client),
 			strategyRepo: new StrategyRepo(client),
-			retrievalBackend: new OptionalEmbeddingBackend(vectorRepo, ctx.config.embedding, this.logger),
+			retrievalBackend,
 			reasoner: new MemxReasoner(ctx.config, this.logger),
 			turnScheduler: void 0
 		};

@@ -1,7 +1,6 @@
-import { objectRecord, stableHash, truncateText } from "../support.mjs";
+import { objectRecord, stableHash } from "../support.mjs";
 import { isQuestionLike } from "./semantic/heuristics.mjs";
-import { parseWorkflowState } from "./semantics.mjs";
-import { assessAssistantChunk } from "./sourceWeighting.mjs";
+import "./semantics.mjs";
 import { sanitizeTaskMetadata } from "./authority.mjs";
 //#region src/pipeline/taskSummary.ts
 function metadataString(value) {
@@ -21,7 +20,7 @@ function stringSet(value) {
 	return ordered;
 }
 function normalizeTaskSummarySourceValue(value) {
-	if (value === "compiler" || value === "heuristic_fallback" || value === "maintenance_llm") return value;
+	if (value === "compiler" || value === "llm_unavailable" || value === "heuristic_fallback" || value === "maintenance_llm") return value;
 	if (value === "heuristic") return "heuristic_fallback";
 	if (value === "llm") return "maintenance_llm";
 }
@@ -49,63 +48,6 @@ function taskSummaryMetadataFields(params) {
 		summaryUpdatedAt: params.observedAt,
 		...params.compilerTaskSummary ? { compilerTaskSummary: params.compilerTaskSummary } : {},
 		...typeof params.compilerTaskSummaryConfidence === "number" ? { compilerTaskSummaryConfidence: params.compilerTaskSummaryConfidence } : {}
-	};
-}
-function heuristicTaskMetadata(chunks) {
-	let project;
-	let currentTask;
-	let nextAction;
-	let blocker;
-	for (const chunk of chunks) {
-		if (chunk.role !== "user") continue;
-		const parsed = parseWorkflowState(chunk.content);
-		if (!parsed) continue;
-		if (parsed.key === "project.active_project" && typeof parsed.value.project === "string") project = parsed.value.project;
-		else if (parsed.key === "workflow.current_task" && typeof parsed.value.task === "string") currentTask = parsed.value.task;
-		else if (parsed.key === "workflow.next_action" && typeof parsed.value.step === "string") nextAction = parsed.value.step;
-		else if (parsed.key === "workflow.blocker" && typeof parsed.value.blocker === "string") blocker = parsed.value.blocker;
-	}
-	return sanitizeTaskMetadata({
-		...project ? { project } : {},
-		...currentTask ? { currentTask } : {},
-		...nextAction ? { nextAction } : {},
-		...blocker ? { blocker } : {}
-	});
-}
-function summarizeHeuristically(content) {
-	const cleaned = content.replace(/\s+/g, " ").trim();
-	if (!cleaned) return "";
-	return truncateText((cleaned.split(/[。.!！？?；;\n]/u).map((entry) => entry.trim()).filter(Boolean)[0] ?? cleaned).replace(/^[-*•\d.)\s]+/u, ""), 180);
-}
-function summarizeTaskHeuristically(chunks) {
-	const userChunks = chunks.filter((chunk) => chunk.role === "user");
-	const groundedAssistantChunks = chunks.filter((chunk) => chunk.role === "assistant").filter((chunk) => {
-		const assessment = assessAssistantChunk(chunk, chunks);
-		return assessment.weight >= .6 && assessment.grounding >= .22;
-	});
-	const toolChunks = chunks.filter((chunk) => chunk.role === "tool");
-	const latestUser = userChunks.at(-1)?.content ?? chunks.at(-1)?.content ?? "";
-	const metadata = heuristicTaskMetadata(chunks);
-	const phase = toolChunks.length > 0 && groundedAssistantChunks.length > 0 ? "attempting" : groundedAssistantChunks.length > 0 ? "proposed" : "investigating";
-	const title = typeof metadata.project === "string" ? String(metadata.project) : summarizeHeuristically(userChunks[0]?.content ?? latestUser) || "Conversation task";
-	const summaryParts = [];
-	if (typeof metadata.currentTask === "string") summaryParts.push(`Current focus: ${metadata.currentTask}`);
-	if (typeof metadata.blocker === "string") summaryParts.push(`Blocker: ${metadata.blocker}`);
-	if (typeof metadata.nextAction === "string") summaryParts.push(`Next action: ${metadata.nextAction}`);
-	if (summaryParts.length === 0) {
-		const recents = userChunks.slice(-3).map((chunk) => summarizeHeuristically(chunk.content)).filter(Boolean);
-		summaryParts.push(...recents);
-	}
-	return {
-		title: truncateText(title, 120),
-		summary: truncateText(summaryParts.join(" | "), 320),
-		metadataJson: {
-			...metadata,
-			taskPhase: phase,
-			closureScore: .18,
-			verificationScore: toolChunks.length > 0 ? .24 : .08,
-			contradictionRisk: .22
-		}
 	};
 }
 function compilerSummaryFromProposal(taskProposal, existingMetadata) {
@@ -223,11 +165,10 @@ function buildTaskSummaryEvidenceSet(params) {
 	};
 }
 function resolveWorkingTaskSummary(params) {
-	const fallback = summarizeTaskHeuristically(params.chunks);
 	const compilerTaskSummary = compilerSummaryFromProposal(params.taskProposal, params.task.metadataJson);
 	const compilerSummary = compilerTaskSummary && isAcceptableCompilerSummary(compilerTaskSummary.summary, compilerTaskSummary.confidence) ? compilerTaskSummary.summary : void 0;
 	const compilerSummaryConfidence = compilerSummary ? compilerTaskSummary?.confidence : void 0;
-	const summarySource = compilerSummary ? "compiler" : "heuristic_fallback";
+	const summarySource = compilerSummary ? "compiler" : "llm_unavailable";
 	const summaryBasisFingerprint = computeTaskSummaryBasisFingerprint({
 		taskId: params.task.taskId,
 		chunkIds: params.chunks.map((chunk) => chunk.chunkId),
@@ -236,28 +177,21 @@ function resolveWorkingTaskSummary(params) {
 		candidateResolutionEvidenceChunkIds: stringSet(objectRecord(params.task.metadataJson)?.candidateResolutionEvidenceChunkIds),
 		compilerTaskSummary: compilerSummary ?? compilerTaskSummary?.summary,
 		compilerTaskSummaryConfidence: compilerSummaryConfidence ?? compilerTaskSummary?.confidence,
-		project: typeof fallback.metadataJson.project === "string" ? fallback.metadataJson.project : void 0,
-		currentTask: typeof fallback.metadataJson.currentTask === "string" ? fallback.metadataJson.currentTask : void 0,
-		nextAction: typeof fallback.metadataJson.nextAction === "string" ? fallback.metadataJson.nextAction : void 0,
-		blocker: typeof fallback.metadataJson.blocker === "string" ? fallback.metadataJson.blocker : void 0,
 		lastEmittedOutcomeKey: typeof params.task.metadataJson?.lastEmittedOutcomeKey === "string" ? params.task.metadataJson.lastEmittedOutcomeKey : void 0
 	});
 	return {
-		title: fallback.title,
-		summary: compilerSummary ?? fallback.summary,
-		metadataJson: {
-			...fallback.metadataJson,
-			...taskSummaryMetadataFields({
-				summarySource,
-				summaryQuality: "working",
-				summaryBasisFingerprint,
-				observedAt: params.observedAt,
-				...compilerTaskSummary?.summary ? {
-					compilerTaskSummary: compilerTaskSummary.summary,
-					compilerTaskSummaryConfidence: compilerTaskSummary.confidence
-				} : {}
-			})
-		},
+		title: params.task.title || "Active task",
+		summary: compilerSummary ?? params.task.summary ?? "",
+		metadataJson: { ...taskSummaryMetadataFields({
+			summarySource,
+			summaryQuality: "working",
+			summaryBasisFingerprint,
+			observedAt: params.observedAt,
+			...compilerTaskSummary?.summary ? {
+				compilerTaskSummary: compilerTaskSummary.summary,
+				compilerTaskSummaryConfidence: compilerTaskSummary.confidence
+			} : {}
+		}) },
 		summarySource,
 		summaryQuality: "working",
 		summaryBasisFingerprint,
@@ -277,7 +211,7 @@ function taskSummaryNeedsUpgrade(params) {
 	const hoursSinceSummaryUpdate = Number.isFinite(currentMs) && Number.isFinite(updatedMs) ? Math.max(0, (currentMs - updatedMs) / (3600 * 1e3)) : 0;
 	const hasChangedEvidence = currentFingerprint !== params.evidence.fingerprint;
 	if (!(Boolean(params.evidence.candidateResolution) || params.evidence.candidateResolutionEvidenceChunkIds.length > 0 || Boolean(params.evidence.lastEmittedOutcomeKey) || params.evidence.linkedEvents.length > 0 || params.evidence.chunks.some((chunk) => chunk.role === "tool") || params.evidence.chunks.length >= 5)) return false;
-	if (source === "heuristic_fallback" || !source) return true;
+	if (source === "heuristic_fallback" || source === "llm_unavailable" || !source) return true;
 	if (quality !== "stable") return true;
 	if (hasChangedEvidence && hoursSinceSummaryUpdate >= 1) return true;
 	if (hoursSinceSummaryUpdate >= 24 && params.evidence.linkedEvents.length > 0) return true;
@@ -286,7 +220,7 @@ function taskSummaryNeedsUpgrade(params) {
 function taskSummaryUpgradePriority(params) {
 	const source = taskSummarySource(objectRecord(params.task.metadataJson));
 	const toolCount = params.evidence.chunks.filter((chunk) => chunk.role === "tool").length;
-	return (source === "heuristic_fallback" || !source ? 3 : 0) + (params.evidence.candidateResolution ? 3 : 0) + (params.evidence.lastEmittedOutcomeKey ? 2 : 0) + (params.evidence.linkedEvents.length > 0 ? 2 : 0) + (params.evidence.compilerTaskSummary ? 1.5 : 0) + (toolCount > 0 ? 1.5 : 0) + Math.min(params.evidence.chunks.length, 8) * .08;
+	return (source === "heuristic_fallback" || source === "llm_unavailable" || !source ? 3 : 0) + (params.evidence.candidateResolution ? 3 : 0) + (params.evidence.lastEmittedOutcomeKey ? 2 : 0) + (params.evidence.linkedEvents.length > 0 ? 2 : 0) + (params.evidence.compilerTaskSummary ? 1.5 : 0) + (toolCount > 0 ? 1.5 : 0) + Math.min(params.evidence.chunks.length, 8) * .08;
 }
 //#endregion
-export { buildTaskSummaryEvidenceSet, resolveWorkingTaskSummary, semanticTaskSummaryText, summarizeTaskHeuristically, taskSummaryMetadataFields, taskSummaryNeedsUpgrade, taskSummarySource, taskSummaryUpgradePriority };
+export { buildTaskSummaryEvidenceSet, resolveWorkingTaskSummary, semanticTaskSummaryText, taskSummaryMetadataFields, taskSummaryNeedsUpgrade, taskSummarySource, taskSummaryUpgradePriority };

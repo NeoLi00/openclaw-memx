@@ -22,7 +22,7 @@ import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceC
 import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.js";
 import { describeStateValue, formatFactLine, lineageFromMetadata } from "./memoryObjectsHelpers.js";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.js";
-import { extractQueryAnchors, queryAnchorSupport } from "./semantics.js";
+import { queryAnchorSupport } from "./semantics.js";
 import { normalizeSourceRefs } from "./sourceRefs.js";
 import {
   stateCurrentnessFromVectorMetadata,
@@ -580,8 +580,8 @@ function dedupeSearchHits<T extends SearchHit>(hits: T[]): T[] {
   return [...byDocId.values()];
 }
 
-function meaningfulCandidateAnchors(query: string): string[] {
-  return extractQueryAnchors(query)
+function meaningfulCandidateAnchors(compiled: QueryCompileResult): string[] {
+  return compiled.anchors
     .map((anchor) => anchor.trim())
     .filter((anchor) => normalizeText(anchor).length >= 4)
     .slice(0, 2);
@@ -604,7 +604,7 @@ function rerankSurfaceHits(
   ) {
     return hits;
   }
-  const anchors = meaningfulCandidateAnchors(compiled.focusedQuery);
+  const anchors = meaningfulCandidateAnchors(compiled);
   if (anchors.length === 0) {
     return hits;
   }
@@ -1052,13 +1052,7 @@ function entityExpansionCandidates(
 
 function queryEntitySearchQueries(compiled: QueryCompileResult, limit: number): string[] {
   return uniqueSearchQueries(
-    [
-      ...compiled.anchors,
-      compiled.focusedQuery,
-      ...(compiled.evidencePlan?.slots ?? []).flatMap((slot) =>
-        slotSubjectQueryVariants(slot.subjectHints),
-      ),
-    ],
+    compiled.queryEntities.flatMap((entity) => slotSubjectQueryVariants([entity.name])),
     limit,
   );
 }

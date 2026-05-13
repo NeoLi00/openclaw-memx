@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import plugin from "../dist/index.mjs";
+import { extractPromptQuery } from "../dist/src/index.mjs";
 import { captureAgentEndTurn } from "../dist/src/pipeline/turnCapture.mjs";
 import { stripInjectedHistoricalBlock } from "../dist/src/security/escaping.mjs";
 
@@ -45,6 +46,23 @@ test("MemX prepend context markers are stripped before reading the user query", 
   ].join("\n");
 
   assert.equal(stripInjectedHistoricalBlock(prompt), "What should I do next?");
+});
+
+test("prompt query extraction keeps multi-paragraph task statements", () => {
+  const prompt = [
+    "You are solving an olympiad problem.",
+    "",
+    "Problem C8. Let n be a positive integer. Given an n x n board, the unit cell in the top left corner is initially coloured black, and the other cells are coloured white. In each operation, choose a 2 x 2 square with exactly one black cell and colour the remaining three cells black. Determine all values of n such that the whole board can become black.",
+    "",
+    "Give a rigorous solution.",
+  ].join("\n");
+
+  const query = extractPromptQuery({ prompt });
+
+  assert.match(query, /Problem C8/);
+  assert.match(query, /n x n board/);
+  assert.match(query, /2 x 2 square/);
+  assert.match(query, /Give a rigorous solution/);
 });
 
 test("turn capture excludes MemX prepend context from the captured user message", () => {

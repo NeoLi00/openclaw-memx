@@ -69,11 +69,6 @@ import {
 } from "./memoryObjectsProjection.js";
 import {
   canonicalStateKey,
-  inferTemporalSince,
-  inferEntityNames,
-  predicateHint,
-  queryAnchorSupport,
-  seedEntityNamesFromQuery,
 } from "./semantics.js";
 import { evaluateStateCurrentness } from "./stateLifecycle.js";
 import { semanticTaskSummaryText } from "./taskSummary.js";
@@ -167,9 +162,7 @@ function eventStructuredRelationCount(event: NormalizedEvent): number {
 
 function eventStructuredEntityCount(event: NormalizedEvent): number {
   const hints = eventStructuredHints(event);
-  return Array.isArray(hints?.entities)
-    ? hints.entities.length
-    : inferEntityNames(event.text).length;
+  return Array.isArray(hints?.entities) ? hints.entities.length : 0;
 }
 
 function taskSemanticReferences(task: ConversationTask): string[] {
@@ -366,6 +359,11 @@ function chunkRows(hits: SearchHit[]): EvidenceRow[] {
 
 function guidanceTextFromFact(fact: NormalizedFact): string | null {
   if (fact.canonicalSubject !== "user") {
+    return null;
+  }
+  // Workflow guidance is task-scoped. It can still be retrieved as evidence,
+  // but it must not become ambient reply guidance for unrelated turns.
+  if (fact.predicate === "has_workflow_guidance") {
     return null;
   }
   const guidance = fact.objectValueJson?.guidance;
@@ -587,21 +585,6 @@ export function queryMemoryFacts(params: {
   limit: number;
   includeHistorical: boolean;
 }): NormalizedFact[] {
-  const hinted = predicateHint(params.text)?.trim();
-  if (hinted) {
-    const narrowed = params.store.factRepo.query({
-      agentId: params.ctx.agentId,
-      scopes: params.ctx.scopes,
-      text: params.text,
-      predicate: hinted,
-      limit: params.limit,
-      includeHistorical: params.includeHistorical,
-      readEpoch: params.ctx.readEpoch,
-    });
-    if (narrowed.length > 0) {
-      return narrowed;
-    }
-  }
   return params.store.factRepo.query({
     agentId: params.ctx.agentId,
     scopes: params.ctx.scopes,
@@ -670,7 +653,7 @@ function semanticProfileForObject(params: {
   const entityCount =
     typeof params.attrs.entityCount === "number"
       ? params.attrs.entityCount
-      : inferEntityNames(params.text).length;
+      : 0;
   const graphNodeCount = params.attrs.graphNodeCount ?? 0;
   const graphEdgeCount = params.attrs.graphEdgeCount ?? 0;
   const entityFactor = clamp01(entityCount / 3);
@@ -1099,7 +1082,6 @@ function taskObjects(
   hybridHits: SearchHit[],
 ): MemoryObject[] {
   const activeTasks = workflowActiveTasks(store, ctx, 4);
-  const queryAnchors = seedEntityNamesFromQuery(objective.query);
   const normalizedObjectiveQuery = normalizeText(objective.query);
   const anchoredRecentTasks = store.taskRepo
     .listRecent({
@@ -1115,12 +1097,6 @@ function taskObjects(
           (reference) =>
             normalizeText(reference) && normalizedObjectiveQuery.includes(normalizeText(reference)),
         )
-      ) {
-        return true;
-      }
-      if (
-        queryAnchors.length > 0 &&
-        queryAnchorSupport(references.join("\n"), queryAnchors) >= 0.58
       ) {
         return true;
       }
@@ -1194,7 +1170,7 @@ function factObjects(
       attrs: {
         relational: isRelationalFactPredicate(fact.predicate),
         guidance: Boolean(guidanceTextFromFact(fact)),
-        entityCount: inferEntityNames(row.text).length,
+        entityCount: [fact.canonicalSubject, fact.canonicalObject].filter(Boolean).length,
         factSubject: fact.canonicalSubject,
         factPredicate: fact.predicate,
         factObject: fact.canonicalObject,
@@ -1266,7 +1242,7 @@ function chunkObjects(
       row,
       objective,
       attrs: {
-        entityCount: inferEntityNames(row.text).length,
+        entityCount: 0,
       },
     }),
   );
@@ -1545,37 +1521,6 @@ function shouldSuppressTargetBridge(object: MemoryObject, hasDurableGraph: boole
   return false;
 }
 
-function graphAnchorTextsForObject(object: MemoryObject): string[] {
-  switch (object.kind) {
-    case "fact":
-      return [
-        object.row.text,
-        object.attributes.factSubject ?? "",
-        object.attributes.factObject ?? "",
-      ];
-    case "task":
-      return [object.row.text];
-    case "event":
-      return [object.row.text];
-    case "state": {
-      const stateKey = object.attributes.stateKey ?? "";
-      if (stateKey === "workflow.blocker") {
-        return [];
-      }
-      if (
-        stateKey === "workflow.current_task" ||
-        stateKey === "workflow.next_action" ||
-        stateKey === "project.active_project"
-      ) {
-        return [object.row.text];
-      }
-      return isWorkflowControlObject(object) ? [] : [object.row.text];
-    }
-    default:
-      return [];
-  }
-}
-
 function collectGraphHypothesisSeedNodeIds(params: {
   objective: MemorySelectionObjective;
   supportObjects: MemoryObject[];
@@ -1584,15 +1529,8 @@ function collectGraphHypothesisSeedNodeIds(params: {
   const supportRefs = new Set(
     params.supportObjects.flatMap((object) => memoryObjectContentRefs(object)),
   );
-  const names = new Set(
-    seedEntityNamesFromQuery(params.objective.query).map((name) => normalizeText(name)),
-  );
+  const names = new Set<string>();
   for (const object of params.supportObjects) {
-    for (const text of graphAnchorTextsForObject(object)) {
-      for (const entry of inferEntityNames(text)) {
-        names.add(normalizeText(entry.name));
-      }
-    }
     if (object.attributes.factSubject) {
       names.add(normalizeText(object.attributes.factSubject));
     }
@@ -1631,47 +1569,15 @@ function collectGraphSeedEntityIds(params: {
   maxSeeds: number;
 }): string[] {
   const seeds = new Map<string, GraphSeedCandidate>();
-  for (const name of seedEntityNamesFromQuery(params.objective.query)) {
-    const resolved = resolveGraphSeedMatches({
-      store: params.store,
-      ctx: params.ctx,
-      objective: params.objective,
-      name,
-      limit: 6,
-    });
-    if (resolved.exact) {
-      const specificity = graphSeedSpecificity(resolved.exact.canonicalName);
-      rememberGraphSeed(seeds, resolved.exact.entityId, 0.98, `query-exact:${name}`, {
-        queryLexicalOnly: specificity < 0.58,
-        queryDerived: true,
-        specificity,
-      });
-      continue;
-    }
-    for (const fuzzy of resolved.expanded) {
-      rememberGraphSeed(seeds, fuzzy.entityId, 0.76, `query-expanded:${name}`, {
-        queryDerived: true,
-        specificity: graphSeedSpecificity(fuzzy.canonicalName),
-      });
-    }
-  }
-
   for (const object of params.supportObjects) {
     const baseScore = contextSeedBaseScore(object);
     if (baseScore <= 0) {
       continue;
     }
     const workflowSurface = object.kind === "task" || isWorkflowControlObject(object);
-    const names = graphAnchorTextsForObject(object)
-      .flatMap((text) =>
-        workflowSurface
-          ? [
-              ...seedEntityNamesFromQuery(text),
-              ...inferEntityNames(text).map((entry) => entry.name),
-            ]
-          : inferEntityNames(text).map((entry) => entry.name),
-      )
-      .filter((name) => Boolean(name))
+    void workflowSurface;
+    const names = [object.attributes.factSubject, object.attributes.factObject]
+      .filter((name): name is string => Boolean(name))
       .slice(0, 4);
     const objectMatches = new Map<
       string,
@@ -1755,36 +1661,8 @@ function collectQueryGraphSeedEntityIds(params: {
   objective: MemorySelectionObjective;
   maxSeeds: number;
 }): string[] {
-  const seeds = new Map<string, GraphSeedCandidate>();
-  for (const name of seedEntityNamesFromQuery(params.objective.query)) {
-    const resolved = resolveGraphSeedMatches({
-      store: params.store,
-      ctx: params.ctx,
-      objective: params.objective,
-      name,
-      limit: 6,
-    });
-    if (resolved.exact) {
-      const specificity = graphSeedSpecificity(resolved.exact.canonicalName);
-      rememberGraphSeed(seeds, resolved.exact.entityId, 0.98, `query-exact:${name}`, {
-        queryLexicalOnly: specificity < 0.58,
-        queryDerived: true,
-        specificity,
-      });
-      continue;
-    }
-    for (const fuzzy of resolved.expanded) {
-      rememberGraphSeed(seeds, fuzzy.entityId, 0.76, `query-expanded:${name}`, {
-        queryDerived: true,
-        specificity: graphSeedSpecificity(fuzzy.canonicalName),
-      });
-    }
-  }
-  return [...seeds.values()]
-    .filter((entry) => !entry.queryLexicalOnly || entry.score >= 0.66)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, params.maxSeeds)
-    .map((entry) => entry.entityId);
+  void params;
+  return [];
 }
 
 function expandGraphSupportObjects(params: {
@@ -1843,11 +1721,11 @@ function expandGraphSupportObjects(params: {
             },
           }),
           objective: params.objective,
-          attrs: {
-            relational: isRelationalFactPredicate(fact.predicate),
-            guidance: Boolean(guidanceTextFromFact(fact)),
-            entityCount: inferEntityNames(text).length,
-            factSubject: fact.canonicalSubject,
+            attrs: {
+              relational: isRelationalFactPredicate(fact.predicate),
+              guidance: Boolean(guidanceTextFromFact(fact)),
+              entityCount: [fact.canonicalSubject, fact.canonicalObject].filter(Boolean).length,
+              factSubject: fact.canonicalSubject,
             factPredicate: fact.predicate,
             factObject: fact.canonicalObject,
           },
@@ -1860,18 +1738,13 @@ function expandGraphSupportObjects(params: {
     (object) => object.kind === "fact" && object.attributes.relational,
   );
   if (!hasRelationalFactSupport && params.objective.routeType === "explanatory") {
-    const subjectNames = new Set<string>(seedEntityNamesFromQuery(params.objective.query));
+    const subjectNames = new Set<string>();
     for (const object of params.supportObjects) {
       if (object.attributes.factSubject) {
         subjectNames.add(object.attributes.factSubject);
       }
       if (object.attributes.factObject) {
         subjectNames.add(object.attributes.factObject);
-      }
-      for (const text of graphAnchorTextsForObject(object)) {
-        for (const entry of inferEntityNames(text)) {
-          subjectNames.add(entry.name);
-        }
       }
     }
     for (const name of [...subjectNames].filter(Boolean).slice(0, 4)) {
@@ -1936,11 +1809,11 @@ function expandGraphSupportObjects(params: {
                 },
               }),
               objective: params.objective,
-              attrs: {
-                relational: true,
-                guidance: Boolean(guidanceTextFromFact(fact)),
-                entityCount: inferEntityNames(text).length,
-                factSubject: fact.canonicalSubject,
+                  attrs: {
+                    relational: true,
+                    guidance: Boolean(guidanceTextFromFact(fact)),
+                    entityCount: [fact.canonicalSubject, fact.canonicalObject].filter(Boolean).length,
+                    factSubject: fact.canonicalSubject,
                 factPredicate: fact.predicate,
                 factObject: fact.canonicalObject,
               },
@@ -1989,8 +1862,6 @@ function collectGraphLinkedEntities(params: {
   const names = [
     ...new Set([
       ...(params.explicitNames ?? []),
-      ...seedEntityNamesFromQuery(params.text),
-      ...inferEntityNames(params.text).map((entry) => entry.name),
     ]),
   ]
     .filter(Boolean)
@@ -2173,9 +2044,9 @@ function augmentGraphWithSupportObjects(params: {
       continue;
     }
     const entityNames = new Set(
-      graphAnchorTextsForObject(object)
-        .flatMap((text) => inferEntityNames(text).map((entry) => entry.name))
-        .filter(Boolean),
+      [object.attributes.factSubject, object.attributes.factObject].filter(
+        (entry): entry is string => Boolean(entry),
+      ),
     );
     if (object.attributes.factSubject) {
       entityNames.add(object.attributes.factSubject);
@@ -2619,11 +2490,7 @@ function graphContextSupportForObject(
   }
   const direct = guidance.directSupportByObjectId.get(object.objectId) ?? 0;
   const objectText = object.row.text.toLowerCase();
-  const objectEntities = new Set(
-    inferEntityNames(object.row.text)
-      .map((entry) => entry.name.toLowerCase())
-      .filter(Boolean),
-  );
+  const objectEntities = new Set<string>();
   let contextual = 0;
   for (const path of guidance.paths) {
     if (path.directObjectIds.has(object.objectId)) {
@@ -2755,9 +2622,6 @@ function selectionObjectiveForRoute(
   currentSessionKey?: string,
 ): MemorySelectionObjective {
   const objective = createMemorySelectionObjective(routeType, query, now, currentSessionKey);
-  if (routeType === "temporal") {
-    objective.since = inferTemporalSince(query, now);
-  }
   return objective;
 }
 

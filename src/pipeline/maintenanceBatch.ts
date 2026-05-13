@@ -3,14 +3,20 @@ import type { MaintenanceBatchMetadata, MemoryOperationContext } from "../types.
 import { runAbstractionJobs } from "./abstractionJobs.js";
 import { runAbstractionPromotion } from "./abstractionPromotion.js";
 import { runConsolidation } from "./consolidate.js";
+import { runSourceSegmentSemanticExtraction } from "./sourceSegmentSemanticExtraction.js";
 
 export async function runAutomaticMaintenanceBatch(
   store: MemxStoreBundle,
   ctx: MemoryOperationContext,
   batch: MaintenanceBatchMetadata,
 ): Promise<void> {
+  const sourceSegmentStats = await runSourceSegmentSemanticExtraction(store, ctx, {
+    sessionKey: batch.sessionKey,
+    turnIds: batch.turnIds,
+  });
   const consolidationStats = await runConsolidation(store, ctx, { batch });
   const deltaTriggered =
+    sourceSegmentStats.candidatesWritten > 0 ||
     (consolidationStats.batch?.delta.eventsConsidered ?? 0) > 0 ||
     (consolidationStats.batch?.delta.tasksConsidered ?? 0) > 0 ||
     consolidationStats.promotedFacts > 0 ||

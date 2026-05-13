@@ -56,7 +56,7 @@ import {
 } from "./projectIdentity.js";
 import type { OutcomePromotionDecision } from "./reasoner.js";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.js";
-import { extractTimeHints, inferEntityNames, isQuestionLike } from "./semantics.js";
+import { isQuestionLike } from "./semantics.js";
 import { emitAssistantOutcomeLearningSignals, emitOutcomeFeedbackSignal } from "./signalLedger.js";
 import { buildSourceSegmentsForChunk, buildSourceSegmentVectorDocs } from "./sourceSegments.js";
 import {
@@ -378,21 +378,6 @@ function resolveCurrentProjectContext(params: {
   taskChunks?: ConversationChunk[];
   message: TurnCaptureMessage;
 }): { currentProject?: string; currentProjectProfile?: Record<string, unknown> } {
-  const inferProjectFromTaskHistory = (chunk?: ConversationChunk): string | undefined => {
-    if (!chunk) {
-      return undefined;
-    }
-    const combined = `${chunk.content}\n${chunk.summary}`;
-    const descriptorMatch = combined.match(
-      /(?:项目|平台|服务|系统|project|service|platform)\s+([A-Z][A-Za-z0-9_-]{1,31})/u,
-    );
-    if (descriptorMatch?.[1]) {
-      return descriptorMatch[1].trim();
-    }
-    return inferEntityNames(combined)
-      .map((entry) => entry.name.trim())
-      .find((entry) => /^[A-Z][A-Za-z0-9_-]{1,31}$/u.test(entry));
-  };
   const canonicalTaskMetadata = sanitizeTaskMetadata(params.activeTask.metadataJson);
   const metadataProject = canonicalTaskMetadata.project;
   const activeProjectState = params.store.stateRepo.get({
@@ -415,39 +400,22 @@ function resolveCurrentProjectContext(params: {
       now: params.observedAt,
     })
     .filter((state) => isProjectProfileStateKey(state.key));
-  const messageEntities = new Set(
-    inferEntityNames(params.message.content).map((entry) => projectIdentityKey(entry.name)),
-  );
+  const messageProjectKey = projectIdentityKey(params.message.content);
   const entityMatchedProject = projectStates.find((state) => {
     const projectCode = projectCodeFromStateKey(state.key);
-    return projectCode ? messageEntities.has(projectIdentityKey(projectCode)) : false;
+    return projectCode ? messageProjectKey.includes(projectIdentityKey(projectCode)) : false;
   });
   const knownProjects = projectStates
     .map((state) => projectCodeFromStateKey(state.key))
     .filter((entry): entry is string => Boolean(entry));
-  const taskHistoryProject = [...(params.taskChunks ?? [])]
-    .reverse()
-    .find((chunk) => chunk.turnId !== params.message.turnId && chunk.role === "user");
-  const sessionHistoryProject = params.store.chunkRepo
-    .listRecentActive({
-      agentId: params.ctx.agentId,
-      scopes: [params.scope],
-      sessionKey: params.message.sessionKey,
-      limit: 12,
-    })
-    .find((chunk) => chunk.turnId !== params.message.turnId && chunk.role === "user");
-  const historyProjectCandidate =
-    inferProjectFromTaskHistory(taskHistoryProject) ??
-    inferProjectFromTaskHistory(sessionHistoryProject);
   const singletonProject =
     !metadataProject && !stateProject && projectStates.length === 1
       ? projectCodeFromStateKey(projectStates[0]!.key)
       : undefined;
   const currentProject = resolveProjectReference(
-    metadataProject ??
+      metadataProject ??
       stateProject ??
       (entityMatchedProject ? projectCodeFromStateKey(entityMatchedProject.key) : undefined) ??
-      historyProjectCandidate ??
       singletonProject ??
       "",
     {
@@ -602,7 +570,6 @@ export class MemxTurnScheduler {
     });
     const outcomeSummary = await this.store.reasoner.summarizeTask(closedChunks, {
       stage,
-      allowLlm: false,
       audit: ctx.llmBudgetAudit,
     });
     const outcome = await this.maybePromoteTaskOutcome(
@@ -811,7 +778,6 @@ export class MemxTurnScheduler {
     });
     const summary = await this.store.reasoner.summarizeChunk(message.content, message.role, {
       stage: inferWriteLlmStage(message.role),
-      allowLlm: false,
       audit: ctx.llmBudgetAudit,
     });
 

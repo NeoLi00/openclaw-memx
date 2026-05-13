@@ -711,6 +711,12 @@ type QueryEvidenceCoverage = {
   minProtectedItems: number;
   maxProtectedItems: number;
 };
+type QueryEntityRole = "subject" | "object" | "context" | "resource";
+type QueryEntityHint = {
+  name: string;
+  type?: EntityType;
+  role?: QueryEntityRole;
+};
 type CandidateSurface = "state" | "fact" | "event" | "task" | "chunk" | "graph" | "entity_alias";
 type QueryEvidenceGoal = {
   goal: string;
@@ -767,8 +773,11 @@ type QuerySemanticBridgeMatch = {
 };
 type QueryCompileResult = {
   queryText: string;
+  shouldRecall: boolean;
   focusedQuery: string;
+  queryEntities: QueryEntityHint[];
   queryShape: RecallQueryShape;
+  primaryRoute?: MemoryPrimaryRouteType;
   answerGranularity: AnswerGranularity;
   evidenceFidelity: EvidenceFidelity;
   routeWeights: Partial<Record<MemoryPrimaryRouteType, number>>;

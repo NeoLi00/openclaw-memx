@@ -1,7 +1,5 @@
 import "../support.mjs";
-import { seedEntityNamesFromQuery } from "./semantic/heuristics.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
-import "./semantics.mjs";
 //#region src/pipeline/retrieveTracing.ts
 function summarizeBackgroundRecallBundle(bundle) {
 	return {
@@ -44,9 +42,6 @@ function sanitizeFocusedRecallQuery(rawQuery, focusedQuery) {
 	if (!focused) return raw;
 	const normalizedFocused = focused.toLowerCase().replace(/\s+/g, " ");
 	if (GENERIC_RECALL_QUERIES.has(normalizedFocused)) return raw;
-	const rawEntitySeeds = new Set(seedEntityNamesFromQuery(raw).map((entry) => entry.toLowerCase()));
-	const focusedEntitySeeds = new Set(seedEntityNamesFromQuery(focused).map((entry) => entry.toLowerCase()));
-	if (rawEntitySeeds.size >= 2 && focusedEntitySeeds.size === 0) return raw;
 	if (semanticTextSimilarity(raw, focused) < .18 && focused.length < raw.length * .7) return raw;
 	return focused;
 }

@@ -2,10 +2,7 @@ import { stripInjectedHistoricalBlock } from "../security/escaping.js";
 import { randomId, truncateText } from "../support.js";
 import type { MemoryCandidate, MemoryPluginConfig } from "../types.js";
 import {
-  analyzeSemanticHints,
-  extractTimeHints,
   hasExplicitRememberIntent as detectExplicitRememberIntent,
-  inferEntityNames,
 } from "./semantics.js";
 
 function toTextBlocks(content: unknown): string[] {
@@ -28,50 +25,10 @@ function toTextBlocks(content: unknown): string[] {
   return result;
 }
 
-function structuredHints(text: string) {
-  const analyzed = analyzeSemanticHints(text);
-  const workflows = analyzed.workflows;
-  const relations =
-    analyzed.relations.length > 0
-      ? analyzed.relations
-      : analyzed.relation
-        ? [analyzed.relation]
-        : [];
+function structuredHints() {
   return {
-    entities: analyzed.entities.length > 0 ? analyzed.entities : inferEntityNames(text),
-    timeHints: analyzed.timeHints.length > 0 ? analyzed.timeHints : extractTimeHints(text),
-    ...(analyzed.preference
-      ? {
-          preferenceHint: true,
-          preference: analyzed.preference,
-        }
-      : {}),
-    ...(workflows.length > 0
-      ? {
-          taskStateHint: true,
-          workflow: workflows[0],
-          workflows,
-        }
-      : {}),
-    ...(relations.length > 0
-      ? {
-          relationHint: true,
-          relation: relations[0],
-          relations,
-        }
-      : {}),
-    ...(analyzed.decision
-      ? {
-          decisionHint: true,
-          decision: analyzed.decision,
-        }
-      : {}),
-    ...(analyzed.correction
-      ? {
-          correctionHint: true,
-          correction: analyzed.correction,
-        }
-      : {}),
+    entities: [],
+    timeHints: [],
   };
 }
 
@@ -102,7 +59,7 @@ export function buildCandidate(params: {
     observedAt: params.observedAt,
     rawText: semanticText,
     eventType: params.eventType,
-    structuredHints: structuredHints(rawText),
+    structuredHints: structuredHints(),
     metadata: {
       ...(params.metadata ?? {}),
       rawTextLength: rawText.length,
@@ -206,53 +163,6 @@ export function extractFromAgentEnd(params: {
     });
     if (candidate) {
       candidates.push(candidate);
-    }
-  }
-
-  // Second pass: causal relations from assistant messages.
-  // Only candidates with a caused_by or resolved_by relation hint are included
-  // (minimum length threshold filters out short ack messages).
-  // sourceKind "assistant" ensures shouldMaterializeObservedEvent returns false — only the
-  // graph edge is written, never an episodic event, for assistant-sourced candidates.
-  const CAUSAL_PREDICATES = new Set(["caused_by", "resolved_by"]);
-  for (const message of params.messages.slice(-12)) {
-    if (!message || typeof message !== "object") {
-      continue;
-    }
-    const entry = message as Record<string, unknown>;
-    const role = typeof entry.role === "string" ? entry.role : "";
-    if (role !== "assistant") {
-      continue;
-    }
-    const text =
-      toTextBlocks(entry.content).join("\n").trim() ||
-      (typeof entry.content === "string" ? entry.content : "");
-    if (!text || text.length < 120) {
-      continue;
-    }
-    const analyzed = analyzeSemanticHints(text);
-    const hasCausalRelation = Boolean(
-      analyzed.relation && CAUSAL_PREDICATES.has(analyzed.relation.predicate),
-    );
-    if (!hasCausalRelation) {
-      continue;
-    }
-    const causalCandidate = buildCandidate({
-      sourceKind: "assistant",
-      rawText: text,
-      observedAt: params.observedAt,
-      config: params.config,
-      source: {
-        sessionKey: params.sessionKey,
-        runId: params.runId,
-      },
-      eventType: "agent_end_message",
-      metadata: {
-        role,
-      },
-    });
-    if (causalCandidate) {
-      candidates.push(causalCandidate);
     }
   }
 

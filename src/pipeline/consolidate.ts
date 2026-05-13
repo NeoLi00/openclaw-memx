@@ -20,7 +20,6 @@ import {
   summarizeMaintenanceContractDiagnostics,
   uniqueMaintenanceRefs,
 } from "./maintenanceContract.js";
-import { inferEntityType } from "./semantic/heuristics.js";
 import { emitBeliefMaintenanceSignals } from "./signalLedger.js";
 import { deriveStrategyHypotheses } from "./strategyHypotheses.js";
 import {
@@ -229,8 +228,8 @@ function latestObservedAt(events: RecentEvent[]): string | undefined {
   }, undefined);
 }
 
-function fallbackBatchDecision(supportCount: number): ConsolidationBatchDecision {
-  return supportCount >= 3 ? "confirm" : "defer";
+function missingLlmBatchDecision(): ConsolidationBatchDecision {
+  return "defer";
 }
 
 function factConfirmationKey(preference: MemoryCandidatePreferenceHint): string {
@@ -481,7 +480,7 @@ export async function runConsolidation(
     authoritySources: {
       hygiene: ["deterministic_aggregated"],
       beliefAggregation: ["deterministic_aggregated"],
-      semanticUpgrade: ["llm_confirmed", "deterministic_aggregated"],
+      semanticUpgrade: ["llm_confirmed"],
       structureDerivation: ["deterministic_aggregated"],
     },
     semanticSources: {
@@ -608,13 +607,13 @@ export async function runConsolidation(
     const factConfirmResults = selectedFacts.map((entry) => {
       const id = `fact:${factConfirmationKey(entry.preference)}`;
       const decision =
-        confirmationDecisions?.get(id)?.decision ?? fallbackBatchDecision(entry.events.length);
+        confirmationDecisions?.get(id)?.decision ?? missingLlmBatchDecision();
       return { entry, decision };
     });
     const relationConfirmResults = selectedRelations.map((entry) => {
       const id = `relation:${relationConfirmationKey(entry.relation)}`;
       const decision =
-        confirmationDecisions?.get(id)?.decision ?? fallbackBatchDecision(entry.events.length);
+        confirmationDecisions?.get(id)?.decision ?? missingLlmBatchDecision();
       return { entry, decision };
     });
 
@@ -760,7 +759,6 @@ export async function runConsolidation(
       ]);
       const sourceRefs = uniqueMaintenanceRefs(entry.events.map((event) => event.sourceRef));
       const firstSourceRef = sourceRefs[0] ?? randomId("event");
-      const confirmationId = `fact:${factConfirmationKey(entry.preference)}`;
       const promotionEpoch = store.client.nextMemoryEpoch(ctx.agentId, ctx.now);
       const factMetadata = buildMaintenanceContractMetadata({
         existing: {
@@ -772,12 +770,8 @@ export async function runConsolidation(
         supportRefs: sourceRefs,
         derivedFromIds: sourceRefs,
         semanticSource: "upstream_structured",
-        semanticSources: confirmationDecisions?.has(confirmationId)
-          ? ["upstream_structured", "llm_upgrade"]
-          : ["upstream_structured", "deterministic_lifecycle"],
-        authoritySource: confirmationDecisions?.has(confirmationId)
-          ? "llm_confirmed"
-          : "deterministic_aggregated",
+        semanticSources: ["upstream_structured", "llm_upgrade"],
+        authoritySource: "llm_confirmed",
         generatedFrom: "structured_event_confirmation",
         recallLayer: "fact",
         answerEligibleByDefault: true,
@@ -819,7 +813,6 @@ export async function runConsolidation(
       const scope = entry.events[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
       const sourceRefs = uniqueMaintenanceRefs(entry.events.map((event) => event.sourceRef));
       const evidenceRef = sourceRefs[0] ?? randomId("event");
-      const confirmationId = `relation:${relationConfirmationKey(entry.relation)}`;
       const subjectResolution = resolveEntityMention(
         store,
         ctx,
@@ -827,8 +820,7 @@ export async function runConsolidation(
           ctx,
           scope,
           rawText: entry.relation.subject,
-          proposedType:
-            inferEntityType(entry.relation.subject, entry.relation.predicate) ?? "unknown",
+          proposedType: "unknown",
           semanticRole: "subject",
           sourceRef: evidenceRef,
           supportText: entry.events[0]?.text ?? entry.text,
@@ -849,7 +841,7 @@ export async function runConsolidation(
           ctx,
           scope,
           rawText: entry.relation.object,
-          proposedType: inferEntityType(entry.relation.object) ?? "unknown",
+          proposedType: "unknown",
           semanticRole: "object",
           sourceRef: evidenceRef,
           supportText: entry.events[0]?.text ?? entry.text,
@@ -890,12 +882,8 @@ export async function runConsolidation(
         supportRefs: sourceRefs,
         derivedFromIds: sourceRefs,
         semanticSource: "upstream_structured",
-        semanticSources: confirmationDecisions?.has(confirmationId)
-          ? ["upstream_structured", "llm_upgrade"]
-          : ["upstream_structured", "deterministic_lifecycle"],
-        authoritySource: confirmationDecisions?.has(confirmationId)
-          ? "llm_confirmed"
-          : "deterministic_aggregated",
+        semanticSources: ["upstream_structured", "llm_upgrade"],
+        authoritySource: "llm_confirmed",
         generatedFrom: "structured_relation_confirmation",
         recallLayer: "graph",
         answerEligibleByDefault: true,

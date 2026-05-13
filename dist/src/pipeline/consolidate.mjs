@@ -1,6 +1,5 @@
 import { normalizeText, nowIso, objectRecord, randomId, stableHash } from "../support.mjs";
 import { refreshEntityProfileDocs } from "./entityProfile.mjs";
-import { inferEntityType } from "./semantic/heuristics.mjs";
 import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
 import { snapshotMemoryLlmBudgetAudit } from "./llmBudgetAudit.mjs";
 import { buildMaintenanceContractMetadata, summarizeMaintenanceContractDiagnostics, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
@@ -63,8 +62,8 @@ function latestObservedAt(events) {
 		return event.observedAt > latest ? event.observedAt : latest;
 	}, void 0);
 }
-function fallbackBatchDecision(supportCount) {
-	return supportCount >= 3 ? "confirm" : "defer";
+function missingLlmBatchDecision() {
+	return "defer";
 }
 function factConfirmationKey(preference) {
 	return `${preference.predicate}:${normalizeText(preference.object)}`;
@@ -242,7 +241,7 @@ async function runConsolidation(store, ctx, options = {}) {
 		authoritySources: {
 			hygiene: ["deterministic_aggregated"],
 			beliefAggregation: ["deterministic_aggregated"],
-			semanticUpgrade: ["llm_confirmed", "deterministic_aggregated"],
+			semanticUpgrade: ["llm_confirmed"],
 			structureDerivation: ["deterministic_aggregated"]
 		},
 		semanticSources: {
@@ -328,14 +327,14 @@ async function runConsolidation(store, ctx, options = {}) {
 			const id = `fact:${factConfirmationKey(entry.preference)}`;
 			return {
 				entry,
-				decision: confirmationDecisions?.get(id)?.decision ?? fallbackBatchDecision(entry.events.length)
+				decision: confirmationDecisions?.get(id)?.decision ?? missingLlmBatchDecision()
 			};
 		});
 		const relationConfirmResults = selectedRelations.map((entry) => {
 			const id = `relation:${relationConfirmationKey(entry.relation)}`;
 			return {
 				entry,
-				decision: confirmationDecisions?.get(id)?.decision ?? fallbackBatchDecision(entry.events.length)
+				decision: confirmationDecisions?.get(id)?.decision ?? missingLlmBatchDecision()
 			};
 		});
 		if (!shouldSkipLlmTaskSummaryUpgrade(ctx)) {
@@ -443,7 +442,6 @@ async function runConsolidation(store, ctx, options = {}) {
 			]);
 			const sourceRefs = uniqueMaintenanceRefs(entry.events.map((event) => event.sourceRef));
 			const firstSourceRef = sourceRefs[0] ?? randomId("event");
-			const confirmationId = `fact:${factConfirmationKey(entry.preference)}`;
 			const promotionEpoch = store.client.nextMemoryEpoch(ctx.agentId, ctx.now);
 			const factMetadata = buildMaintenanceContractMetadata({
 				existing: {
@@ -455,8 +453,8 @@ async function runConsolidation(store, ctx, options = {}) {
 				supportRefs: sourceRefs,
 				derivedFromIds: sourceRefs,
 				semanticSource: "upstream_structured",
-				semanticSources: confirmationDecisions?.has(confirmationId) ? ["upstream_structured", "llm_upgrade"] : ["upstream_structured", "deterministic_lifecycle"],
-				authoritySource: confirmationDecisions?.has(confirmationId) ? "llm_confirmed" : "deterministic_aggregated",
+				semanticSources: ["upstream_structured", "llm_upgrade"],
+				authoritySource: "llm_confirmed",
 				generatedFrom: "structured_event_confirmation",
 				recallLayer: "fact",
 				answerEligibleByDefault: true,
@@ -494,12 +492,11 @@ async function runConsolidation(store, ctx, options = {}) {
 			const scope = entry.events[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
 			const sourceRefs = uniqueMaintenanceRefs(entry.events.map((event) => event.sourceRef));
 			const evidenceRef = sourceRefs[0] ?? randomId("event");
-			const confirmationId = `relation:${relationConfirmationKey(entry.relation)}`;
 			const subjectResolution = resolveEntityMention(store, ctx, buildEntityMention({
 				ctx,
 				scope,
 				rawText: entry.relation.subject,
-				proposedType: inferEntityType(entry.relation.subject, entry.relation.predicate) ?? "unknown",
+				proposedType: "unknown",
 				semanticRole: "subject",
 				sourceRef: evidenceRef,
 				supportText: entry.events[0]?.text ?? entry.text,
@@ -516,7 +513,7 @@ async function runConsolidation(store, ctx, options = {}) {
 				ctx,
 				scope,
 				rawText: entry.relation.object,
-				proposedType: inferEntityType(entry.relation.object) ?? "unknown",
+				proposedType: "unknown",
 				semanticRole: "object",
 				sourceRef: evidenceRef,
 				supportText: entry.events[0]?.text ?? entry.text,
@@ -554,8 +551,8 @@ async function runConsolidation(store, ctx, options = {}) {
 				supportRefs: sourceRefs,
 				derivedFromIds: sourceRefs,
 				semanticSource: "upstream_structured",
-				semanticSources: confirmationDecisions?.has(confirmationId) ? ["upstream_structured", "llm_upgrade"] : ["upstream_structured", "deterministic_lifecycle"],
-				authoritySource: confirmationDecisions?.has(confirmationId) ? "llm_confirmed" : "deterministic_aggregated",
+				semanticSources: ["upstream_structured", "llm_upgrade"],
+				authoritySource: "llm_confirmed",
 				generatedFrom: "structured_relation_confirmation",
 				recallLayer: "graph",
 				answerEligibleByDefault: true,

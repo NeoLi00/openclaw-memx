@@ -1,2 +1,2 @@
-import { createMemoryMemxPlugin, evidencePlanRuleLines, memoryMemxPlugin } from "./src/index.mjs";
-export { createMemoryMemxPlugin, memoryMemxPlugin as default, evidencePlanRuleLines };
+import { createMemoryMemxPlugin, evidencePlanRuleLines, extractPromptQuery, memoryMemxPlugin } from "./src/index.mjs";
+export { createMemoryMemxPlugin, memoryMemxPlugin as default, evidencePlanRuleLines, extractPromptQuery };

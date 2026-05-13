@@ -1,7 +1,5 @@
 import { stableHash, truncateText } from "../support.mjs";
-import { isBroadTemporalQuery, wantsHistoricalFacts } from "./semantic/heuristics.mjs";
 import { filterBootstrapRows } from "./bootstrapFilter.mjs";
-import "./semantics.mjs";
 import { dedupeEvidenceRows, splitLabelValue, toEvidenceRow } from "./memoryObjectsHelpers.mjs";
 import { shouldProjectActiveProjectAlias } from "./authority.mjs";
 //#region src/pipeline/memoryObjectsProjection.ts
@@ -192,8 +190,8 @@ function createMemorySelectionObjective(routeType, query, now, currentSessionKey
 		routeType,
 		query,
 		now,
-		includeHistorical: routeType === "factual" && wantsHistoricalFacts(query),
-		broadTemporal: routeType === "temporal" && isBroadTemporalQuery(query),
+		includeHistorical: false,
+		broadTemporal: false,
 		currentSessionKey
 	};
 }

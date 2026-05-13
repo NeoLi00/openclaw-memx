@@ -1,11 +1,24 @@
-import { clamp01, normalizeText, normalizedTerms } from "../support.js";
+import {
+  clamp01,
+  isValidEntityName,
+  normalizeName,
+  normalizeText,
+  normalizedTerms,
+  stableHash,
+  truncateText,
+} from "../support.js";
 import type {
   CandidateSurface,
   EvidencePlanLayer,
+  MemoryLlmBudgetAudit,
+  MemoryLlmCallStage,
+  EntityType,
   MemoryOperationContext,
   MemoryPrimaryRouteType,
   QueryAnswerMode,
   QueryCompileResult,
+  QueryEntityHint,
+  QueryEntityRole,
   QueryEvidenceCoverage,
   QueryEvidenceGoal,
   QueryEvidenceOperationType,
@@ -16,14 +29,67 @@ import type {
   TurnMode,
 } from "../types.js";
 import { recordMemoryLlmBudgetCall } from "./llmBudgetAudit.js";
-import { analyzeQueryShape, extractQueryAnchors } from "./semantics.js";
+
+const QUERY_ENVELOPE_LONG_THRESHOLD_CHARS = 2400;
+const QUERY_ENVELOPE_HEAD_CHARS = 700;
+const QUERY_ENVELOPE_TAIL_CHARS = 1100;
+const QUERY_ENVELOPE_LATEST_INSTRUCTION_CHARS = 900;
+const QUERY_COMPACT_SCAFFOLD_QUERY_CHARS = 240;
+const QUERY_COMPACT_SCAFFOLD_FOCUS_CHARS = 180;
+const QUERY_FOCUSED_TASK_CHARS = 360;
+
+export type QueryEnvelopeWindowKind = "full" | "head" | "tail" | "latest_instruction";
+
+export type QueryEnvelopeWindow = {
+  kind: QueryEnvelopeWindowKind;
+  start: number;
+  end: number;
+  text: string;
+};
+
+export type QueryEnvelope = {
+  rawLength: number;
+  rawHash: string;
+  truncated: boolean;
+  visibleChars: number;
+  omittedChars: number;
+  windows: QueryEnvelopeWindow[];
+};
+
+export type CompactQueryCompilerScaffold = Pick<
+  QueryCompileResult,
+  | "queryText"
+  | "focusedQuery"
+  | "queryEntities"
+  | "queryShape"
+  | "primaryRoute"
+  | "answerGranularity"
+  | "evidenceFidelity"
+  | "routeWeights"
+  | "candidateSurfaces"
+  | "detailNeedScore"
+  | "supportNeed"
+  | "ambiguityLevel"
+  | "turnMode"
+>;
+
+export type QueryCompilerPromptInput = {
+  envelope: QueryEnvelope;
+  scaffold: CompactQueryCompilerScaffold;
+};
 
 type QueryCompilerReasoner = {
   isEnabled?: () => boolean;
   compileQuerySemantics?: (
     query: string,
     fallback: QueryCompileResult,
+    options?: QueryCompilerReasonerOptions,
   ) => Promise<Partial<QueryCompileResult> | null>;
+};
+
+type QueryCompilerReasonerOptions = {
+  stage?: MemoryLlmCallStage;
+  audit?: MemoryLlmBudgetAudit;
 };
 
 type QueryCompileParams = {
@@ -72,6 +138,25 @@ const VALID_EVIDENCE_SLOT_ROLES: Array<NonNullable<QueryEvidenceSlot["role"]>> =
   "supporting_context",
 ] as const;
 
+const VALID_QUERY_ENTITY_TYPES: EntityType[] = [
+  "person",
+  "project",
+  "tool",
+  "service",
+  "language",
+  "framework",
+  "concept",
+  "organization",
+  "unknown",
+] as const;
+
+const VALID_QUERY_ENTITY_ROLES: QueryEntityRole[] = [
+  "subject",
+  "object",
+  "context",
+  "resource",
+] as const;
+
 const QUERY_COMPILER_CUTOVER_CRITERIA = {
   invariantRegressionMustBeZero: true,
   deterministicFallbackRateMax: 0.02,
@@ -79,6 +164,248 @@ const QUERY_COMPILER_CUTOVER_CRITERIA = {
   explainableDiffRateMin: 0.9,
   requiredScenes: ["snapshot", "compare", "deictic", "exact_detail", "correction"],
 } as const;
+
+function clampWindow(query: string, start: number, end: number): QueryEnvelopeWindow | null {
+  const safeStart = Math.max(0, Math.min(query.length, start));
+  const safeEnd = Math.max(safeStart, Math.min(query.length, end));
+  const text = query.slice(safeStart, safeEnd).trim();
+  if (!text) {
+    return null;
+  }
+  return {
+    kind: "full",
+    start: safeStart,
+    end: safeEnd,
+    text,
+  };
+}
+
+function latestInstructionWindow(query: string): QueryEnvelopeWindow | null {
+  const trimmedEnd = query.trimEnd().length;
+  if (trimmedEnd <= 0) {
+    return null;
+  }
+  const prefix = query.slice(0, trimmedEnd);
+  const lastParagraphBreak = Math.max(prefix.lastIndexOf("\n\n"), prefix.lastIndexOf("\r\n\r\n"));
+  const paragraphStart = lastParagraphBreak >= 0 ? lastParagraphBreak + 2 : 0;
+  const start = Math.max(paragraphStart, trimmedEnd - QUERY_ENVELOPE_LATEST_INSTRUCTION_CHARS);
+  const window = clampWindow(query, start, trimmedEnd);
+  return window ? { ...window, kind: "latest_instruction" } : null;
+}
+
+function queryParagraphs(query: string): string[] {
+  return query
+    .split(/\n\s*\n/gu)
+    .map((paragraph) => paragraph.replace(/\s+/gu, " ").trim())
+    .filter(Boolean);
+}
+
+function looksLikeGenericTaskInstruction(text: string): boolean {
+  const normalized = normalizeText(text);
+  if (!normalized) {
+    return true;
+  }
+  return (
+    /^(give|provide|write|produce|return|answer|solve|continue)\b.*\b(solution|answer|proof|response|reply)\b/iu.test(
+      normalized,
+    ) ||
+    /^if you cannot finish\b/iu.test(normalized) ||
+    /^do not use\b/iu.test(normalized) ||
+    /^you are solving\b/iu.test(normalized) ||
+    /^只回复\b/u.test(normalized)
+  );
+}
+
+function taskParagraphScore(paragraph: string): number {
+  const normalized = normalizeText(paragraph);
+  const lengthScore = Math.min(1, paragraph.length / 180);
+  let score = lengthScore;
+  if (/\b(problem|task|issue|error|exception|requirements?)\b/iu.test(normalized)) {
+    score += 0.75;
+  }
+  if (/\b(let|given|determine|find|prove|show|calculate|suppose)\b/iu.test(normalized)) {
+    score += 0.55;
+  }
+  if (/[。！？.!?]/u.test(paragraph) && paragraph.length >= 80) {
+    score += 0.25;
+  }
+  if (looksLikeGenericTaskInstruction(paragraph)) {
+    score -= 1.25;
+  }
+  return score;
+}
+
+function buildTaskBearingFocusedQuery(query: string): string {
+  const paragraphs = queryParagraphs(query);
+  if (paragraphs.length === 0) {
+    return query.trim();
+  }
+  const best = paragraphs
+    .map((paragraph, index) => ({
+      paragraph,
+      index,
+      score: taskParagraphScore(paragraph),
+    }))
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return right.paragraph.length - left.paragraph.length;
+    })[0];
+  if (!best || best.score <= 0) {
+    return query.trim();
+  }
+  return truncateText(best.paragraph, QUERY_FOCUSED_TASK_CHARS);
+}
+
+function hasMeaningfulTermOverlap(left: string, right: string): boolean {
+  const leftTerms = new Set(normalizedTerms(left, { minLength: 3 }));
+  if (leftTerms.size === 0) {
+    return false;
+  }
+  let overlap = 0;
+  for (const term of normalizedTerms(right, { minLength: 3 })) {
+    if (leftTerms.has(term)) {
+      overlap++;
+      if (overlap >= 2) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function protectFocusedQuery(query: string, focusedQuery: string): string {
+  const raw = query.trim();
+  const focused = focusedQuery.trim();
+  if (!raw || !focused) {
+    return focused || buildTaskBearingFocusedQuery(raw);
+  }
+  if (raw.length <= focused.length * 2) {
+    return focused;
+  }
+  const taskBearing = buildTaskBearingFocusedQuery(raw);
+  if (!taskBearing || taskBearing.length <= focused.length * 1.5) {
+    return focused;
+  }
+  if (looksLikeGenericTaskInstruction(focused)) {
+    return taskBearing;
+  }
+  if (focused.length < 80 && !hasMeaningfulTermOverlap(focused, taskBearing)) {
+    return taskBearing;
+  }
+  return focused;
+}
+
+function mergedVisibleChars(windows: QueryEnvelopeWindow[]): number {
+  const intervals = windows
+    .map((window) => ({ start: window.start, end: window.end }))
+    .filter((interval) => interval.end > interval.start)
+    .sort((left, right) => left.start - right.start);
+  let visible = 0;
+  let cursorStart: number | undefined;
+  let cursorEnd: number | undefined;
+  for (const interval of intervals) {
+    if (cursorStart === undefined || cursorEnd === undefined) {
+      cursorStart = interval.start;
+      cursorEnd = interval.end;
+      continue;
+    }
+    if (interval.start <= cursorEnd) {
+      cursorEnd = Math.max(cursorEnd, interval.end);
+      continue;
+    }
+    visible += cursorEnd - cursorStart;
+    cursorStart = interval.start;
+    cursorEnd = interval.end;
+  }
+  if (cursorStart !== undefined && cursorEnd !== undefined) {
+    visible += cursorEnd - cursorStart;
+  }
+  return visible;
+}
+
+function uniqueWindows(windows: QueryEnvelopeWindow[]): QueryEnvelopeWindow[] {
+  const seen = new Set<string>();
+  const unique: QueryEnvelopeWindow[] = [];
+  for (const window of windows) {
+    const key = `${window.kind}:${window.start}:${window.end}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(window);
+  }
+  return unique;
+}
+
+export function buildQueryEnvelope(query: string): QueryEnvelope {
+  const rawLength = query.length;
+  const rawHash = stableHash(["query-envelope", query]);
+  if (rawLength <= QUERY_ENVELOPE_LONG_THRESHOLD_CHARS) {
+    const full = clampWindow(query, 0, rawLength);
+    const windows = full ? [{ ...full, kind: "full" as const }] : [];
+    const visibleChars = mergedVisibleChars(windows);
+    return {
+      rawLength,
+      rawHash,
+      truncated: false,
+      visibleChars,
+      omittedChars: Math.max(0, rawLength - visibleChars),
+      windows,
+    };
+  }
+
+  const head = clampWindow(query, 0, QUERY_ENVELOPE_HEAD_CHARS);
+  const tail = clampWindow(query, rawLength - QUERY_ENVELOPE_TAIL_CHARS, rawLength);
+  const latest = latestInstructionWindow(query);
+  const windows = uniqueWindows(
+    [
+      head ? { ...head, kind: "head" as const } : null,
+      tail ? { ...tail, kind: "tail" as const } : null,
+      latest,
+    ].filter((window): window is QueryEnvelopeWindow => Boolean(window)),
+  );
+  const visibleChars = mergedVisibleChars(windows);
+  return {
+    rawLength,
+    rawHash,
+    truncated: true,
+    visibleChars,
+    omittedChars: Math.max(0, rawLength - visibleChars),
+    windows,
+  };
+}
+
+export function buildCompactQueryCompilerScaffold(
+  fallback: QueryCompileResult,
+): CompactQueryCompilerScaffold {
+  return {
+    queryText: truncateText(fallback.queryText, QUERY_COMPACT_SCAFFOLD_QUERY_CHARS),
+    focusedQuery: truncateText(fallback.focusedQuery, QUERY_COMPACT_SCAFFOLD_FOCUS_CHARS),
+    queryEntities: fallback.queryEntities,
+    queryShape: fallback.queryShape,
+    primaryRoute: fallback.primaryRoute,
+    answerGranularity: fallback.answerGranularity,
+    evidenceFidelity: fallback.evidenceFidelity,
+    routeWeights: fallback.routeWeights,
+    candidateSurfaces: fallback.candidateSurfaces,
+    detailNeedScore: fallback.detailNeedScore,
+    supportNeed: fallback.supportNeed,
+    ambiguityLevel: fallback.ambiguityLevel,
+    turnMode: fallback.turnMode,
+  };
+}
+
+export function buildQueryCompilerPromptInput(
+  query: string,
+  fallback: QueryCompileResult,
+): QueryCompilerPromptInput {
+  return {
+    envelope: buildQueryEnvelope(query),
+    scaffold: buildCompactQueryCompilerScaffold(fallback),
+  };
+}
 
 function normalizeRouteWeights(
   weights: Partial<Record<MemoryPrimaryRouteType, number>>,
@@ -93,6 +420,97 @@ function normalizeRouteWeights(
   return Object.fromEntries(
     PRIMARY_ROUTE_TYPES.map((routeType) => [routeType, clamp01((weights[routeType] ?? 0) / total)]),
   ) as Partial<Record<MemoryPrimaryRouteType, number>>;
+}
+
+function sanitizePrimaryRoute(value: unknown): MemoryPrimaryRouteType | undefined {
+  return PRIMARY_ROUTE_TYPES.includes(value as MemoryPrimaryRouteType)
+    ? (value as MemoryPrimaryRouteType)
+    : undefined;
+}
+
+function primaryRouteFromWeights(
+  routeWeights: Partial<Record<MemoryPrimaryRouteType, number>>,
+): MemoryPrimaryRouteType | undefined {
+  let best: MemoryPrimaryRouteType | undefined;
+  let bestScore = 0;
+  for (const routeType of PRIMARY_ROUTE_TYPES) {
+    const score = routeWeights[routeType] ?? 0;
+    if (score > bestScore) {
+      best = routeType;
+      bestScore = score;
+    }
+  }
+  return bestScore > 0 ? best : undefined;
+}
+
+function routeWeightsFromPrimaryRoute(
+  primaryRoute: MemoryPrimaryRouteType | undefined,
+  queryShape: RecallQueryShape,
+): Partial<Record<MemoryPrimaryRouteType, number>> {
+  if (!primaryRoute) {
+    return {};
+  }
+  const weights = deriveRouteWeights(queryShape);
+  weights[primaryRoute] = Math.max(weights[primaryRoute] ?? 0, 0.72);
+  return normalizeRouteWeights(weights);
+}
+
+function sanitizeQueryEntityType(value: unknown): EntityType | undefined {
+  return VALID_QUERY_ENTITY_TYPES.includes(value as EntityType) ? (value as EntityType) : undefined;
+}
+
+function sanitizeQueryEntityRole(value: unknown): QueryEntityRole | undefined {
+  return VALID_QUERY_ENTITY_ROLES.includes(value as QueryEntityRole)
+    ? (value as QueryEntityRole)
+    : undefined;
+}
+
+function looksLikeLocalSymbolEntity(name: string, type?: EntityType): boolean {
+  const compact = normalizeName(name).replace(/[^\p{L}\p{N}]+/gu, "");
+  if (!compact) {
+    return true;
+  }
+  if (/^[a-z]$/iu.test(compact)) {
+    return true;
+  }
+  if (type === "concept" && /^[a-z][0-9]?$/iu.test(compact)) {
+    return true;
+  }
+  return false;
+}
+
+function sanitizeQueryEntities(value: unknown, limit = 8): QueryEntityHint[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const entities: QueryEntityHint[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    const type = sanitizeQueryEntityType(record.type);
+    if (!name || !isValidEntityName(name) || looksLikeLocalSymbolEntity(name, type)) {
+      continue;
+    }
+    const key = `${type ?? "unknown"}:${normalizeName(name)}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const role = sanitizeQueryEntityRole(record.role);
+    entities.push({
+      name,
+      ...(type ? { type } : {}),
+      ...(role ? { role } : {}),
+    });
+    if (entities.length >= limit) {
+      break;
+    }
+  }
+  return entities;
 }
 
 function computeTurnMode(query: string, queryShape: RecallQueryShape): TurnMode {
@@ -245,6 +663,19 @@ function deriveCandidateSurfaces(
   return [...surfaces];
 }
 
+function sanitizeCandidateSurfaces(
+  value: unknown,
+  fallback: CandidateSurface[],
+): CandidateSurface[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  const valid = value.filter((surface): surface is CandidateSurface =>
+    VALID_CANDIDATE_SURFACES.includes(surface as CandidateSurface),
+  );
+  return valid.length > 0 ? [...new Set(valid)] : fallback;
+}
+
 function uniqueNonEmpty(values: string[], limit = 8): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -294,12 +725,7 @@ function usefulQueryHints(values: string[], limit = 8): string[] {
 }
 
 function meaningfulQueryTerms(query: string): string[] {
-  return uniqueNonEmpty(
-    [normalizeCompilerHint(query), ...extractQueryAnchors(query).map(normalizeCompilerHint)].filter(
-      usefulQueryHint,
-    ),
-    8,
-  );
+  return uniqueNonEmpty([normalizeCompilerHint(query)].filter(usefulQueryHint), 8);
 }
 
 function deriveAnswerMode(query: string, queryShape: RecallQueryShape): QueryAnswerMode {
@@ -1579,18 +2005,22 @@ function shouldAddEpisodicRecoverySurface(query: string, compiled: QueryCompileR
 
 function applyQueryCompileGuards(query: string, compiled: QueryCompileResult): QueryCompileResult {
   const guarded: QueryCompileResult = { ...compiled };
-  guarded.answerMode = sanitizeAnswerMode(compiled.answerMode, query, guarded.queryShape);
+  const llmSemantic = guarded.compilerProvenance.source === "llm";
+  guarded.shouldRecall = true;
+  guarded.queryEntities = sanitizeQueryEntities(compiled.queryEntities);
+  guarded.primaryRoute =
+    sanitizePrimaryRoute(compiled.primaryRoute) ?? primaryRouteFromWeights(compiled.routeWeights);
+  guarded.answerMode = compiled.answerMode
+    ? sanitizeAnswerMode(compiled.answerMode, query, guarded.queryShape)
+    : undefined;
   guarded.anchors = uniqueNonEmpty(
-    [
-      ...guarded.anchors.map(normalizeCompilerHint).filter(usefulQueryHint),
-      ...(guarded.compilerProvenance.source === "llm"
-        ? []
-        : deriveTopicAnchors(query, guarded.answerMode, guarded.anchors)),
-    ],
+    [...guarded.anchors.map(normalizeCompilerHint).filter(usefulQueryHint)],
     8,
   );
-  guarded.evidenceCoverage = sanitizeEvidenceCoverage(query, guarded);
-  if (shouldAddEpisodicRecoverySurface(query, guarded)) {
+  guarded.evidenceCoverage = compiled.evidenceCoverage
+    ? sanitizeEvidenceCoverage(query, guarded)
+    : undefined;
+  if (!llmSemantic && shouldAddEpisodicRecoverySurface(query, guarded)) {
     guarded.candidateSurfaces = [...new Set([...guarded.candidateSurfaces, "event", "chunk"])];
     guarded.answerGranularity = "detail";
     guarded.detailNeedScore = Math.max(guarded.detailNeedScore, 0.92);
@@ -1610,6 +2040,7 @@ function applyQueryCompileGuards(query: string, compiled: QueryCompileResult): Q
     };
   }
   if (
+    !llmSemantic &&
     guarded.turnMode === "memory_qa" &&
     guarded.queryShape.evidenceNeed === "canonical_state" &&
     guarded.answerGranularity === "detail" &&
@@ -1623,45 +2054,37 @@ function applyQueryCompileGuards(query: string, compiled: QueryCompileResult): Q
       reasons: [...(guarded.compilerProvenance.reasons ?? []), "detail-surface-recovery:chunk"],
     };
   }
-  guarded.evidenceGoals = sanitizeEvidenceGoals(
-    {
-      ...guarded,
-      queryText: query,
-      focusedQuery: guarded.focusedQuery || query,
-      anchors: guarded.anchors,
-      candidateSurfaces: guarded.candidateSurfaces,
-      evidenceFidelity: guarded.evidenceFidelity,
-      evidenceCoverage: guarded.evidenceCoverage,
-    },
-    guarded.evidenceGoals,
-    guarded.candidateSurfaces,
-    guarded.evidenceFidelity,
-  );
-  guarded.evidencePlan = sanitizeEvidencePlan(
-    {
-      ...guarded,
-      queryText: query,
-      focusedQuery: guarded.focusedQuery || query,
-      anchors: guarded.anchors,
-      candidateSurfaces: guarded.candidateSurfaces,
-      evidenceFidelity: guarded.evidenceFidelity,
-      evidenceCoverage: guarded.evidenceCoverage,
-    },
-    guarded.evidencePlan,
-  );
-  guarded.semanticBridges = sanitizeSemanticBridges(
-    {
-      ...guarded,
-      queryText: query,
-      focusedQuery: guarded.focusedQuery || query,
-      anchors: guarded.anchors,
-      candidateSurfaces: guarded.candidateSurfaces,
-      evidenceFidelity: guarded.evidenceFidelity,
-      evidenceCoverage: guarded.evidenceCoverage,
-      evidencePlan: guarded.evidencePlan,
-    },
-    guarded.semanticBridges,
-  );
+  const sanitizerInput = {
+    ...guarded,
+    queryText: query,
+    focusedQuery: guarded.focusedQuery || query,
+    anchors: guarded.anchors,
+    candidateSurfaces: guarded.candidateSurfaces,
+    evidenceFidelity: guarded.evidenceFidelity,
+    evidenceCoverage: guarded.evidenceCoverage,
+  };
+  guarded.evidenceGoals =
+    guarded.evidenceGoals.length > 0
+      ? sanitizeEvidenceGoals(
+          sanitizerInput,
+          guarded.evidenceGoals,
+          guarded.candidateSurfaces,
+          guarded.evidenceFidelity,
+        )
+      : [];
+  guarded.evidencePlan = guarded.evidencePlan
+    ? sanitizeEvidencePlan(sanitizerInput, guarded.evidencePlan)
+    : undefined;
+  guarded.semanticBridges =
+    guarded.semanticBridges && guarded.semanticBridges.length > 0
+      ? sanitizeSemanticBridges(
+          {
+            ...sanitizerInput,
+            evidencePlan: guarded.evidencePlan,
+          },
+          guarded.semanticBridges,
+        )
+      : undefined;
   return guarded;
 }
 
@@ -1691,116 +2114,144 @@ function looksShortAndContextDependent(query: string): boolean {
   return normalized.length <= 28 || tokenCount <= 4;
 }
 
-function isDeterministicallyObviousQuery(_query: string, _compiled: QueryCompileResult): boolean {
-  return false;
-}
-
-export function compileQueryDeterministically(query: string): QueryCompileResult {
-  const queryShape = analyzeQueryShape(query);
-  const anchors = extractQueryAnchors(query);
+export function compileQueryWithoutSemanticFallback(
+  query: string,
+  reason = "llm-only-query-compiler-unavailable",
+): QueryCompileResult {
+  const focusedQuery = buildTaskBearingFocusedQuery(query);
+  const queryShape: RecallQueryShape = {
+    timeframe: "timeless",
+    granularity: "summary",
+    referentialMode: "anchored",
+    evidenceNeed: "chunk",
+  };
   const answerGranularity = deriveAnswerGranularity(queryShape);
-  const evidenceFidelity = deriveEvidenceFidelity(queryShape, anchors);
+  const evidenceFidelity = deriveEvidenceFidelity(queryShape, []);
   const routeWeights = deriveRouteWeights(queryShape);
-  const candidateSurfaces = deriveCandidateSurfaces(
-    queryShape,
-    answerGranularity,
-    evidenceFidelity,
-  );
-  const supportNeed = clamp01(
-    (queryShape.timeframe === "compare"
-      ? 0.9
-      : queryShape.timeframe === "historical"
-        ? 0.72
-        : 0.48) +
-      (queryShape.evidenceNeed === "workflow_context" ? 0.12 : 0) +
-      (evidenceFidelity === "high" ? 0.18 : evidenceFidelity === "medium" ? 0.08 : 0),
-  );
-  return applyQueryCompileGuards(query, {
+  return {
     queryText: query,
-    focusedQuery: query,
+    shouldRecall: true,
+    focusedQuery,
+    queryEntities: [],
     queryShape,
+    primaryRoute: primaryRouteFromWeights(routeWeights),
     answerGranularity,
     evidenceFidelity,
     routeWeights,
-    anchors,
-    candidateSurfaces,
-    evidenceGoals: buildDefaultEvidenceGoals({
-      query,
-      focusedQuery: query,
-      anchors,
-      candidateSurfaces,
-      evidenceFidelity,
-    }),
-    evidencePlan: buildDefaultEvidencePlan({
-      query,
-      focusedQuery: query,
-      queryShape,
-      anchors,
-      candidateSurfaces,
-      answerMode: deriveAnswerMode(query, queryShape),
-    }),
-    detailNeedScore: answerGranularity === "detail" ? 0.92 : 0.28,
-    supportNeed,
-    ambiguityLevel: ambiguityLevel(routeWeights, anchors, queryShape),
-    turnMode: computeTurnMode(query, queryShape),
+    anchors: [],
+    candidateSurfaces: deriveCandidateSurfaces(queryShape, answerGranularity, evidenceFidelity),
+    evidenceGoals: [],
+    detailNeedScore: 0,
+    supportNeed: 0,
+    ambiguityLevel: 0,
+    turnMode: "mixed",
     compilerProvenance: {
       source: "deterministic",
-      mode: "deterministic",
-      reasons: [`criteria=${QUERY_COMPILER_CUTOVER_CRITERIA.requiredScenes.join(",")}`],
+      mode: "fallback",
+      reasons: [reason],
     },
-  });
+  };
 }
 
 function mergeCompiledQuery(
   fallback: QueryCompileResult,
   compiled: Partial<QueryCompileResult>,
 ): QueryCompileResult {
-  const candidateSurfaces =
-    compiled.candidateSurfaces && compiled.candidateSurfaces.length > 0
-      ? compiled.candidateSurfaces
-      : fallback.candidateSurfaces;
-  const evidenceFidelity = compiled.evidenceFidelity ?? fallback.evidenceFidelity;
+  const shouldRecall = true;
+  const queryShape = compiled.queryShape ?? fallback.queryShape;
   const compilerProvenance = compiled.compilerProvenance ?? fallback.compilerProvenance;
+  const hasLlmSemanticContract =
+    compilerProvenance.source === "llm" ||
+    compilerProvenance.source === "hybrid" ||
+    compilerProvenance.mode === "llm";
   const focusedQuery =
     typeof compiled.focusedQuery === "string" && compiled.focusedQuery.trim()
-      ? compiled.focusedQuery.trim()
+      ? protectFocusedQuery(fallback.queryText, compiled.focusedQuery)
       : fallback.focusedQuery;
-  const anchors =
-    compiled.anchors && compiled.anchors.length > 0 ? compiled.anchors : fallback.anchors;
+  const anchors = compiled.anchors ? compiled.anchors : fallback.anchors;
+  const queryEntities = sanitizeQueryEntities(
+    (compiled as Partial<QueryCompileResult> & { queryEntities?: unknown }).queryEntities,
+  );
+  const primaryRoute =
+    sanitizePrimaryRoute(
+      (compiled as Partial<QueryCompileResult> & { primaryRoute?: unknown }).primaryRoute,
+    ) ??
+    primaryRouteFromWeights(compiled.routeWeights ?? {}) ??
+    primaryRouteFromWeights(deriveRouteWeights(queryShape));
+  const answerGranularity = compiled.answerGranularity ?? deriveAnswerGranularity(queryShape);
+  const evidenceFidelity = compiled.evidenceFidelity ?? deriveEvidenceFidelity(queryShape, anchors);
+  const routeWeights = compiled.routeWeights
+    ? normalizeRouteWeights(compiled.routeWeights)
+    : routeWeightsFromPrimaryRoute(primaryRoute, queryShape);
+  const derivedSurfaces = deriveCandidateSurfaces(queryShape, answerGranularity, evidenceFidelity);
+  if (queryEntities.length > 0) {
+    derivedSurfaces.push("entity_alias", "graph");
+  }
+  const candidateSurfaces = sanitizeCandidateSurfaces(compiled.candidateSurfaces, [
+    ...new Set(derivedSurfaces),
+  ]);
   const sanitizerFallback: QueryCompileResult = {
     ...fallback,
     ...compiled,
     queryText: fallback.queryText,
+    shouldRecall,
     focusedQuery,
+    queryEntities,
+    queryShape,
+    primaryRoute,
+    answerGranularity,
     anchors,
     candidateSurfaces,
     evidenceFidelity,
+    routeWeights,
     compilerProvenance,
   };
-  const sanitizedPlan = sanitizeEvidencePlan(sanitizerFallback, compiled.evidencePlan);
+  const sanitizedPlan = compiled.evidencePlan
+    ? sanitizeEvidencePlan(sanitizerFallback, compiled.evidencePlan)
+    : hasLlmSemanticContract
+      ? sanitizeEvidencePlan(sanitizerFallback, undefined)
+      : undefined;
   const bridgeFallback: QueryCompileResult = {
     ...sanitizerFallback,
     evidencePlan: sanitizedPlan,
   };
+  const evidenceGoals = compiled.evidenceGoals
+    ? sanitizeEvidenceGoals(
+        sanitizerFallback,
+        compiled.evidenceGoals,
+        candidateSurfaces,
+        evidenceFidelity,
+      )
+    : hasLlmSemanticContract
+      ? sanitizeEvidenceGoals(
+          sanitizerFallback,
+          undefined,
+          candidateSurfaces,
+          evidenceFidelity,
+        )
+      : [];
+  const semanticBridges = compiled.semanticBridges
+    ? sanitizeSemanticBridges(bridgeFallback, compiled.semanticBridges)
+    : hasLlmSemanticContract && sanitizedPlan
+      ? sanitizeSemanticBridges(bridgeFallback, undefined)
+      : undefined;
   return {
     ...fallback,
     ...compiled,
     queryText: fallback.queryText,
+    shouldRecall,
     focusedQuery,
-    queryShape: compiled.queryShape ?? fallback.queryShape,
-    answerGranularity: compiled.answerGranularity ?? fallback.answerGranularity,
+    queryEntities,
+    queryShape,
+    primaryRoute,
+    answerGranularity,
     evidenceFidelity,
-    routeWeights: compiled.routeWeights ?? fallback.routeWeights,
+    routeWeights,
     anchors,
     candidateSurfaces,
-    evidenceGoals: sanitizeEvidenceGoals(
-      sanitizerFallback,
-      compiled.evidenceGoals,
-      candidateSurfaces,
-      evidenceFidelity,
-    ),
+    evidenceGoals,
     evidencePlan: sanitizedPlan,
-    semanticBridges: sanitizeSemanticBridges(bridgeFallback, compiled.semanticBridges),
+    semanticBridges,
     detailNeedScore:
       typeof compiled.detailNeedScore === "number" && Number.isFinite(compiled.detailNeedScore)
         ? clamp01(compiled.detailNeedScore)
@@ -1819,7 +2270,7 @@ function mergeCompiledQuery(
 }
 
 export async function compileQuery(params: QueryCompileParams): Promise<QueryCompileResult> {
-  const fallback = compileQueryDeterministically(params.query);
+  const fallback = compileQueryWithoutSemanticFallback(params.query);
   if (
     !params.ctx.config.advanced.enableQueryCompiler ||
     !params.reasoner?.isEnabled?.() ||
@@ -1829,19 +2280,8 @@ export async function compileQuery(params: QueryCompileParams): Promise<QueryCom
       label: "query-compile",
       stage: "query_hot_path",
       provenance: "deterministic",
-      mode: "deterministic",
-      detail: "queryCompiler stayed on the deterministic path",
-    });
-    return fallback;
-  }
-  const obvious = isDeterministicallyObviousQuery(params.query, fallback);
-  if (obvious) {
-    recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
-      label: "query-compile",
-      stage: "query_hot_path",
-      provenance: "deterministic",
-      mode: "deterministic",
-      detail: "queryCompiler skipped the LLM because the query shape was obvious",
+      mode: "fallback",
+      detail: "queryCompiler requires LLM semantics and failed closed",
     });
     return fallback;
   }
@@ -1850,16 +2290,9 @@ export async function compileQuery(params: QueryCompileParams): Promise<QueryCom
     audit: params.ctx.llmBudgetAudit,
   });
   if (!compiled) {
-    return applyQueryCompileGuards(params.query, {
-      ...fallback,
-      compilerProvenance: {
-        source: "hybrid",
-        mode: "fallback",
-        reasons: ["query-compile-fallback"],
-      },
-    });
+    return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-empty");
   }
-  return applyQueryCompileGuards(
+  const guarded = applyQueryCompileGuards(
     params.query,
     mergeCompiledQuery(fallback, {
       compilerProvenance: {
@@ -1869,4 +2302,5 @@ export async function compileQuery(params: QueryCompileParams): Promise<QueryCom
       ...compiled,
     }),
   );
+  return guarded;
 }

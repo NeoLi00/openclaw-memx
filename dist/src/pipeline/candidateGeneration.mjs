@@ -1,5 +1,5 @@
 import { clamp01, normalizeName, normalizeText, stableHash } from "../support.mjs";
-import { extractQueryAnchors, queryAnchorSupport } from "./semantic/heuristics.mjs";
+import { queryAnchorSupport } from "./semantic/heuristics.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
 import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
@@ -301,13 +301,13 @@ function dedupeSearchHits(hits) {
 	}
 	return [...byDocId.values()];
 }
-function meaningfulCandidateAnchors(query) {
-	return extractQueryAnchors(query).map((anchor) => anchor.trim()).filter((anchor) => normalizeText(anchor).length >= 4).slice(0, 2);
+function meaningfulCandidateAnchors(compiled) {
+	return compiled.anchors.map((anchor) => anchor.trim()).filter((anchor) => normalizeText(anchor).length >= 4).slice(0, 2);
 }
 function rerankSurfaceHits(hits, surface, compiled) {
 	if (hits.length <= 1) return hits;
 	if (surface !== "fact" && surface !== "event" && surface !== "task" && surface !== "chunk" && surface !== "graph") return hits;
-	const anchors = meaningfulCandidateAnchors(compiled.focusedQuery);
+	const anchors = meaningfulCandidateAnchors(compiled);
 	if (anchors.length === 0) return hits;
 	const detailSensitive = compiled.answerGranularity === "detail" || compiled.evidenceFidelity === "high";
 	return [...hits].sort((left, right) => {
@@ -580,11 +580,7 @@ function entityExpansionCandidates(store, ctx, entities, topN) {
 	]).sort((left, right) => right.score - left.score).slice(0, Math.max(8, topN * 6));
 }
 function queryEntitySearchQueries(compiled, limit) {
-	return uniqueSearchQueries([
-		...compiled.anchors,
-		compiled.focusedQuery,
-		...(compiled.evidencePlan?.slots ?? []).flatMap((slot) => slotSubjectQueryVariants(slot.subjectHints))
-	], limit);
+	return uniqueSearchQueries(compiled.queryEntities.flatMap((entity) => slotSubjectQueryVariants([entity.name])), limit);
 }
 function resolveQueryEntities(store, ctx, compiled, limit) {
 	const querySourceRef = `query:${stableHash([compiled.queryText])}`;

@@ -12,7 +12,6 @@ import type {
 import { filterBootstrapRows } from "./bootstrapFilter.js";
 import { dedupeEvidenceRows, splitLabelValue, toEvidenceRow } from "./memoryObjectsHelpers.js";
 import { shouldProjectActiveProjectAlias } from "./authority.js";
-import { isBroadTemporalQuery, wantsHistoricalFacts } from "./semantics.js";
 
 function stateValueFromRow(row: EvidenceRow): string {
   return splitLabelValue(row.text).value || row.text;
@@ -401,8 +400,8 @@ export function createMemorySelectionObjective(
     routeType,
     query,
     now,
-    includeHistorical: routeType === "factual" && wantsHistoricalFacts(query),
-    broadTemporal: routeType === "temporal" && isBroadTemporalQuery(query),
+    includeHistorical: false,
+    broadTemporal: false,
     currentSessionKey,
   };
 }

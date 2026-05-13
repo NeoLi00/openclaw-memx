@@ -49,14 +49,8 @@ import {
   projectNamesMatch,
   resolveProjectReference,
 } from "./projectIdentity.js";
-import {
-  canonicalStateKey,
-  inferEntityType,
-  isQuestionLike,
-  looksLikeBareInstructionalGuidance,
-  looksLikeBareMemoryUseInstruction,
-} from "./semantic/heuristics.js";
-import { canonicalizePreferenceHint, parsePreferenceSignal } from "./semantics.js";
+import { canonicalStateKey } from "./semantic/heuristics.js";
+import { canonicalizePreferenceHint } from "./semantics.js";
 import { stateCurrentnessVectorMetadata } from "./stateLifecycle.js";
 import { buildVectorDocMetadata } from "./vectorDocMetadata.js";
 
@@ -602,7 +596,8 @@ function resourceStateKind(assertion: MemoryResourceAssertionHint): MemoryWorkfl
 }
 
 function resourceEntityType(assertion: MemoryResourceAssertionHint): EntityType {
-  return inferEntityType(assertion.resource) ?? "concept";
+  void assertion;
+  return "concept";
 }
 
 function resourceMetadata(assertion: MemoryResourceAssertionHint): Record<string, unknown> {
@@ -955,15 +950,6 @@ function storedPreferenceHint(params: {
   if (predicate !== "prefers") {
     return null;
   }
-  const inferred = parsePreferenceSignal(`I prefer ${object}.`);
-  if (inferred) {
-    return {
-      predicate: inferred.predicate,
-      object: inferred.object,
-      confidence: 0.92,
-      reason: "inferred guidance facet from generic preference fact",
-    };
-  }
   return {
     predicate,
     object,
@@ -1172,191 +1158,6 @@ function buildEventDetailExcerpt(
     return undefined;
   }
   return truncateText(selected.join(" | "), 260);
-}
-
-function structuredEntityTerms(candidate: ClassifiedCandidate): Set<string> {
-  return new Set(
-    (candidate.structuredHints?.entities ?? [])
-      .flatMap((entity) => normalizedTerms(entity.name, { minLength: 3 }))
-      .filter(Boolean),
-  );
-}
-
-function structuredTimeTerms(candidate: ClassifiedCandidate): Set<string> {
-  return new Set(
-    (candidate.structuredHints?.timeHints ?? [])
-      .flatMap((hint) => normalizedTerms(hint, { minLength: 2 }))
-      .filter(Boolean),
-  );
-}
-
-function clauseSignalScore(candidate: ClassifiedCandidate, clause: string): number {
-  const clauseTerms = normalizedTerms(clause, { minLength: 2 });
-  if (clauseTerms.length === 0) {
-    return 0;
-  }
-  const entityTerms = structuredEntityTerms(candidate);
-  const timeTerms = structuredTimeTerms(candidate);
-  const numericTerms = clauseTerms.filter(
-    (term) => /\d/u.test(term) || term.includes("$") || term.includes("%"),
-  );
-  const entityOverlap = clauseTerms.filter((term) => entityTerms.has(term));
-  const timeOverlap = clauseTerms.filter((term) => timeTerms.has(term));
-  let score = 0;
-  if (!isQuestionLike(clause)) {
-    score += 2;
-  }
-  if (numericTerms.length > 0) {
-    score += 2;
-  }
-  if (entityOverlap.length > 0) {
-    score += 1;
-  }
-  if (timeOverlap.length > 0) {
-    score += 1;
-  }
-  if (clauseTerms.length >= 6) {
-    score += 1;
-  }
-  return score;
-}
-
-function buildObservationShadowExcerpt(candidate: ClassifiedCandidate): string | undefined {
-  const fragments = [...semanticDraftSupportTexts(candidate), candidate.rawText.trim()].filter(
-    Boolean,
-  );
-  const clauses = fragments.flatMap((fragment) =>
-    fragment
-      .split(/[。.!！？?；;\n]/u)
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  );
-  const ranked = [...new Map(clauses.map((clause) => [normalizeText(clause), clause])).values()]
-    .map((clause) => ({
-      clause,
-      score: clauseSignalScore(candidate, clause),
-    }))
-    .filter((entry) => entry.score >= 3 && !isQuestionLike(entry.clause))
-    .sort((left, right) => right.score - left.score || right.clause.length - left.clause.length);
-  if (ranked.length === 0) {
-    return undefined;
-  }
-  return truncateText(
-    ranked
-      .slice(0, 2)
-      .map((entry) => entry.clause)
-      .join(" | "),
-    260,
-  );
-}
-
-function observationShadowTimeframe(
-  candidate: ClassifiedCandidate,
-): "current" | "historical" | "compare" {
-  const materializationHint = getMaterializationHint(candidate);
-  if (
-    materializationHint?.timeframeHint === "current" ||
-    materializationHint?.timeframeHint === "historical" ||
-    materializationHint?.timeframeHint === "compare"
-  ) {
-    return materializationHint.timeframeHint;
-  }
-  const draft = getSemanticDraft(candidate);
-  const draftTimeframe = draft?.assertionDrafts
-    .map((entry) => entry.timeframeHint)
-    .find(
-      (entry): entry is "current" | "historical" | "compare" =>
-        entry === "current" || entry === "historical" || entry === "compare",
-    );
-  if (draftTimeframe) {
-    return draftTimeframe;
-  }
-  return (candidate.structuredHints?.timeHints?.length ?? 0) > 0 ? "historical" : "current";
-}
-
-function shouldMaterializeObservationShadowFact(params: {
-  candidate: ClassifiedCandidate;
-  workflowHints: MemoryCandidateWorkflowHint[];
-  relations: MemoryCandidateRelationHint[];
-  preference: MemoryCandidatePreferenceHint | null;
-  correction: MemoryCandidateCorrectionHint | null;
-  decision: MemoryCandidateDecisionHint | null;
-}): boolean {
-  const { candidate, workflowHints, relations, preference, correction, decision } = params;
-  if (candidate.source.kind !== "user") {
-    return false;
-  }
-  if (!candidate.policy.captureAuthorized || candidate.policy.action === "ignore") {
-    return false;
-  }
-  const hasAnswerBearingFamily =
-    hasSemanticDraftFamily(candidate, "event_like") ||
-    hasSemanticDraftFamily(candidate, "fact_like") ||
-    candidate.classification === "episodic-event";
-  if (
-    workflowHints.length > 0 ||
-    relations.length > 0 ||
-    preference ||
-    correction ||
-    decision ||
-    hasSemanticDraftFamily(candidate, "strategy_like")
-  ) {
-    return false;
-  }
-  if (looksLikeBareMemoryUseInstruction(candidate.rawText)) {
-    return false;
-  }
-  if (
-    looksLikeBareInstructionalGuidance(candidate.rawText) &&
-    (candidate.structuredHints?.semanticDraft?.assertionDrafts.length ?? 0) === 0
-  ) {
-    return false;
-  }
-  const detail = buildObservationShadowExcerpt(candidate);
-  if (!detail) {
-    return false;
-  }
-  return (
-    hasAnswerBearingFamily || candidate.structuredHints?.semanticDraft?.assertionDrafts.length === 0
-  );
-}
-
-function buildObservationShadowFact(
-  ctx: MemoryOperationContext,
-  candidate: ClassifiedCandidate,
-): NormalizedFact | null {
-  const detail = buildObservationShadowExcerpt(candidate);
-  if (!detail) {
-    return null;
-  }
-  const draft = getSemanticDraft(candidate);
-  const fallbackSourceRef =
-    typeof candidate.metadata?.sourceRef === "string" &&
-    candidate.metadata.sourceRef.trim().length > 0
-      ? candidate.metadata.sourceRef.trim()
-      : undefined;
-  const timeframe = observationShadowTimeframe(candidate);
-  return buildFact({
-    ctx,
-    candidate,
-    subject: subjectUser(),
-    predicate: ANSWER_BEARING_OBSERVATION_PREDICATE,
-    object: detail,
-    objectValueJson: {
-      semanticFamily: "event_like",
-      shadowSource: "answer_bearing_observation",
-      answerBearing: true,
-      timeframeHint: timeframe,
-      currentnessHint:
-        timeframe === "historical" || timeframe === "compare" ? "historical" : "current",
-      supportRefs: [
-        ...new Set([
-          ...(draft?.supportSpans ?? []).map((entry) => entry.sourceRef).filter(Boolean),
-          ...(fallbackSourceRef ? [fallbackSourceRef] : []),
-        ]),
-      ],
-    },
-  });
 }
 
 function buildEventStructuredSummary(candidate: ClassifiedCandidate): string | undefined {
@@ -1654,7 +1455,6 @@ const DURABLE_DECISION_SUMMARY_PATTERN =
 const DURABLE_DECISION_SUMMARY_PATTERN_ZH =
   /(?:必须用|只能用|默认(?:改成|设为|采用|用)?|以后(?:都)?用|今后(?:都)?用|统一用|固定用|记着(?:以后)?)/u;
 const WORKFLOW_GUIDANCE_PREDICATE = "has_workflow_guidance";
-const ANSWER_BEARING_OBSERVATION_PREDICATE = "reported_detail";
 
 function buildProcedureGuidanceSummary(candidate: ClassifiedCandidate): string | undefined {
   const decision = getDecisionHint(candidate)?.summary?.trim();
@@ -2026,7 +1826,7 @@ export function normalizeCandidate(
       (canonicalCurrentProject ? normalizeName(canonicalCurrentProject) === normalizedName : false);
     const nextType: EntityType = wantsProject
       ? "project"
-      : (type ?? inferEntityType(name) ?? "unknown");
+      : (type ?? "unknown");
     const existingIndex = entityIndexByName.get(normalizedName);
     if (existingIndex != null) {
       const existing = outputs.entities[existingIndex]!;
@@ -2344,22 +2144,6 @@ export function normalizeCandidate(
         objectValueJson: guidance ? { guidance } : undefined,
       }),
     );
-  }
-
-  if (
-    shouldMaterializeObservationShadowFact({
-      candidate,
-      workflowHints,
-      relations,
-      preference,
-      correction,
-      decision,
-    })
-  ) {
-    const observationShadowFact = buildObservationShadowFact(ctx, candidate);
-    if (observationShadowFact) {
-      outputs.facts.push(observationShadowFact);
-    }
   }
 
   for (const workflow of workflowHints) {

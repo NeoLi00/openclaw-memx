@@ -3,7 +3,7 @@ import { runConsolidation } from "./pipeline/consolidate.js";
 import { buildStoredFactObjectValueJson } from "./pipeline/normalize.js";
 import { compileQuery } from "./pipeline/queryCompiler.js";
 import { retrieveEvidence } from "./pipeline/retrieve.js";
-import { expandStateKeyAliases, wantsHistoricalFacts } from "./pipeline/semantics.js";
+import { expandStateKeyAliases } from "./pipeline/semantics.js";
 import { buildOperationContext, type MemxRuntimeManager } from "./runtime.js";
 import { isScopeAllowed, resolveDefaultScope } from "./security/scopes.js";
 import { nowIso, normalizeName, normalizeText, stableHash } from "./support.js";
@@ -286,9 +286,7 @@ export function createMemxTools(params: {
           text: readString(params, "query"),
           predicate: readString(params, "predicate"),
           limit: readNumber(params, "limit") ?? 8,
-          includeHistorical:
-            readBoolean(params, "includeHistorical") ??
-            wantsHistoricalFacts(readString(params, "query") ?? ""),
+          includeHistorical: readBoolean(params, "includeHistorical") ?? false,
         });
         return jsonToolResult({ facts });
       } catch (error) {

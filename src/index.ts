@@ -1,7 +1,9 @@
 import type { OpenClawPluginApi, OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
 import { registerMemxCli } from "./cli/registerCli.js";
 import { memxConfigSchema, DEFAULT_MEMORY_CONFIG } from "./config.js";
+import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.js";
 import { MIN_PROMPT_BUDGET } from "./pipeline/constants.js";
+import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.js";
 import { readMessageText, stripInboundMetadata } from "./pipeline/messageText.js";
 import { compileQuery } from "./pipeline/queryCompiler.js";
 import {
@@ -15,9 +17,7 @@ import {
 } from "./pipeline/retrieveTracing.js";
 import { semanticTextSimilarity } from "./pipeline/semantic/textSimilarity.js";
 import { emitBackgroundRetrievalSignals } from "./pipeline/signalLedger.js";
-import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.js";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.js";
-import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.js";
 import { createMemxTools } from "./plugin-tools.js";
 import { buildOperationContext, type MemxStoreBundle, MemxRuntimeManager } from "./runtime.js";
 import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security/escaping.js";
@@ -318,26 +318,6 @@ function _logPromptContext(
   return promptContext;
 }
 
-function buildNoRecallHint(config: MemoryPluginConfig, queryAnalysis: QueryCompileResult): string {
-  const lines = [
-    "## MemX Memory",
-    "memory-memx is the active memory backend for this run.",
-    "No memory was confidently auto-recalled for the current turn.",
-    "Do not inspect workspace memory files or narrate memory plumbing unless the user explicitly asks.",
-    "Answer from the current turn alone unless already-injected memory is enough; do not speculate about missing prior context.",
-  ];
-  if (shouldSuggestExplicitRecallTool(config) && queryAnalysis.focusedQuery) {
-    lines.push(
-      `If prior context, user preference, or past work likely matters, call memory_recall with a short focused query such as: "${queryAnalysis.focusedQuery}".`,
-    );
-  } else if (shouldSuggestExplicitRecallTool(config)) {
-    lines.push(
-      "If prior context likely matters, call memory_recall with a short focused query you generate yourself.",
-    );
-  }
-  return lines.join("\n");
-}
-
 function buildBackgroundRecallPrompt(
   config: MemoryPluginConfig,
   bundle: BackgroundRecallBundle,
@@ -484,9 +464,12 @@ function buildRecallTraceLine(params: {
   return [
     `query="${truncateText(params.rawQuery, 96)}"`,
     `full=${String(params.fullRecall)}`,
+    `shouldRecall=${String(params.queryAnalysis.shouldRecall)}`,
+    `primaryRoute=${params.queryAnalysis.primaryRoute ?? "unknown"}`,
     `turnMode=${params.queryAnalysis.turnMode}`,
     `shape=${params.queryAnalysis.queryShape.timeframe}/${params.queryAnalysis.queryShape.granularity}/${params.queryAnalysis.queryShape.referentialMode}/${params.queryAnalysis.queryShape.evidenceNeed}`,
     `focused="${truncateText(params.queryAnalysis.focusedQuery || params.rawQuery, 96)}"`,
+    `entities=${params.queryAnalysis.queryEntities.length}`,
     `background=g${background.guidanceCount ?? 0}/s${Array.isArray(background.stateIds) ? background.stateIds.length : 0}/t${Array.isArray(background.taskIds) ? background.taskIds.length : 0}`,
     `granularity=${params.queryAnalysis.answerGranularity}/${params.queryAnalysis.evidenceFidelity}`,
     params.bundle
@@ -495,17 +478,11 @@ function buildRecallTraceLine(params: {
   ].join(" ");
 }
 
-function extractPromptQuery(event: { prompt?: string; messages?: unknown[] }): string {
+export function extractPromptQuery(event: { prompt?: string; messages?: unknown[] }): string {
   const prompt = event.prompt?.trim() ?? "";
   const promptCandidate = (() => {
     if (!prompt) {
       return "";
-    }
-    const lastDoubleNewline = prompt.lastIndexOf("\n\n");
-    if (lastDoubleNewline > 0 && lastDoubleNewline < prompt.length - 3) {
-      return stripInboundMetadata(
-        stripInjectedHistoricalBlock(prompt.slice(lastDoubleNewline + 2).trim()),
-      );
     }
     return stripInboundMetadata(stripInjectedHistoricalBlock(prompt));
   })();
@@ -715,18 +692,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
                 ),
               };
             }
-            return {
-              prependContext: _logPromptContext(
-                api.logger,
-                "full-no-material",
-                buildNoRecallHint(config, queryAnalysis),
-                {
-                  agentId: ctx.agentId,
-                  sessionKey: ctx.sessionKey,
-                  runId: ctx.runId,
-                },
-              ),
-            };
+            return;
           }
           return {
             prependContext: _logPromptContext(

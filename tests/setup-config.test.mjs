@@ -15,7 +15,7 @@ function createLogger() {
   };
 }
 
-test("memx setup grants conversation access while preserving hook settings", async () => {
+test("memx setup grants prompt injection without writing unsupported core keys", async () => {
   let registerCliCallback;
   await plugin.register({
     config: {
@@ -77,8 +77,13 @@ test("memx setup grants conversation access while preserving hook settings", asy
   const result = JSON.parse(await readFile(configPath, "utf8"));
 
   assert.equal(
-    result.plugins?.entries?.["memory-memx"]?.hooks?.allowConversationAccess,
+    result.plugins?.entries?.["memory-memx"]?.hooks?.allowPromptInjection,
     true,
   );
-  assert.equal(result.plugins?.entries?.["memory-memx"]?.hooks?.timeoutMs, 45000);
+  assert.equal(
+    "allowConversationAccess" in (result.plugins?.entries?.["memory-memx"]?.hooks ?? {}),
+    false,
+  );
+  assert.equal("timeoutMs" in (result.plugins?.entries?.["memory-memx"]?.hooks ?? {}), false);
+  assert.equal(result.agents?.defaults?.includeMemoryBootstrap, undefined);
 });

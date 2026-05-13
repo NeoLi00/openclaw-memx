@@ -1164,7 +1164,7 @@ function packetFromGroup(params) {
 		dedupeKey: sourceKey(sourceRefs, selected.entry.text),
 		authorRoles: [...new Set(allUnits.map((unit) => unit.authorRole).filter(Boolean))].filter((role) => Boolean(role) && role !== "unknown"),
 		coverage: {
-			filled: adjustedEligibility.eligible,
+			filled: adjustedEligibility.eligible && missing.length === 0,
 			missing,
 			confidence: adjustedGrade.finalScore
 		},
@@ -1254,6 +1254,16 @@ function packetHasSoftPenalty(packet, reason) {
 function packetHasSoftPenaltyPrefix(packet, prefix) {
 	return (packet.softPenalties ?? []).some((penalty) => penalty.startsWith(prefix));
 }
+function packetCoverageSatisfied(packet) {
+	return packet.coverage.filled && packet.coverage.missing.length === 0;
+}
+function packetEligibleForPromptInjection(queryAnalysis, packet, floor) {
+	if (packetCoverageSatisfied(packet)) return true;
+	if (packetHasSoftPenaltyPrefix(packet, "missing-context:")) return false;
+	if (packetHasSoftPenalty(packet, "answer-without-bound-context")) return false;
+	if (operationType(queryAnalysis) === "return_value" && packetHasSoftPenalty(packet, "weak-query-context-binding")) return false;
+	return (packet.grade?.finalScore ?? 0) >= Math.max(.62, floor + .12) && (packet.grade?.slotCoverageScore ?? 0) >= .45;
+}
 function packetHasAnswerDisplayForQuery(queryAnalysis, packet) {
 	const aggregateMode = queryAnalysis.answerMode === "count_aggregate" || operationType(queryAnalysis) === "aggregate";
 	return packet.displayLines.some((line) => line.startsWith("[answer]") || line.startsWith("[resource]") || aggregateMode && line.startsWith("[event]"));
@@ -1264,7 +1274,7 @@ function selectInjectedPackets(queryAnalysis, packets) {
 	const selected = /* @__PURE__ */ new Set();
 	const selectedDistinct = /* @__PURE__ */ new Set();
 	const selectedAnswerDisplays = /* @__PURE__ */ new Set();
-	const ranked = packets.filter((packet) => !packet.dropReason && packet.eligibility?.eligible !== false).sort((left, right) => packetSortValue(right) - packetSortValue(left));
+	const ranked = packets.filter((packet) => !packet.dropReason && packet.eligibility?.eligible !== false).filter((packet) => packetEligibleForPromptInjection(queryAnalysis, packet, floor)).sort((left, right) => packetSortValue(right) - packetSortValue(left));
 	const rankedForSelection = ranked.some((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context") && ((packet.grade?.answerScore ?? 0) > .08 || packet.displayLines.some((line) => line.startsWith("[answer]")))) ? ranked.filter((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context")) : ranked;
 	const scoredRankedForSelection = rankedForSelection.some((packet) => packetSortValue(packet) > 0) ? rankedForSelection.filter((packet) => packetSortValue(packet) > 0) : rankedForSelection;
 	const aggregateMode = queryAnalysis.answerMode === "count_aggregate" || operationType(queryAnalysis) === "aggregate";
@@ -1556,10 +1566,7 @@ function assembleEvidencePackets(input) {
 			injected,
 			protectionReason: injected ? packet.selectionReason ?? "packet-final-score" : packet.protectionReason,
 			dropReason: injected ? void 0 : packet.dropReason,
-			coverage: injected ? {
-				...packet.coverage,
-				filled: true
-			} : packet.coverage
+			coverage: packet.coverage
 		};
 	});
 	const markedPromptEvidence = markPromptEvidenceFromPackets({

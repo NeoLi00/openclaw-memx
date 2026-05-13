@@ -84,22 +84,75 @@ In the current internal long-running engineering-memory replay suite, MemX reach
 the expected memory evidence**. That means the expected evidence was written, retrievable, and
 available to prompt injection in the tested scenarios.
 
-## Install
+## Quick install
 
-Requirements: OpenClaw 2026.4.25+ with Node.js 22.14+ or Node 24. Python 3 is required only for
-local sentence-transformers embeddings.
+Requirements: OpenClaw 2026.3.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
+when you use local embeddings.
 
-Follow these steps in order. Run the clone and plugin install only once.
-
-### 1. Make sure OpenClaw has an LLM provider
-
-MemX can reuse any compatible OpenClaw model provider. If OpenClaw already has one, keep its model
-name handy as `provider/model` and skip to step 2.
-
-For a fresh OpenClaw install, configure a provider first. The example below uses DeepSeek V4 Flash
-only as an example; you can use any compatible provider/model.
+Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify.
+This assumes OpenClaw already has a working model provider configured. If this is a fresh
+OpenClaw install, configure a provider first, or use the DeepSeek example below before relying on
+LLM-powered memory compilation.
 
 ```bash
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
+openclaw plugins install .
+openclaw memx setup --local-embedding
+openclaw gateway restart
+openclaw memx doctor --deep
+```
+
+Run `openclaw plugins install .` from a clean clone before installing development dependencies.
+If the directory already has `node_modules`, use a fresh clone or remove `node_modules` first so
+OpenClaw's install scanner only sees plugin package files.
+
+For local development with live edits, link the cloned repository instead of copying it into
+OpenClaw's managed plugin directory:
+
+```bash
+openclaw plugins install --link .
+```
+
+## What `memx setup` changes
+
+`openclaw memx setup` is the normal configuration step after the plugin is installed. It writes the
+recommended OpenClaw config for MemX:
+
+- adds `memory-memx` to `plugins.allow`;
+- sets `plugins.slots.memory` to `memory-memx`, so the MemX plugin owns OpenClaw's memory slot;
+- enables `plugins.entries.memory-memx.hooks.allowPromptInjection`, so recalled memory is injected
+  as runtime context before the agent answers;
+- enables the turn scheduler and the LLM semantic compiler path used for recall, write, and
+  maintenance;
+- keeps `advanced.enableCompatibilityMemoryTools=false`, so MemX does not expose the legacy
+  `memory_search` / `memory_get` compatibility tools and does not add the old `MEMORY.md` /
+  `memory/*.md` recall prompt next to MemX recall;
+- selects the requested embedding provider and model, or the recommended local embedding setup when
+  `--local-embedding` is used.
+
+`memx setup` does not delete or migrate existing `MEMORY.md` files. MemX's injected recall context
+also tells the agent not to treat `MEMORY.md` or `memory/*.md` as the active memory backend unless
+the user explicitly asks about those files. If you have old curated notes in `MEMORY.md`, migrate
+them deliberately instead of relying on both memory systems at the same time.
+
+## Model and embedding setup
+
+### Fresh OpenClaw with an LLM provider
+
+On a fresh OpenClaw install with no existing provider, configure an LLM provider first, point MemX
+at that provider/model, then restart and run the deep doctor probe. The commands below use DeepSeek
+only as an example; any compatible OpenClaw model provider can be used by replacing
+`deepseek/deepseek-v4-flash` with your own `provider/model`.
+
+```bash
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
+openclaw plugins install .
+
+python3 -m venv "$HOME/.openclaw/memx/.venv"
+"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
+
 openclaw config set models.providers.deepseek '{
   "api": "openai-completions",
   "baseUrl": "https://api.deepseek.com",
@@ -117,120 +170,110 @@ openclaw config set models.providers.deepseek '{
     }
   ]
 }' --strict-json
-```
 
-After this example, the model name for MemX is `deepseek/deepseek-v4-flash`.
-
-If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, use an environment
-variable template in the same provider config:
-
-```bash
-export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-```
-
-Then set `"apiKey": "${DEEPSEEK_API_KEY}"` in the provider JSON and make sure the Gateway process
-has that environment variable.
-
-### 2. Clone and install MemX
-
-```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
-openclaw plugins install .
-```
-
-For local development with live edits, use the link form instead of the last command:
-
-```bash
-openclaw plugins install --link .
-```
-
-### 3. Set up local embeddings
-
-```bash
-python3 -m venv "$HOME/.openclaw/memx/.venv"
-"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
-```
-
-This installs the Python dependencies used by the recommended local embedding provider.
-
-### 4. Write the MemX config
-
-Replace `provider/model` with your OpenClaw model, for example `deepseek/deepseek-v4-flash`.
-
-```bash
 openclaw memx setup \
   --local-embedding \
   --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
-  --llm-model provider/model
-```
-
-You may omit `--llm-model provider/model` only if you want MemX to use OpenClaw's current default
-model.
-
-### 5. Restart and verify
-
-```bash
+  --llm-model deepseek/deepseek-v4-flash
 openclaw gateway restart
 openclaw memx doctor --deep
 ```
 
-## Embedding options
-
-The install flow above uses the recommended local embedding setup. To use a different embedding
-provider, replace step 3 and step 4 with one of the options below, then run step 5.
-
-### Local sentence-transformers with a custom model
+If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, store an env
+template instead, and make sure the Gateway process has that environment variable:
 
 ```bash
-python3 -m venv "$HOME/.openclaw/memx/.venv"
-"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
+export DEEPSEEK_API_KEY="sk-your-deepseek-key"
+openclaw config set models.providers.deepseek '{
+  "api": "openai-completions",
+  "baseUrl": "https://api.deepseek.com",
+  "apiKey": "${DEEPSEEK_API_KEY}",
+  "models": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "api": "openai-completions",
+      "reasoning": false,
+      "input": ["text"],
+      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+      "contextWindow": 64000,
+      "maxTokens": 8192
+    }
+  ]
+}' --strict-json
+```
 
+MemX can reuse your existing OpenClaw provider. If OpenClaw already has a compatible provider
+configured, you can simply point MemX at that provider/model:
+
+```bash
+openclaw config set plugins.entries.memory-memx.config.advanced.llmClassifierModel provider/model
+```
+
+For embeddings, `openclaw memx setup --local-embedding` selects the recommended local
+`sentence-transformers-local` provider and model. Install the Python dependencies for the Python
+runtime that OpenClaw will use:
+
+```bash
+python3 -m pip install --user sentence-transformers torch
+```
+
+If you use a virtual environment, pass its Python binary during setup:
+
+```bash
+openclaw memx setup --local-embedding --embedding-python /path/to/.venv/bin/python
+openclaw gateway restart
+```
+
+### Choose an embedding provider
+
+`openclaw memx setup --local-embedding` is only the recommended default. You can choose a different
+embedding provider with the same setup command and, where needed, `openclaw config set`.
+
+Local sentence-transformers with a custom model:
+
+```bash
+python3 -m pip install --user sentence-transformers torch
 openclaw memx setup \
   --embedding-provider sentence-transformers-local \
   --embedding-model BAAI/bge-m3 \
-  --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
-  --embedding-device auto \
-  --llm-model provider/model
+  --embedding-device auto
 ```
 
-### OpenAI-compatible embeddings
+OpenAI-compatible embeddings:
 
 ```bash
 openclaw memx setup \
   --embedding-provider openai-compatible \
-  --embedding-model text-embedding-3-small \
-  --llm-model provider/model
+  --embedding-model text-embedding-3-small
 openclaw config set plugins.entries.memory-memx.config.embedding.baseURL https://api.openai.com/v1
 openclaw config set plugins.entries.memory-memx.config.embedding.apiKey "sk-your-embedding-key"
 ```
 
-### Ollama embeddings
+Ollama embeddings:
 
 ```bash
 openclaw memx setup \
   --embedding-provider ollama \
-  --embedding-model nomic-embed-text \
-  --llm-model provider/model
+  --embedding-model nomic-embed-text
 openclaw config set plugins.entries.memory-memx.config.embedding.ollamaBaseURL http://127.0.0.1:11434
 ```
 
-### No vector embeddings
+Disable vector embeddings and use lexical fallback only:
 
 ```bash
-openclaw memx setup --embedding-provider off --llm-model provider/model
+openclaw memx setup --embedding-provider off
 ```
 
-This disables vector embeddings and uses lexical fallback only.
-
-After changing embedding settings on an existing memory database, restart the Gateway and reindex:
+After changing embedding settings, restart the Gateway. If you already have stored memories, reindex
+them so the vector store matches the new embedding provider:
 
 ```bash
 openclaw gateway restart
 openclaw memx reindex
 ```
 
-## Recommended cost-quality setup
+### Recommended cost-quality setup
 
 The following combination is recommended for a practical balance of cost, quality, multilingual
 retrieval, and local-first operation:

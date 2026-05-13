@@ -1,10 +1,10 @@
 import { normalizeName, normalizeText, nowIso, stableHash } from "./support.mjs";
-import { expandStateKeyAliases, wantsHistoricalFacts } from "./pipeline/semantic/heuristics.mjs";
+import { expandStateKeyAliases } from "./pipeline/semantic/heuristics.mjs";
 import "./pipeline/semantics.mjs";
 import { buildStoredFactObjectValueJson } from "./pipeline/normalize.mjs";
+import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { isScopeAllowed, resolveDefaultScope } from "./security/scopes.mjs";
 import { buildOperationContext } from "./runtime.mjs";
-import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { retrieveEvidence } from "./pipeline/retrieve.mjs";
 import { Type, jsonToolResult, readBoolean, readNumber, readString, stringEnum } from "./tooling.mjs";
 //#region src/plugin-tools.ts
@@ -241,7 +241,7 @@ function createMemxTools(params) {
 					text: readString(params, "query"),
 					predicate: readString(params, "predicate"),
 					limit: readNumber(params, "limit") ?? 8,
-					includeHistorical: readBoolean(params, "includeHistorical") ?? wantsHistoricalFacts(readString(params, "query") ?? "")
+					includeHistorical: readBoolean(params, "includeHistorical") ?? false
 				}) });
 			} catch (error) {
 				return jsonToolResult({ error: String(error) });

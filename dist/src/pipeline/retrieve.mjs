@@ -1,17 +1,17 @@
 import { clamp01, normalizeText, randomId, stableHash, truncateText } from "../support.mjs";
-import { projectNamesMatch, resolveProjectReference } from "./projectIdentity.mjs";
-import { extractQueryAnchors, inferEntityNames, isQuestionLike, queryAnchorSupport } from "./semantic/heuristics.mjs";
+import { projectNamesMatch } from "./projectIdentity.mjs";
+import { isQuestionLike, queryAnchorSupport } from "./semantic/heuristics.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 import { snapshotMemoryLlmBudgetAudit } from "./llmBudgetAudit.mjs";
 import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
 import { filterBootstrapRows } from "./bootstrapFilter.mjs";
-import { inferTemporalSince } from "./semantics.mjs";
+import "./semantics.mjs";
 import { dedupeEvidenceRows, formatFactLine, lineageFromMetadata, normalizeSearchText, rowsFromSearchHits, shouldSuppressRecallText, splitLabelValue, toEvidenceRow } from "./memoryObjectsHelpers.mjs";
 import { isSnapshotFactualStateKey } from "./authority.mjs";
 import { emitContradictionSignals, emitFullRetrievalSignals } from "./signalLedger.mjs";
 import { semanticTaskSummaryText } from "./taskSummary.mjs";
+import { compileQuery, compileQueryWithoutSemanticFallback } from "./queryCompiler.mjs";
 import "./sourceSegments.mjs";
-import { compileQuery, compileQueryDeterministically } from "./queryCompiler.mjs";
 import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceCoverage.mjs";
 import { isAnswerPromptLineRole, normalizeSourceRefs, promptLineRole } from "./sourceRefs.mjs";
 import { candidateGenerationAuditPayload, generateCandidates } from "./candidateGeneration.mjs";
@@ -27,7 +27,7 @@ const PRIMARY_ROUTE_TYPES = [
 	"explanatory"
 ];
 function analyzeRecallQuery(query) {
-	return compileQueryDeterministically(query);
+	return compileQueryWithoutSemanticFallback(query, "llm-only-recall-analysis-unavailable");
 }
 function buildBackgroundRecallBundle(store, ctx) {
 	return buildBackgroundRecallBundle$1(store, ctx);
@@ -1753,14 +1753,6 @@ function isQuestionLikeTask(task) {
 	return isQuestionLike(task.title) || isQuestionLike(candidateResolution) || isQuestionLike(stableSummary) || isQuestionLike(taskMetadataValue(task, "currentTask"));
 }
 function resolveChunkMentionedProject(chunk, knownProjects) {
-	const entityNames = inferEntityNames(`${chunk.content} ${chunk.summary}`).map((entry) => entry.name).filter(Boolean);
-	for (const entityName of entityNames) {
-		const resolved = resolveProjectReference(entityName, {
-			knownProjects,
-			allowDescriptorAlias: true
-		});
-		if (resolved && knownProjects.some((candidate) => projectNamesMatch(candidate, resolved))) return resolved;
-	}
 	for (const candidate of knownProjects) {
 		if (!candidate) continue;
 		if (chunk.content.includes(candidate) || chunk.summary.includes(candidate)) return candidate;
@@ -2236,9 +2228,7 @@ function buildObjectiveBudgets(ctx, evaluations, routeDecision) {
 	};
 }
 function selectionObjectiveForRoute(routeType, query, now, currentSessionKey) {
-	const objective = createMemorySelectionObjective(routeType, query, now, currentSessionKey);
-	if (routeType === "temporal") objective.since = inferTemporalSince(query, now);
-	return objective;
+	return createMemorySelectionObjective(routeType, query, now, currentSessionKey);
 }
 function buildRouteEvidencePacks(store, ctx, focusedQueries, hybridHits) {
 	const supersetObjective = selectionObjectiveForRoute("temporal", focusedQueries.temporal, ctx.now, ctx.sessionKey);
@@ -2397,7 +2387,7 @@ async function retrieveEvidence(store, ctx, query, searchQuery = query, auditOpt
 	const budgetedScheduled = budgetedSelection.scheduled;
 	const projected = projectScheduledMemoryObjects(budgetedScheduled, deriveProjectionOptions(ctx, allocationPlan, retrievalQuery, route, queryAnalysis));
 	const allowHistoricalFacts = queryAnalysis.queryShape.timeframe === "historical" || queryAnalysis.queryShape.timeframe === "compare";
-	const queryAnchors = uniqueNonEmpty([...extractQueryAnchors(query), ...referentResolution.anchors]).filter((anchor) => isMeaningfulRecallAnchor(anchor));
+	const queryAnchors = uniqueNonEmpty(referentResolution.anchors).filter((anchor) => isMeaningfulRecallAnchor(anchor));
 	const resolvedReferentAnchors = uniqueNonEmpty(referentResolution.anchors).filter((anchor) => isMeaningfulRecallAnchor(anchor));
 	let states = projected.states;
 	let tasks = projected.tasks;

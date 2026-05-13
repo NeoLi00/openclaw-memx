@@ -2,18 +2,18 @@ import { nowIso, randomId, truncateText } from "./support.mjs";
 import { semanticTextSimilarity } from "./pipeline/semantic/textSimilarity.mjs";
 import { emitBackgroundRetrievalSignals } from "./pipeline/signalLedger.mjs";
 import "./pipeline/constants.mjs";
+import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security/escaping.mjs";
 import { resolveDefaultScope } from "./security/scopes.mjs";
 import { MemxRuntimeManager, buildOperationContext } from "./runtime.mjs";
 import { registerMemxCli } from "./cli/registerCli.mjs";
 import { DEFAULT_MEMORY_CONFIG, memxConfigSchema } from "./config.mjs";
+import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.mjs";
 import { readMessageText, stripInboundMetadata } from "./pipeline/messageText.mjs";
-import { compileQuery } from "./pipeline/queryCompiler.mjs";
+import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.mjs";
 import { sanitizeFocusedRecallQuery, summarizeBackgroundRecallBundle } from "./pipeline/retrieveTracing.mjs";
 import { buildBackgroundRecallBundle, hasBackgroundRecallMaterial, retrieveEvidence } from "./pipeline/retrieve.mjs";
-import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.mjs";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.mjs";
-import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.mjs";
 import { createMemxTools } from "./plugin-tools.mjs";
 //#region src/index.ts
 function shouldSuggestExplicitRecallTool(config) {
@@ -163,18 +163,6 @@ function _logPromptContext(logger, tag, prompt, probeContext) {
 	logger.info(`memory-memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`);
 	return promptContext;
 }
-function buildNoRecallHint(config, queryAnalysis) {
-	const lines = [
-		"## MemX Memory",
-		"memory-memx is the active memory backend for this run.",
-		"No memory was confidently auto-recalled for the current turn.",
-		"Do not inspect workspace memory files or narrate memory plumbing unless the user explicitly asks.",
-		"Answer from the current turn alone unless already-injected memory is enough; do not speculate about missing prior context."
-	];
-	if (shouldSuggestExplicitRecallTool(config) && queryAnalysis.focusedQuery) lines.push(`If prior context, user preference, or past work likely matters, call memory_recall with a short focused query such as: "${queryAnalysis.focusedQuery}".`);
-	else if (shouldSuggestExplicitRecallTool(config)) lines.push("If prior context likely matters, call memory_recall with a short focused query you generate yourself.");
-	return lines.join("\n");
-}
 function buildBackgroundRecallPrompt(config, bundle, query, queryAnalysis, maxChars) {
 	const instructions = [
 		"## MemX Memory",
@@ -252,9 +240,12 @@ function buildRecallTraceLine(params) {
 	return [
 		`query="${truncateText(params.rawQuery, 96)}"`,
 		`full=${String(params.fullRecall)}`,
+		`shouldRecall=${String(params.queryAnalysis.shouldRecall)}`,
+		`primaryRoute=${params.queryAnalysis.primaryRoute ?? "unknown"}`,
 		`turnMode=${params.queryAnalysis.turnMode}`,
 		`shape=${params.queryAnalysis.queryShape.timeframe}/${params.queryAnalysis.queryShape.granularity}/${params.queryAnalysis.queryShape.referentialMode}/${params.queryAnalysis.queryShape.evidenceNeed}`,
 		`focused="${truncateText(params.queryAnalysis.focusedQuery || params.rawQuery, 96)}"`,
+		`entities=${params.queryAnalysis.queryEntities.length}`,
 		`background=g${background.guidanceCount ?? 0}/s${Array.isArray(background.stateIds) ? background.stateIds.length : 0}/t${Array.isArray(background.taskIds) ? background.taskIds.length : 0}`,
 		`granularity=${params.queryAnalysis.answerGranularity}/${params.queryAnalysis.evidenceFidelity}`,
 		params.bundle ? `route=${params.bundle.routeType}:${params.bundle.routeConfidence.toFixed(2)} diag=${params.bundle.diagnostics[0] ?? "none"}` : "route=none"
@@ -264,8 +255,6 @@ function extractPromptQuery(event) {
 	const prompt = event.prompt?.trim() ?? "";
 	const promptCandidate = (() => {
 		if (!prompt) return "";
-		const lastDoubleNewline = prompt.lastIndexOf("\n\n");
-		if (lastDoubleNewline > 0 && lastDoubleNewline < prompt.length - 3) return stripInboundMetadata(stripInjectedHistoricalBlock(prompt.slice(lastDoubleNewline + 2).trim()));
 		return stripInboundMetadata(stripInjectedHistoricalBlock(prompt));
 	})();
 	const messages = Array.isArray(event.messages) ? event.messages : [];
@@ -406,11 +395,7 @@ function createMemoryMemxPlugin() {
 								runId: ctx.runId
 							}) };
 						}
-						return { prependContext: _logPromptContext(api.logger, "full-no-material", buildNoRecallHint(config, queryAnalysis), {
-							agentId: ctx.agentId,
-							sessionKey: ctx.sessionKey,
-							runId: ctx.runId
-						}) };
+						return;
 					}
 					return { prependContext: _logPromptContext(api.logger, "full-recall", buildMemxImplicitRecallPrompt(config, bundle, promptBackground, queryAnalysis, config.maxInjectedChars), {
 						agentId: ctx.agentId,
@@ -514,4 +499,4 @@ function createMemoryMemxPlugin() {
 }
 const memoryMemxPlugin = createMemoryMemxPlugin();
 //#endregion
-export { createMemoryMemxPlugin, memoryMemxPlugin as default, evidencePlanRuleLines };
+export { createMemoryMemxPlugin, memoryMemxPlugin as default, evidencePlanRuleLines, extractPromptQuery };

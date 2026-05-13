@@ -48,6 +48,31 @@ var SourceSegmentRepo = class {
           ORDER BY created_at DESC, segment_index ASC
           LIMIT ${Math.max(1, Math.trunc(params.limit ?? 64))}`).all(params.agentId, ...params.scopes, ...params.parentSourceRefs).map((row) => this.toRecord(row));
 	}
+	listByTurnIds(params) {
+		if (params.scopes.length === 0 || params.turnIds.length === 0) return [];
+		const scopePlaceholders = params.scopes.map(() => "?").join(", ");
+		const turnPlaceholders = params.turnIds.map(() => "?").join(", ");
+		const values = [
+			params.agentId,
+			...params.scopes,
+			...params.turnIds
+		];
+		let sessionClause = "";
+		if (params.sessionKey) {
+			sessionClause = " AND session_key = ?";
+			values.push(params.sessionKey);
+		}
+		return this.db.prepare(`SELECT segment_id, source_group_id, parent_source_ref, chunk_id, agent_id, scope,
+                session_key, turn_id, seq, role, tool_name, segment_index, char_start, char_end,
+                text, content_hash, created_at, updated_at, metadata_json
+           FROM source_segments
+          WHERE agent_id = ?
+            AND scope IN (${scopePlaceholders})
+            AND turn_id IN (${turnPlaceholders})
+            ${sessionClause}
+          ORDER BY created_at ASC, parent_source_ref ASC, segment_index ASC
+          LIMIT ${Math.max(1, Math.trunc(params.limit ?? 256))}`).all(...values).map((row) => this.toRecord(row));
+	}
 	toRecord(row) {
 		return {
 			segmentId: row.segment_id,

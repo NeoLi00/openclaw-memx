@@ -1,36 +1,11 @@
 import { randomId, truncateText } from "../support.mjs";
-import { extractTimeHints, inferEntityNames } from "./semantic/heuristics.mjs";
-import { analyzeSemanticHints } from "./semantics.mjs";
+import "./semantic/heuristics.mjs";
+import "./semantics.mjs";
 import { stripInjectedHistoricalBlock } from "../security/escaping.mjs";
-function structuredHints(text) {
-	const analyzed = analyzeSemanticHints(text);
-	const workflows = analyzed.workflows;
-	const relations = analyzed.relations.length > 0 ? analyzed.relations : analyzed.relation ? [analyzed.relation] : [];
+function structuredHints() {
 	return {
-		entities: analyzed.entities.length > 0 ? analyzed.entities : inferEntityNames(text),
-		timeHints: analyzed.timeHints.length > 0 ? analyzed.timeHints : extractTimeHints(text),
-		...analyzed.preference ? {
-			preferenceHint: true,
-			preference: analyzed.preference
-		} : {},
-		...workflows.length > 0 ? {
-			taskStateHint: true,
-			workflow: workflows[0],
-			workflows
-		} : {},
-		...relations.length > 0 ? {
-			relationHint: true,
-			relation: relations[0],
-			relations
-		} : {},
-		...analyzed.decision ? {
-			decisionHint: true,
-			decision: analyzed.decision
-		} : {},
-		...analyzed.correction ? {
-			correctionHint: true,
-			correction: analyzed.correction
-		} : {}
+		entities: [],
+		timeHints: []
 	};
 }
 function buildCandidate(params) {
@@ -46,7 +21,7 @@ function buildCandidate(params) {
 		observedAt: params.observedAt,
 		rawText: semanticText,
 		eventType: params.eventType,
-		structuredHints: structuredHints(rawText),
+		structuredHints: structuredHints(),
 		metadata: {
 			...params.metadata ?? {},
 			rawTextLength: rawText.length,

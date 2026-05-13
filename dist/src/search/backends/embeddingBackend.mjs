@@ -24,6 +24,7 @@ const DEFAULT_LOCAL_PYTHON_BIN = "python3";
 const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 12e4;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 3e5;
+const LOCAL_EMBEDDING_PREWARM_TEXT = "memory-memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(new URL("../../../sentence_transformers_embedder.py", import.meta.url));
 async function fetchJson(url, init) {
 	const response = await fetch(url, init);
@@ -58,6 +59,9 @@ var LocalSentenceTransformerWorker = class {
 		const embeddings = await this.requestEmbedding(server, texts, mode, timeoutMs);
 		this.hasCompletedRequest = true;
 		return embeddings;
+	}
+	isWarm() {
+		return Boolean(this.server) && this.hasCompletedRequest && !this.closed;
 	}
 	async close() {
 		this.closed = true;
@@ -203,6 +207,7 @@ var OptionalEmbeddingBackend = class {
 	localUnavailableForProcess = false;
 	closed = false;
 	upsertQueue = Promise.resolve();
+	localPrewarm = null;
 	constructor(repo, embedding, logger) {
 		this.repo = repo;
 		this.embedding = embedding;
@@ -245,6 +250,7 @@ var OptionalEmbeddingBackend = class {
 		if (this.closed) return;
 		this.acceptingUpserts = false;
 		await this.flushPendingUpserts();
+		await this.localPrewarm?.catch(() => {});
 		this.closed = true;
 		await this.localWorker?.close();
 	}
@@ -256,6 +262,10 @@ var OptionalEmbeddingBackend = class {
 	}
 	async similaritySearch(params) {
 		if (this.embedding.provider === "off" || this.isEmbeddingDisabledForProcess()) return [];
+		if (this.embedding.provider === "sentence-transformers-local" && !this.localWorker?.isWarm()) {
+			this.logger.debug?.("memory-memx: local embeddings are warming; skipping prompt hot-path similarity search");
+			return [];
+		}
 		try {
 			const [queryEmbedding] = await this.embedTexts([params.query], "query", "similarity-search");
 			if (!queryEmbedding || queryEmbedding.length === 0) return [];
@@ -300,6 +310,16 @@ var OptionalEmbeddingBackend = class {
 			this.handleEmbeddingFailure(error, `memory-memx: embedding batch unavailable, using lexical fallback (${String(error)})`);
 			return [];
 		}
+	}
+	async prewarmLocalEmbeddings() {
+		if (this.embedding.provider !== "sentence-transformers-local" || !this.localWorker || this.closed || this.isEmbeddingDisabledForProcess()) return;
+		if (this.localWorker.isWarm()) return;
+		this.localPrewarm ??= this.localWorker.embed([LOCAL_EMBEDDING_PREWARM_TEXT], "query").then(() => {}).catch((error) => {
+			this.handleEmbeddingFailure(error, `memory-memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`);
+		}).finally(() => {
+			this.localPrewarm = null;
+		});
+		await this.localPrewarm;
 	}
 	isEmbeddingDisabledForProcess() {
 		return this.embedding.provider === "sentence-transformers-local" && this.localUnavailableForProcess;

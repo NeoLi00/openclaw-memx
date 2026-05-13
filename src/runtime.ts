@@ -107,6 +107,7 @@ export function buildOperationContext(
 
 export class MemxRuntimeManager {
   private readonly stores = new Map<string, Promise<MemxStoreBundle>>();
+  private readonly storeContexts = new Map<string, MaintenanceContextTemplate>();
   private readonly sessionCursors = new Map<string, number>();
   private readonly lastRecall = new Map<string, { chunkIds: string[]; texts: string[] }>();
   private readonly maintenanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -118,6 +119,7 @@ export class MemxRuntimeManager {
 
   async getStore(ctx: MemoryOperationContext): Promise<MemxStoreBundle> {
     const key = storeKey(ctx.agentId, ctx.dbPath);
+    this.storeContexts.set(key, { ...ctx, sessionKey: ctx.sessionKey ?? "default" });
     const existing = this.stores.get(key);
     if (existing) {
       return existing;
@@ -149,6 +151,7 @@ export class MemxRuntimeManager {
       }
     }
     this.stores.clear();
+    this.storeContexts.clear();
     this.sessionCursors.clear();
     this.lastRecall.clear();
     this.maintenanceContexts.clear();
@@ -209,7 +212,8 @@ export class MemxRuntimeManager {
     const sessionKey = ctx.sessionKey ?? "default";
     const store = params.store ?? (await this.getStore(ctx));
     const key = maintenanceKey(ctx.agentId, ctx.dbPath, sessionKey);
-    this.maintenanceContexts.set(key, { ...ctx, sessionKey });
+    const template = { ...ctx, sessionKey };
+    this.maintenanceContexts.set(key, template);
     const state = store.maintenanceRepo.recordPendingTurn({
       agentId: ctx.agentId,
       sessionKey,
@@ -223,14 +227,14 @@ export class MemxRuntimeManager {
         : Math.max(1, ctx.config.advanced.maintenanceBatchTurns);
     if (state.pendingTurnCount >= threshold) {
       this.clearMaintenanceTimer(key);
-      this.startMaintenanceLoop(store, ctx, "threshold");
+      this.startMaintenanceLoop(store, template, "threshold");
       return;
     }
     if (
       ctx.config.advanced.maintenanceTriggerMode === "batched" &&
       ctx.config.advanced.maintenanceIdleFlushMinutes > 0
     ) {
-      this.scheduleIdleFlush(store, ctx);
+      this.scheduleIdleFlush(store, template);
     }
   }
 
@@ -412,10 +416,11 @@ export class MemxRuntimeManager {
       const pendingStates = store.maintenanceRepo.listPendingStates();
       for (const state of pendingStates) {
         const key = maintenanceKey(state.agentId, store.client.dbPath, state.sessionKey);
-        const template = this.maintenanceContexts.get(key);
+        const template = this.maintenanceContextForPendingState(store, state);
         if (!template) {
           continue;
         }
+        this.maintenanceContexts.set(key, template);
         const existing = this.maintenanceLoops.get(key);
         if (existing) {
           await existing;
@@ -425,9 +430,33 @@ export class MemxRuntimeManager {
     }
   }
 
+  private maintenanceContextForPendingState(
+    store: MemxStoreBundle,
+    state: { agentId: string; sessionKey: string },
+  ): MaintenanceContextTemplate | undefined {
+    const sessionKey = state.sessionKey || "default";
+    const exactKey = maintenanceKey(state.agentId, store.client.dbPath, sessionKey);
+    const exact = this.maintenanceContexts.get(exactKey);
+    if (exact) {
+      return exact;
+    }
+    const base = this.storeContexts.get(storeKey(state.agentId, store.client.dbPath));
+    if (!base) {
+      return undefined;
+    }
+    return {
+      ...base,
+      agentId: state.agentId,
+      sessionKey,
+      dbPath: store.client.dbPath,
+    };
+  }
+
   private async createStore(ctx: MemoryOperationContext): Promise<MemxStoreBundle> {
     const client = await MemxDbClient.open(ctx.dbPath);
     const vectorRepo = new VectorRepo(client);
+    const retrievalBackend = new OptionalEmbeddingBackend(vectorRepo, ctx.config.embedding, this.logger);
+    void retrievalBackend.prewarmLocalEmbeddings();
     const bundle = {
       client,
       stateRepo: new StateRepo(client),
@@ -443,7 +472,7 @@ export class MemxRuntimeManager {
       beliefRepo: new BeliefRepo(client),
       abstractionRepo: new AbstractionRepo(client),
       strategyRepo: new StrategyRepo(client),
-      retrievalBackend: new OptionalEmbeddingBackend(vectorRepo, ctx.config.embedding, this.logger),
+      retrievalBackend,
       reasoner: new MemxReasoner(ctx.config, this.logger),
       turnScheduler: undefined as unknown as MemxTurnScheduler,
     };

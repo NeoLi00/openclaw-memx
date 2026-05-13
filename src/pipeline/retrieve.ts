@@ -75,7 +75,7 @@ import {
   projectScheduledMemoryObjects,
 } from "./memoryObjectsProjection.js";
 import { projectNamesMatch, resolveProjectReference } from "./projectIdentity.js";
-import { compileQuery, compileQueryDeterministically } from "./queryCompiler.js";
+import { compileQuery, compileQueryWithoutSemanticFallback } from "./queryCompiler.js";
 import { roleLabelForHit } from "./reasoner.js";
 import {
   type RetrievalAuditOptions,
@@ -86,16 +86,7 @@ import {
 } from "./retrieveTracing.js";
 import { queryAnchorSupport } from "./semantic/heuristics.js";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.js";
-import {
-  extractQueryAnchors,
-  inferEntityNames,
-  inferTemporalSince,
-  isBroadTemporalQuery,
-  isQuestionLike,
-  wantsProjectProfileSnapshot,
-  wantsCurrentFactualSnapshot,
-  wantsHistoricalFacts,
-} from "./semantics.js";
+import { isQuestionLike } from "./semantics.js";
 import { emitContradictionSignals, emitFullRetrievalSignals } from "./signalLedger.js";
 import { isAnswerPromptLineRole, normalizeSourceRefs, promptLineRole } from "./sourceRefs.js";
 import { SOURCE_SEGMENT_TARGET_CHARS } from "./sourceSegments.js";
@@ -126,7 +117,7 @@ type ExactSnippetCandidate = {
 export type RecallQueryAnalysis = QueryCompileResult;
 
 export function analyzeRecallQuery(query: string): RecallQueryAnalysis {
-  return compileQueryDeterministically(query);
+  return compileQueryWithoutSemanticFallback(query, "llm-only-recall-analysis-unavailable");
 }
 
 function recallProbeThresholds(config: MemoryOperationContext["config"]): RecallProbeThresholds {
@@ -373,15 +364,7 @@ function projectionSupportForRoute(
   if (relevantBlocks.length === 0) {
     return 0;
   }
-  const anchors = extractQueryAnchors(query).filter((anchor) => isMeaningfulRecallAnchor(anchor));
-  if (anchors.length > 0) {
-    const anchored = relevantBlocks.some(
-      (block) => queryAnchorSupport(block.lines.join("\n"), anchors) >= 0.58,
-    );
-    if (anchored) {
-      return routeType === "workflow" ? 0.28 : routeType === "factual" ? 0.24 : 0.2;
-    }
-  }
+  void query;
   return routeType === "workflow" ? 0.18 : routeType === "factual" ? 0.14 : 0.1;
 }
 
@@ -3494,18 +3477,6 @@ function resolveChunkMentionedProject(
   chunk: { content: string; summary: string },
   knownProjects: string[],
 ): string | undefined {
-  const entityNames = inferEntityNames(`${chunk.content} ${chunk.summary}`)
-    .map((entry) => entry.name)
-    .filter(Boolean);
-  for (const entityName of entityNames) {
-    const resolved = resolveProjectReference(entityName, {
-      knownProjects,
-      allowDescriptorAlias: true,
-    });
-    if (resolved && knownProjects.some((candidate) => projectNamesMatch(candidate, resolved))) {
-      return resolved;
-    }
-  }
   for (const candidate of knownProjects) {
     if (!candidate) {
       continue;
@@ -5199,9 +5170,6 @@ function selectionObjectiveForRoute(
   currentSessionKey?: string,
 ) {
   const objective = createMemorySelectionObjective(routeType, query, now, currentSessionKey);
-  if (routeType === "temporal") {
-    objective.since = inferTemporalSince(query, now);
-  }
   return objective;
 }
 
@@ -5551,10 +5519,9 @@ export async function retrieveEvidence(
   const allowHistoricalFacts =
     queryAnalysis.queryShape.timeframe === "historical" ||
     queryAnalysis.queryShape.timeframe === "compare";
-  const queryAnchors = uniqueNonEmpty([
-    ...extractQueryAnchors(query),
-    ...referentResolution.anchors,
-  ]).filter((anchor) => isMeaningfulRecallAnchor(anchor));
+  const queryAnchors = uniqueNonEmpty(referentResolution.anchors).filter((anchor) =>
+    isMeaningfulRecallAnchor(anchor),
+  );
   const resolvedReferentAnchors = uniqueNonEmpty(referentResolution.anchors).filter((anchor) =>
     isMeaningfulRecallAnchor(anchor),
   );

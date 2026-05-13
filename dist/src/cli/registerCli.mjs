@@ -3,6 +3,7 @@ import { runAbstractionJobs } from "../pipeline/abstractionJobs.mjs";
 import { runAbstractionPromotion } from "../pipeline/abstractionPromotion.mjs";
 import { runConsolidation } from "../pipeline/consolidate.mjs";
 import { MemxReasoner } from "../pipeline/reasoner.mjs";
+import { OptionalEmbeddingBackend } from "../search/backends/embeddingBackend.mjs";
 import { buildOperationContext } from "../runtime.mjs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -79,8 +80,8 @@ function applyMemxSetupToConfig(appConfig, pluginConfig, options = {}) {
 		...defaultSetupEntry(pluginConfig, options),
 		...existingEntry,
 		hooks: {
-			...existingHooks,
-			allowConversationAccess: true
+			...typeof existingHooks.allowPromptInjection === "boolean" ? { allowPromptInjection: existingHooks.allowPromptInjection } : {},
+			allowPromptInjection: true
 		},
 		config: {
 			...setupConfig,
@@ -176,7 +177,7 @@ function buildMemxDoctorReport(params) {
 		{
 			key: "llm_classifier",
 			ok: Boolean(entryAdvanced.llmClassifierEnabled ?? params.pluginConfig.advanced.llmClassifierEnabled),
-			detail: entryAdvanced.llmClassifierEnabled ?? params.pluginConfig.advanced.llmClassifierEnabled ? `LLM classifier is enabled${typeof entryAdvanced.llmClassifierModel === "string" ? ` with ${entryAdvanced.llmClassifierModel}` : params.pluginConfig.advanced.llmClassifierModel ? ` with ${params.pluginConfig.advanced.llmClassifierModel}` : ""}.` : "LLM classifier is disabled; memx will fall back to heuristics."
+			detail: entryAdvanced.llmClassifierEnabled ?? params.pluginConfig.advanced.llmClassifierEnabled ? `LLM classifier is enabled${typeof entryAdvanced.llmClassifierModel === "string" ? ` with ${entryAdvanced.llmClassifierModel}` : params.pluginConfig.advanced.llmClassifierModel ? ` with ${params.pluginConfig.advanced.llmClassifierModel}` : ""}.` : "LLM classifier is disabled; semantic extraction will fail closed."
 		}
 	];
 	const recommendedFixes = checks.filter((check) => !check.ok).map((check) => {
@@ -209,6 +210,51 @@ function buildMemxDoctorReport(params) {
 			embeddingModel: (typeof entryConfig.embedding?.model === "string" ? entryConfig.embedding.model : params.pluginConfig.embedding.model) ?? null
 		}
 	};
+}
+async function runEmbeddingProbe(config) {
+	const startedAt = Date.now();
+	const provider = config.embedding.provider;
+	const model = config.embedding.model?.trim() || null;
+	if (provider === "off") return {
+		enabled: false,
+		ok: true,
+		provider,
+		model,
+		dimension: null,
+		durationMs: 0,
+		detail: "embedding provider is off."
+	};
+	const backend = new OptionalEmbeddingBackend({}, config.embedding, {
+		warn() {},
+		info() {},
+		debug() {},
+		error() {}
+	});
+	try {
+		await backend.prewarmLocalEmbeddings();
+		const dimension = (await backend.embedTextsBatch(["memory-memx embedding probe"], "query"))[0]?.length ?? 0;
+		return {
+			enabled: true,
+			ok: dimension > 0,
+			provider,
+			model,
+			dimension: dimension > 0 ? dimension : null,
+			durationMs: Date.now() - startedAt,
+			detail: dimension > 0 ? "embedding request succeeded." : "embedding request returned no vector; retrieval will use lexical fallback."
+		};
+	} catch (error) {
+		return {
+			enabled: true,
+			ok: false,
+			provider,
+			model,
+			dimension: null,
+			durationMs: Date.now() - startedAt,
+			detail: `embedding request failed: ${String(error)}`
+		};
+	} finally {
+		await backend.close();
+	}
 }
 async function writeUserConfig(configPath, config) {
 	await mkdir(path.dirname(configPath), { recursive: true });
@@ -424,7 +470,7 @@ function registerMemxCli(params) {
 			nextStep: "Restart OpenClaw so the updated memory config is applied."
 		}, null, 2));
 	});
-	command.command("doctor").description("Check whether OpenClaw is configured to use memory-memx correctly").option("--config <file>", "Path to openclaw.json").option("--deep", "Run live reasoner probes and report whether LLM or heuristic fallback was used").action(async (options) => {
+	command.command("doctor").description("Check whether OpenClaw is configured to use memory-memx correctly").option("--config <file>", "Path to openclaw.json").option("--deep", "Run live reasoner probes and report whether LLM semantic extraction is available").action(async (options) => {
 		const configPath = resolveConfigPath(options.config);
 		const current = await readUserConfig(configPath);
 		const report = buildMemxDoctorReport({
@@ -433,14 +479,17 @@ function registerMemxCli(params) {
 			pluginConfig: params.pluginConfig
 		});
 		if (options.deep) {
-			const reasoner = new MemxReasoner(resolveEffectivePluginConfig(current, params.pluginConfig), {
+			const effectiveConfig = resolveEffectivePluginConfig(current, params.pluginConfig);
+			const reasoner = new MemxReasoner(effectiveConfig, {
 				warn() {},
 				info() {},
 				debug() {},
 				error() {}
 			});
 			report.reasonerConfigPath = reasoner.getResolvedJudgeConfigPath();
-			report.reasonerProbe = await reasoner.runProbeSuite();
+			const [reasonerProbe, embeddingProbe] = await Promise.all([reasoner.runProbeSuite(), runEmbeddingProbe(effectiveConfig)]);
+			report.reasonerProbe = reasonerProbe;
+			report.embeddingProbe = embeddingProbe;
 		}
 		console.log(JSON.stringify(report, null, 2));
 	});

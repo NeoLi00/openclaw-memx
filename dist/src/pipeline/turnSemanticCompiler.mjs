@@ -1,177 +1,201 @@
-import { truncateText } from "../support.mjs";
+import { stableHash, truncateText } from "../support.mjs";
 import { recordMemoryLlmBudgetCall } from "./llmBudgetAudit.mjs";
-import { analyzeSemanticHints } from "./semantics.mjs";
-import { summarizeTaskHeuristically } from "./taskSummary.mjs";
-import { buildDeterministicTaskProposal } from "./taskJudge.mjs";
 //#region src/pipeline/turnSemanticCompiler.ts
-const TURN_SEMANTIC_COMPILER_CUTOVER_CRITERIA = {
-	invariantRegressionMustBeZero: true,
-	questionLikeRegressionMustBeZero: true,
-	correctionMaterializationRegressionMustBeZero: true,
-	fallbackRateMax: .1,
-	maxWriteDiffRate: .15
-};
-const STRATEGY_PROCEDURE_PATTERN = /(?:先.+再|先检查|再检查|然后|最后|回头|优先|步骤|顺序|流程|策略|原则|排查|验证过|记着|最近版本记着|最近两次)/iu;
+const TURN_MESSAGE_ENVELOPE_LONG_THRESHOLD_CHARS = 1800;
+const TURN_MESSAGE_ENVELOPE_HEAD_CHARS = 650;
+const TURN_MESSAGE_ENVELOPE_TAIL_CHARS = 950;
+const TURN_MESSAGE_ENVELOPE_LATEST_INSTRUCTION_CHARS = 900;
+const LONG_TURN_SCAN_MAX_SEGMENTS_PER_MESSAGE = 8;
+const LONG_TURN_SCAN_SEGMENT_PROMPT_CHARS = 1800;
 function sourceRefForMessage(message) {
 	return message.sourceRef || `${message.role}:${message.turnId}`;
+}
+function clampMessageWindow(content, start, end) {
+	const safeStart = Math.max(0, Math.min(content.length, start));
+	const safeEnd = Math.max(safeStart, Math.min(content.length, end));
+	const text = content.slice(safeStart, safeEnd).trim();
+	if (!text) return null;
+	return {
+		kind: "full",
+		start: safeStart,
+		end: safeEnd,
+		text
+	};
+}
+function latestInstructionWindow(content) {
+	const trimmedEnd = content.trimEnd().length;
+	if (trimmedEnd <= 0) return null;
+	const prefix = content.slice(0, trimmedEnd);
+	const lastParagraphBreak = Math.max(prefix.lastIndexOf("\n\n"), prefix.lastIndexOf("\r\n\r\n"));
+	const paragraphStart = lastParagraphBreak >= 0 ? lastParagraphBreak + 2 : 0;
+	const window = clampMessageWindow(content, Math.max(paragraphStart, trimmedEnd - TURN_MESSAGE_ENVELOPE_LATEST_INSTRUCTION_CHARS), trimmedEnd);
+	return window ? {
+		...window,
+		kind: "latest_instruction"
+	} : null;
+}
+function mergedVisibleChars(windows) {
+	const intervals = windows.map((window) => ({
+		start: window.start,
+		end: window.end
+	})).filter((interval) => interval.end > interval.start).sort((left, right) => left.start - right.start);
+	let visible = 0;
+	let cursorStart;
+	let cursorEnd;
+	for (const interval of intervals) {
+		if (cursorStart === void 0 || cursorEnd === void 0) {
+			cursorStart = interval.start;
+			cursorEnd = interval.end;
+			continue;
+		}
+		if (interval.start <= cursorEnd) {
+			cursorEnd = Math.max(cursorEnd, interval.end);
+			continue;
+		}
+		visible += cursorEnd - cursorStart;
+		cursorStart = interval.start;
+		cursorEnd = interval.end;
+	}
+	if (cursorStart !== void 0 && cursorEnd !== void 0) visible += cursorEnd - cursorStart;
+	return visible;
+}
+function uniqueMessageWindows(windows) {
+	const seen = /* @__PURE__ */ new Set();
+	const unique = [];
+	for (const window of windows) {
+		const key = `${window.kind}:${window.start}:${window.end}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		unique.push(window);
+	}
+	return unique;
+}
+function buildMessageEnvelope(message) {
+	const rawLength = message.content.length;
+	const rawHash = stableHash([
+		"turn-message-envelope",
+		sourceRefForMessage(message),
+		message.content
+	]);
+	const sourceRef = sourceRefForMessage(message);
+	if (rawLength <= TURN_MESSAGE_ENVELOPE_LONG_THRESHOLD_CHARS) {
+		const full = clampMessageWindow(message.content, 0, rawLength);
+		const windows = full ? [{
+			...full,
+			kind: "full"
+		}] : [];
+		const visibleChars = mergedVisibleChars(windows);
+		return {
+			role: message.role,
+			sourceRef,
+			turnId: message.turnId,
+			rawLength,
+			rawHash,
+			truncated: false,
+			visibleChars,
+			omittedChars: Math.max(0, rawLength - visibleChars),
+			windows
+		};
+	}
+	const head = clampMessageWindow(message.content, 0, TURN_MESSAGE_ENVELOPE_HEAD_CHARS);
+	const tail = clampMessageWindow(message.content, rawLength - TURN_MESSAGE_ENVELOPE_TAIL_CHARS, rawLength);
+	const latest = latestInstructionWindow(message.content);
+	const windows = uniqueMessageWindows([
+		head ? {
+			...head,
+			kind: "head"
+		} : null,
+		tail ? {
+			...tail,
+			kind: "tail"
+		} : null,
+		latest
+	].filter((window) => Boolean(window)));
+	const visibleChars = mergedVisibleChars(windows);
+	return {
+		role: message.role,
+		sourceRef,
+		turnId: message.turnId,
+		rawLength,
+		rawHash,
+		truncated: true,
+		visibleChars,
+		omittedChars: Math.max(0, rawLength - visibleChars),
+		windows
+	};
+}
+function buildTurnSemanticCompilerInput(messages) {
+	return { messages: messages.map((message) => buildMessageEnvelope(message)) };
+}
+function selectedSegmentIndexes(segmentCount, maxSegments) {
+	if (segmentCount <= maxSegments) return Array.from({ length: segmentCount }, (_, index) => index);
+	const selected = new Set([0, segmentCount - 1]);
+	for (let slot = 1; slot < maxSegments - 1; slot += 1) {
+		const index = Math.round(slot * (segmentCount - 1) / (maxSegments - 1));
+		selected.add(index);
+	}
+	return [...selected].sort((left, right) => left - right);
+}
+function buildLongTurnSemanticScanInputFromSegments(segments) {
+	const bySourceRef = /* @__PURE__ */ new Map();
+	for (const segment of segments) {
+		const group = bySourceRef.get(segment.parentSourceRef) ?? [];
+		group.push(segment);
+		bySourceRef.set(segment.parentSourceRef, group);
+	}
+	const messages = [];
+	for (const [sourceRef, group] of bySourceRef) {
+		const ordered = [...group].sort((left, right) => left.segmentIndex - right.segmentIndex);
+		if (ordered.length <= 1) continue;
+		const indexes = new Set(selectedSegmentIndexes(ordered.length, LONG_TURN_SCAN_MAX_SEGMENTS_PER_MESSAGE));
+		const selected = ordered.filter((segment, index) => indexes.has(index));
+		const first = ordered[0];
+		const rawLength = Math.max(...ordered.map((segment) => segment.charEnd));
+		messages.push({
+			role: first.role,
+			sourceRef,
+			turnId: first.turnId,
+			rawLength,
+			rawHash: stableHash([
+				"long-turn-source-segments",
+				sourceRef,
+				...ordered.map((segment) => segment.contentHash)
+			]),
+			segmentCount: ordered.length,
+			selectedSegmentCount: selected.length,
+			omittedSegmentCount: Math.max(0, ordered.length - selected.length),
+			segments: selected.map((segment) => {
+				const text = truncateText(segment.text, LONG_TURN_SCAN_SEGMENT_PROMPT_CHARS);
+				return {
+					index: segment.segmentIndex,
+					start: segment.charStart,
+					end: segment.charEnd,
+					text,
+					truncated: text.length < segment.text.length
+				};
+			})
+		});
+	}
+	return { messages };
 }
 function compileStage(messages) {
 	return messages.some((message) => message.role === "user" || message.role === "tool") ? "write_hot_path" : "post_answer_writeback";
 }
-function familyHintsFromStructuredHints(text, structuredHints) {
-	const families = /* @__PURE__ */ new Set();
-	const relationConfidence = Math.max(structuredHints?.relation?.confidence ?? 0, ...structuredHints?.relations?.map((entry) => entry.confidence ?? 0) ?? [0]);
-	if (structuredHints?.workflow || structuredHints?.workflows && structuredHints.workflows.length > 0) families.add("workflow");
-	if (structuredHints?.preference) families.add("preference");
-	if (!structuredHints?.correction && relationConfidence >= .82 && !STRATEGY_PROCEDURE_PATTERN.test(text) && (structuredHints?.relation || structuredHints?.relations && structuredHints.relations.length > 0)) families.add("relation_like");
-	if (structuredHints?.decision && (structuredHints.timeHints?.length ?? 0) === 0 && text.length <= 140) families.add("fact_like");
-	if (STRATEGY_PROCEDURE_PATTERN.test(text) && !structuredHints?.relation && !(structuredHints?.relations && structuredHints.relations.length > 0)) families.add("strategy_like");
-	if (structuredHints?.correction) families.add(structuredHints.correction.timeframe === "historical" || structuredHints.correction.timeframe === "compare" ? "event_like" : "fact_like");
-	return [...families];
-}
-function timeframeHint(correction) {
-	if (!correction) return "timeless";
-	return correction.timeframe;
-}
-function deterministicCompile(params) {
+function scaffoldTurnSemantics(params) {
 	const { messages } = params;
-	const sourceRefs = messages.map((message) => sourceRefForMessage(message));
-	const chunkDrafts = messages.map((message) => ({
-		sourceRef: sourceRefForMessage(message),
-		summary: truncateText(message.content.trim().replace(/\s+/g, " "), 180),
-		lineage: {
-			sourceKind: "chunk",
-			sourceId: message.turnId,
-			sourceRef: sourceRefForMessage(message)
-		}
-	}));
-	const assertionDrafts = [];
-	const correctionDrafts = [];
-	const relationDrafts = [];
-	const supportSpans = [];
-	for (const message of messages) {
-		const sourceRef = sourceRefForMessage(message);
-		const hints = analyzeSemanticHints(message.content);
-		const structuredHints = {
-			entities: hints.entities,
-			timeHints: hints.timeHints,
-			...hints.preference ? {
-				preference: hints.preference,
-				preferenceHint: true
-			} : {},
-			...hints.workflow ? {
-				workflow: hints.workflow,
-				workflows: hints.workflows,
-				taskStateHint: true
-			} : {},
-			...hints.relation ? {
-				relation: hints.relation,
-				relations: hints.relations,
-				relationHint: true
-			} : {},
-			...hints.decision ? {
-				decision: hints.decision,
-				decisionHint: true
-			} : {},
-			...hints.correction ? {
-				correction: hints.correction,
-				correctionHint: true
-			} : {}
-		};
-		const families = familyHintsFromStructuredHints(message.content, structuredHints);
-		for (const family of families) assertionDrafts.push({
-			draftId: `${sourceRef}:${family}:${assertionDrafts.length}`,
-			sourceRef,
-			familyHint: family,
-			timeframeHint: timeframeHint(structuredHints.correction),
-			entityHints: structuredHints.entities,
-			slotHints: structuredHints.workflow?.key ? [structuredHints.workflow.key] : void 0,
-			supportSpans: [{ text: truncateText(message.content.trim(), 240) }],
-			confidence: .7,
-			lineage: {
-				sourceKind: "chunk",
-				sourceId: message.turnId,
-				sourceRef
-			}
-		});
-		for (const relation of structuredHints.relations ?? []) relationDrafts.push({
-			sourceRef,
-			relation: {
-				...relation,
-				sourceRef: relation.sourceRef ?? sourceRef
-			},
-			supportSpans: [{ text: truncateText(message.content.trim(), 240) }],
-			confidence: relation.confidence ?? .72,
-			lineage: {
-				sourceKind: "chunk",
-				sourceId: message.turnId,
-				sourceRef
-			}
-		});
-		if (structuredHints.correction) correctionDrafts.push({
-			sourceRef,
-			correction: structuredHints.correction,
-			supportSpans: [{ text: truncateText(message.content.trim(), 240) }],
-			confidence: structuredHints.correction.confidence ?? .72,
-			lineage: {
-				sourceKind: "chunk",
-				sourceId: message.turnId,
-				sourceRef
-			}
-		});
-		supportSpans.push({
-			sourceRef,
-			text: truncateText(message.content.trim(), 240)
-		});
-	}
-	const deterministicTaskSummary = summarizeTaskHeuristically(messages.map((message, index) => ({
-		chunkId: `${message.turnId}:${index}`,
-		agentId: params.ctx.agentId,
-		scope: message.scope,
-		sessionKey: message.sessionKey,
-		turnId: message.turnId,
-		seq: index,
-		role: message.role,
-		toolName: message.toolName,
-		chunkKind: message.role === "tool" ? "tool_result" : "message",
-		content: message.content,
-		summary: truncateText(message.content.trim().replace(/\s+/g, " "), 180),
-		contentHash: `${message.turnId}:${index}`,
-		taskId: params.activeTask?.taskId,
-		dedupStatus: "active",
-		mergeCount: 0,
-		sourceRef: sourceRefForMessage(message),
-		createdAt: message.observedAt,
-		updatedAt: message.observedAt
-	})));
 	return {
-		sourceRefs,
-		chunkDrafts,
-		taskProposal: {
-			...buildDeterministicTaskProposal({
-				activeTask: params.activeTask ?? null,
-				activeChunks: params.activeChunks ?? [],
-				recentTasks: params.recentTasks ?? [],
-				recentChunksByTask: params.recentChunksByTask ?? {},
-				newMessages: params.messages,
-				ctx: params.ctx
-			}),
-			...deterministicTaskSummary.summary ? {
-				summary: deterministicTaskSummary.summary,
-				summaryConfidence: .62
-			} : {},
-			reason: "deterministic-turn-compile"
-		},
-		assertionDrafts,
-		correctionDrafts,
-		relationDrafts,
+		sourceRefs: messages.map((message) => sourceRefForMessage(message)),
+		chunkDrafts: [],
+		assertionDrafts: [],
+		correctionDrafts: [],
+		relationDrafts: [],
 		resourceAssertions: [],
 		adviceSignals: [],
-		supportSpans,
+		supportSpans: [],
 		compilerProvenance: {
 			source: "deterministic",
-			mode: "deterministic",
-			reasons: [`criteria=fallback<=${TURN_SEMANTIC_COMPILER_CUTOVER_CRITERIA.fallbackRateMax}`]
+			mode: "fallback",
+			reasons: ["llm-only-turn-compiler-scaffold"]
 		}
 	};
 }
@@ -308,14 +332,14 @@ function frameHintsForSourceRef(frame, sourceRef) {
 async function compileTurnSemantics(params) {
 	const stage = compileStage(params.messages);
 	if (!params.ctx.config.advanced.enableTurnSemanticCompiler) return;
-	const fallback = deterministicCompile(params);
+	const fallback = scaffoldTurnSemantics(params);
 	if (!params.reasoner?.isEnabled?.() || !params.reasoner.compileTurnSemantics) {
 		recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
 			label: "turn-semantic-compile",
 			stage,
 			provenance: "deterministic",
-			mode: "deterministic",
-			detail: "turnSemanticCompiler stayed on the deterministic path"
+			mode: "fallback",
+			detail: "turnSemanticCompiler emitted scaffold only; no semantic fields were synthesized"
 		});
 		return fallback;
 	}
@@ -334,4 +358,4 @@ async function compileTurnSemantics(params) {
 	return mergeCompilerFrame(fallback, compiled);
 }
 //#endregion
-export { compileTurnSemantics, frameHintsForSourceRef };
+export { buildLongTurnSemanticScanInputFromSegments, buildTurnSemanticCompilerInput, compileTurnSemantics, frameHintsForSourceRef };

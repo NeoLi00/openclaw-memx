@@ -7,11 +7,15 @@ import { runAbstractionPromotion } from "../pipeline/abstractionPromotion.js";
 import { runConsolidation } from "../pipeline/consolidate.js";
 import { MemxReasoner, type ReasonerProbeReport } from "../pipeline/reasoner.js";
 import { buildOperationContext, type MemxRuntimeManager } from "../runtime.js";
+import { OptionalEmbeddingBackend } from "../search/backends/embeddingBackend.js";
 import { nowIso, resolveUserPath } from "../support.js";
 import type { MemoryPluginConfig } from "../types.js";
 
 type OpenClawConfigLike = {
-  agents?: { list?: Array<{ id?: string }> };
+  agents?: {
+    defaults?: Record<string, unknown>;
+    list?: Array<{ id?: string }>;
+  };
   plugins?: {
     allow?: string[];
     load?: { paths?: string[] };
@@ -53,6 +57,17 @@ type MemxDoctorReport = {
     dbPath: string | null;
   };
   reasonerProbe?: ReasonerProbeReport;
+  embeddingProbe?: EmbeddingProbeReport;
+};
+
+type EmbeddingProbeReport = {
+  enabled: boolean;
+  ok: boolean;
+  provider: string;
+  model: string | null;
+  dimension: number | null;
+  durationMs: number;
+  detail: string;
 };
 
 type MemxWipeStats = {
@@ -180,8 +195,10 @@ export function applyMemxSetupToConfig(
     ...defaultSetupEntry(pluginConfig, options),
     ...existingEntry,
     hooks: {
-      ...existingHooks,
-      allowConversationAccess: true,
+      ...(typeof existingHooks.allowPromptInjection === "boolean"
+        ? { allowPromptInjection: existingHooks.allowPromptInjection }
+        : {}),
+      allowPromptInjection: true,
     },
     config: {
       ...setupConfig,
@@ -320,7 +337,7 @@ export function buildMemxDoctorReport(params: {
                   ? ` with ${params.pluginConfig.advanced.llmClassifierModel}`
                   : ""
             }.`
-          : "LLM classifier is disabled; memx will fall back to heuristics.",
+          : "LLM classifier is disabled; semantic extraction will fail closed.",
     },
   ];
 
@@ -375,6 +392,59 @@ export function buildMemxDoctorReport(params: {
           : params.pluginConfig.embedding.model) ?? null,
     },
   };
+}
+
+async function runEmbeddingProbe(config: MemoryPluginConfig): Promise<EmbeddingProbeReport> {
+  const startedAt = Date.now();
+  const provider = config.embedding.provider;
+  const model = config.embedding.model?.trim() || null;
+  if (provider === "off") {
+    return {
+      enabled: false,
+      ok: true,
+      provider,
+      model,
+      dimension: null,
+      durationMs: 0,
+      detail: "embedding provider is off.",
+    };
+  }
+
+  const backend = new OptionalEmbeddingBackend({} as never, config.embedding, {
+    warn() {},
+    info() {},
+    debug() {},
+    error() {},
+  });
+  try {
+    await backend.prewarmLocalEmbeddings();
+    const vectors = await backend.embedTextsBatch(["memory-memx embedding probe"], "query");
+    const dimension = vectors[0]?.length ?? 0;
+    return {
+      enabled: true,
+      ok: dimension > 0,
+      provider,
+      model,
+      dimension: dimension > 0 ? dimension : null,
+      durationMs: Date.now() - startedAt,
+      detail:
+        dimension > 0
+          ? "embedding request succeeded."
+          : "embedding request returned no vector; retrieval will use lexical fallback.",
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      ok: false,
+      provider,
+      model,
+      dimension: null,
+      durationMs: Date.now() - startedAt,
+      detail: `embedding request failed: ${String(error)}`,
+    };
+  } finally {
+    await backend.close();
+  }
 }
 
 async function writeUserConfig(configPath: string, config: OpenClawConfigLike): Promise<void> {
@@ -791,7 +861,7 @@ export function registerMemxCli(params: {
     .option("--config <file>", "Path to openclaw.json")
     .option(
       "--deep",
-      "Run live reasoner probes and report whether LLM or heuristic fallback was used",
+      "Run live reasoner probes and report whether LLM semantic extraction is available",
     )
     .action(async (options: { config?: string; deep?: boolean }) => {
       const configPath = resolveConfigPath(options.config);
@@ -810,7 +880,12 @@ export function registerMemxCli(params: {
           error() {},
         });
         report.reasonerConfigPath = reasoner.getResolvedJudgeConfigPath();
-        report.reasonerProbe = await reasoner.runProbeSuite();
+        const [reasonerProbe, embeddingProbe] = await Promise.all([
+          reasoner.runProbeSuite(),
+          runEmbeddingProbe(effectiveConfig),
+        ]);
+        report.reasonerProbe = reasonerProbe;
+        report.embeddingProbe = embeddingProbe;
       }
       console.log(JSON.stringify(report, null, 2));
     });

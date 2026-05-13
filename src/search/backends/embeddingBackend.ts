@@ -49,6 +49,7 @@ const DEFAULT_LOCAL_PYTHON_BIN = "python3";
 const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 120_000;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 300_000;
+const LOCAL_EMBEDDING_PREWARM_TEXT = "memory-memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(
   new URL("../../../sentence_transformers_embedder.py", import.meta.url),
 );
@@ -98,6 +99,10 @@ class LocalSentenceTransformerWorker {
     const embeddings = await this.requestEmbedding(server, texts, mode, timeoutMs);
     this.hasCompletedRequest = true;
     return embeddings;
+  }
+
+  isWarm(): boolean {
+    return Boolean(this.server) && this.hasCompletedRequest && !this.closed;
   }
 
   async close(): Promise<void> {
@@ -300,6 +305,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
   private localUnavailableForProcess = false;
   private closed = false;
   private upsertQueue: Promise<void> = Promise.resolve();
+  private localPrewarm: Promise<void> | null = null;
 
   constructor(
     private readonly repo: VectorRepo,
@@ -376,6 +382,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     }
     this.acceptingUpserts = false;
     await this.flushPendingUpserts();
+    await this.localPrewarm?.catch(() => {});
     this.closed = true;
     await this.localWorker?.close();
   }
@@ -390,6 +397,12 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
 
   async similaritySearch(params: RetrievalSearchParams): Promise<SearchHit[]> {
     if (this.embedding.provider === "off" || this.isEmbeddingDisabledForProcess()) {
+      return [];
+    }
+    if (this.embedding.provider === "sentence-transformers-local" && !this.localWorker?.isWarm()) {
+      this.logger.debug?.(
+        "memory-memx: local embeddings are warming; skipping prompt hot-path similarity search",
+      );
       return [];
     }
     try {
@@ -452,6 +465,33 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
       );
       return [];
     }
+  }
+
+  async prewarmLocalEmbeddings(): Promise<void> {
+    if (
+      this.embedding.provider !== "sentence-transformers-local" ||
+      !this.localWorker ||
+      this.closed ||
+      this.isEmbeddingDisabledForProcess()
+    ) {
+      return;
+    }
+    if (this.localWorker.isWarm()) {
+      return;
+    }
+    this.localPrewarm ??= this.localWorker
+      .embed([LOCAL_EMBEDDING_PREWARM_TEXT], "query")
+      .then(() => {})
+      .catch((error) => {
+        this.handleEmbeddingFailure(
+          error,
+          `memory-memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`,
+        );
+      })
+      .finally(() => {
+        this.localPrewarm = null;
+      });
+    await this.localPrewarm;
   }
 
   private isEmbeddingDisabledForProcess(): boolean {

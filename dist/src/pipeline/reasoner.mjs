@@ -1,13 +1,13 @@
-import { clamp01, normalizeText, truncateText } from "../support.mjs";
-import { canonicalStateKey, normalizeGraphRelationType, tokenizeSearchTerms } from "./semantic/heuristics.mjs";
+import { clamp01, isValidEntityName, normalizeText, truncateText } from "../support.mjs";
+import { canonicalStateKey, normalizeGraphRelationType } from "./semantic/heuristics.mjs";
 import { basicSemanticSimilarity } from "./semantic/textSimilarity.mjs";
 import { recordMemoryLlmBudgetCall } from "./llmBudgetAudit.mjs";
-import { judgeQueryRoute } from "./semantic/judges.mjs";
-import { canonicalizePreferencePredicate, parseWorkflowState } from "./semantics.mjs";
+import { canonicalizePreferencePredicate } from "./semantics.mjs";
 import { assessAssistantChunk, renderTaskPromptChunk } from "./sourceWeighting.mjs";
 import { sanitizeTaskMetadata } from "./authority.mjs";
-import { summarizeTaskHeuristically } from "./taskSummary.mjs";
 import { loadJudgeModelConfig } from "./judgeModelConfig.mjs";
+import { buildQueryCompilerPromptInput } from "./queryCompiler.mjs";
+import { buildTurnSemanticCompilerInput } from "./turnSemanticCompiler.mjs";
 //#region src/pipeline/reasoner.ts
 const PRIMARY_ROUTE_TYPES = [
 	"workflow",
@@ -228,24 +228,12 @@ function estimateTokenCount(text) {
 	if (!trimmed) return 0;
 	return Math.max(1, Math.ceil(trimmed.length / 4));
 }
-function summarizeHeuristically(content) {
+function localChunkPreview(content) {
 	const flattened = content.replace(/```[\s\S]*?```/g, " code block ").replace(/\s+/g, " ").trim();
 	if (!flattened) return "";
 	const sentenceCut = flattened.search(/[。.!?！？]/u);
 	if (sentenceCut > 16) return truncateText(flattened.slice(0, sentenceCut + 1).trim(), 180);
 	return truncateText(flattened, 180);
-}
-function shouldUseHeuristicChunkSummary(content, role) {
-	const trimmed = content.trim();
-	if (!trimmed) return true;
-	const lineCount = trimmed.split(/\r?\n/u).length;
-	const hasCodeFence = trimmed.includes("```");
-	const tokenCount = tokenizeSearchTerms(trimmed, /* @__PURE__ */ new Set()).length;
-	const containsHan = /[\u3400-\u9fff]/u.test(trimmed);
-	const shortNaturalTurn = role !== "assistant" && lineCount === 1 && trimmed.length <= 120 && (containsHan || tokenCount <= 5);
-	const codeHeavyTurn = hasCodeFence || lineCount >= 12;
-	const verboseAssistantTurn = role === "assistant" && (trimmed.length >= 600 || lineCount >= 10);
-	return shortNaturalTurn || codeHeavyTurn || verboseAssistantTurn;
 }
 function conservativeDedupDecision(newSummary, candidates) {
 	if (candidates && candidates.length > 0) {
@@ -261,7 +249,7 @@ function conservativeDedupDecision(newSummary, candidates) {
 				action: "MERGE",
 				targetIndex: candidate.index,
 				mergedSummary: truncateText(newSummary.trim(), 220) || void 0,
-				reason: `heuristic dedup: Jaccard=${jaccard.toFixed(2)} merge with existing chunk`
+				reason: `local dedup: Jaccard=${jaccard.toFixed(2)} merge with existing chunk`
 			};
 		}
 	}
@@ -280,49 +268,22 @@ function conservativeRelevantDecision() {
 }
 function conservativeRecallPlan(query, judgmentMode) {
 	const focusedQuery = truncateText(query.trim(), 160);
-	const heuristic = focusedQuery ? judgeQueryRoute(query) : null;
-	const routeHint = heuristic?.routeType === "workflow" || heuristic?.routeType === "factual" || heuristic?.routeType === "temporal" || heuristic?.routeType === "explanatory" || heuristic?.routeType === "mixed" ? heuristic.routeType : void 0;
-	const shouldRecall = Boolean(routeHint);
 	return {
-		shouldRecall,
+		shouldRecall: Boolean(focusedQuery),
 		focusedQuery,
-		reason: focusedQuery ? shouldRecall ? judgmentMode === "disabled" ? `heuristic recall planning: ${routeHint} route fallback because no judge model is configured` : `heuristic recall planning: ${routeHint} route fallback while LLM judgment recovers` : judgmentMode === "disabled" ? "recall planning unavailable: no reliable heuristic route and no judge model is configured" : "degraded recall planning: no reliable heuristic route while LLM judgment recovers" : "empty query",
-		routeHint,
+		reason: focusedQuery ? judgmentMode === "disabled" ? "recall planning unavailable: no LLM recall plan is configured" : "degraded recall planning: no LLM recall plan is available" : "empty query",
 		judgmentMode
 	};
 }
 function conservativeRoutePrior(query, judgmentMode) {
 	const focusedQuery = truncateText(query.trim(), 180);
-	const focusedQueries = focusedQuery ? Object.fromEntries(PRIMARY_ROUTE_TYPES.map((route) => [route, focusedQuery])) : {};
-	const heuristic = focusedQuery ? judgeQueryRoute(query) : null;
-	if (heuristic && heuristic.routeType !== "unknown") return {
-		primaryRoute: heuristic.routeType,
-		secondaryRoutes: [],
-		confidence: Math.max(.35, heuristic.routeConfidence * .7),
-		focusedQueries,
-		reason: judgmentMode === "disabled" ? `heuristic route prior: ${heuristic.routeType} fallback because no judge model is configured` : `heuristic route prior: ${heuristic.routeType} fallback while LLM judgment recovers`,
-		judgmentMode
-	};
 	return {
 		primaryRoute: "unknown",
 		secondaryRoutes: [],
 		confidence: .05,
-		focusedQueries,
-		reason: focusedQuery ? judgmentMode === "disabled" ? "route prior unavailable: no reliable heuristic route and no judge model is configured" : "degraded route prior: no reliable heuristic route while LLM judgment recovers" : "degraded route prior: empty query",
+		focusedQueries: focusedQuery ? Object.fromEntries(PRIMARY_ROUTE_TYPES.map((route) => [route, focusedQuery])) : {},
+		reason: focusedQuery ? judgmentMode === "disabled" ? "route prior unavailable: no LLM route prior is configured" : "degraded route prior: no LLM route prior is available" : "degraded route prior: empty query",
 		judgmentMode
-	};
-}
-function heuristicRoutePrior(query) {
-	const heuristic = judgeQueryRoute(query);
-	const focusedQuery = truncateText(query.trim(), 180);
-	const focusedQueries = focusedQuery ? Object.fromEntries(PRIMARY_ROUTE_TYPES.map((route) => [route, focusedQuery])) : {};
-	return {
-		primaryRoute: heuristic.routeType,
-		secondaryRoutes: [],
-		confidence: Math.max(.35, heuristic.routeConfidence * .7),
-		focusedQueries,
-		reason: heuristic.reasons?.[0] ?? "heuristic route prior",
-		judgmentMode: "degraded"
 	};
 }
 function conservativeRouteEvidenceDecision(routeType, judgmentMode) {
@@ -378,21 +339,6 @@ function sanitizeResolvedTaskPhase(phase, verificationScore, resolutionSupport, 
 	if (fallbackPhase === "validated" || fallbackPhase === "resolved") return toolCount > 0 ? "attempting" : "investigating";
 	return fallbackPhase;
 }
-function shouldUseHeuristicTaskSummary(chunks) {
-	if (chunks.length === 0) return true;
-	const totalChars = chunks.reduce((sum, chunk) => sum + chunk.content.length, 0);
-	const toolCount = chunks.filter((chunk) => chunk.role === "tool").length;
-	if (toolCount === 0 && chunks.length <= 4 && totalChars <= 1600) return true;
-	if (toolCount === 0 && chunks.length <= 6 && totalChars <= 1e3) return true;
-	return false;
-}
-function judgeNewTopicHeuristically(currentContext, newMessage) {
-	if (!currentContext.trim() || !newMessage.trim()) return null;
-	const contextProject = parseWorkflowState(currentContext);
-	const nextProject = parseWorkflowState(newMessage);
-	if (contextProject?.key === "project.active_project" && nextProject?.key === "project.active_project" && typeof contextProject.value.project === "string" && typeof nextProject.value.project === "string" && contextProject.value.project.trim().toLowerCase() !== nextProject.value.project.trim().toLowerCase()) return true;
-	return basicSemanticSimilarity(currentContext, newMessage) < .12;
-}
 function buildChunkPrompt(text, role = "user") {
 	return {
 		system: "你负责为记忆存储总结一段对话片段。请只返回严格 JSON：{\"summary\": string}。summary 必须简短、客观、可检索，且不超过 180 个字符。若片段来自 assistant，优先概括可验证结论、决策或结果，不要复述长教程、示例代码或文件操作细节。",
@@ -428,7 +374,7 @@ function buildTaskSummaryEvidencePrompt(evidence) {
 			"你负责基于任务证据集重算一个稳定摘要（stable task summary）。",
 			"你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
 			"返回格式必须是 {\"title\": string, \"summary\": string, \"project\"?: string, \"currentTask\"?: string, \"nextAction\"?: string, \"blocker\"?: string, \"taskPhase\"?: \"investigating\"|\"proposed\"|\"attempting\"|\"validated\"|\"resolved\"|\"reopened\", \"candidateResolution\"?: string, \"closureScore\"?: number, \"verificationScore\"?: number, \"contradictionRisk\"?: number, \"eventType\"?: string, \"eventSummary\"?: string, \"evidenceChunkIndexes\"?: number[]}。",
-			"这是 evidence-backed recompute，不是润色旧 heuristic summary。",
+			"这是 evidence-backed recompute，不是润色旧 local summary。",
 			"优先依据 transcript、tool 结果、structured task metadata、candidateResolution、linked events；不要把旧 task.summary 当主输入。",
 			"不要发明新的事实、项目名、时间点、关系、解决结果或 outcome。",
 			"只有当 transcript 已经支撑比较稳定的结果总结时，才填写 candidateResolution 或 eventSummary。",
@@ -584,7 +530,7 @@ function buildRelevancePrompt(query, candidates) {
 }
 function buildRecallPlanPrompt(query) {
 	return {
-		system: "你负责判断用户最新请求是否需要调用会话记忆。请只返回严格 JSON：{\"shouldRecall\": boolean, \"focusedQuery\": string, \"reason\": string, \"routeHint\"?: \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\"}。如果问题与用户历史、偏好、过去的工作或先前事件无关，就返回 shouldRecall=false。如果 shouldRecall=true，请把用户请求改写成一条简短、聚焦的记忆检索语句。",
+		system: "你负责把用户最新请求改写成会话记忆检索计划。请只返回严格 JSON：{\"focusedQuery\": string, \"reason\": string, \"routeHint\"?: \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\"}。不要判断是否应该召回，也不要输出任何召回开关或跳过判断字段；是否有可用记忆由检索结果和后续过滤决定。",
 		user: `用户最新请求：\n${truncateText(query, 1500)}`
 	};
 }
@@ -596,91 +542,59 @@ function buildRoutePriorPrompt(query) {
 }
 function buildRecallPlanWithRoutePrompt(query) {
 	return {
-		system: "你负责判断用户最新请求是否需要调用会话记忆，并选择路由先验。请只返回严格 JSON：{\"shouldRecall\": boolean, \"focusedQuery\": string, \"reason\": string, \"routeHint\"?: \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\", \"primaryRoute\": \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\"|\"unknown\", \"secondaryRoutes\"?: (\"workflow\"|\"factual\"|\"temporal\"|\"explanatory\")[], \"routeConfidence\": number, \"focusedQueries\": {\"workflow\"?: string, \"factual\"?: string, \"temporal\"?: string, \"explanatory\"?: string}, \"routeReason\"?: string}。如果问题与用户历史、偏好、过去的工作或先前事件无关，就返回 shouldRecall=false。如果 shouldRecall=true，请把用户请求改写成一条简短、聚焦的记忆检索语句。同时根据用户真实意图为每条路由给出聚焦检索语句。",
+		system: "你负责把用户最新请求改写成会话记忆检索计划，并选择路由先验。请只返回严格 JSON：{\"focusedQuery\": string, \"reason\": string, \"routeHint\"?: \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\", \"primaryRoute\": \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"|\"mixed\"|\"unknown\", \"secondaryRoutes\"?: (\"workflow\"|\"factual\"|\"temporal\"|\"explanatory\")[], \"routeConfidence\": number, \"focusedQueries\": {\"workflow\"?: string, \"factual\"?: string, \"temporal\"?: string, \"explanatory\"?: string}, \"routeReason\"?: string}。不要判断是否应该召回，也不要输出任何召回开关或跳过判断字段；是否有可用记忆由检索结果和后续过滤决定。",
 		user: `用户最新请求：\n${truncateText(query, 1500)}`
 	};
 }
 function buildQueryCompilePrompt(query, fallback) {
+	const promptInput = buildQueryCompilerPromptInput(query, fallback);
 	return {
 		system: [
-			"你负责把一个记忆查询编译成结构化草案（QueryCompileResult）。",
+			"你负责把用户最新请求编译成轻量记忆检索计划。",
 			"你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
-			"顶层字段只能是：queryShape、focusedQuery、answerGranularity、evidenceFidelity、routeWeights、anchors、candidateSurfaces、evidenceGoals、evidencePlan、semanticBridges、answerMode、evidenceCoverage、detailNeedScore、supportNeed、ambiguityLevel、turnMode、compilerProvenance。",
-			"你不能发明新的事实、实体、项目名、时间点、关系或结论。",
-			"你不能决定最终 recall selection、budget、主证据面、owner、truth。",
-			"你的职责只是描述这条 query 的语义形状和它需要什么证据。",
+			"顶层字段只能是：focusedQuery、queryEntities、queryShape、primaryRoute。",
+			"返回格式：{\"focusedQuery\": string, \"queryEntities\": [{\"name\": string, \"type\"?: \"person\"|\"project\"|\"tool\"|\"service\"|\"language\"|\"framework\"|\"concept\"|\"organization\"|\"unknown\", \"role\"?: \"subject\"|\"object\"|\"context\"|\"resource\"}], \"queryShape\": {\"timeframe\": \"current\"|\"historical\"|\"compare\"|\"timeless\", \"granularity\": \"summary\"|\"exact_detail\", \"referentialMode\": \"anchored\"|\"deictic\", \"evidenceNeed\": \"workflow_context\"|\"canonical_state\"|\"factual_history\"|\"event_history\"|\"relation\"|\"chunk\"}, \"primaryRoute\": \"workflow\"|\"factual\"|\"temporal\"|\"explanatory\"}。",
+			"你的职责只是把当前请求压缩成短检索语句、抽取可稳定匹配到记忆库实体的名字，并给出粗粒度路由。",
+			"不要判断是否应该召回，也不要输出任何召回开关或跳过判断字段；是否有可用记忆由检索结果和后续过滤决定。",
+			"如果当前请求是独立解题、通用知识、纯代码执行、全新数学题、全新写作题，只做保守检索计划：focusedQuery 压缩当前请求，queryEntities 为空数组，queryShape 使用 timeless/summary/anchored/chunk，primaryRoute 选择 factual 或 temporal 中更接近的一项。",
+			"focusedQuery 只能保守压缩当前请求，最长 160 字符；不能加入当前请求没有的事实、答案、时间或实体。",
+			"queryEntities 是 query 侧唯一实体抽取入口。只输出稳定具名实体：项目、工具、服务、框架、语言、人、组织，或明确作为长期记忆对象的命名概念。",
+			"不要把数学变量、临时符号、代词、泛指词、完整句子、题目主题、学科名、解题对象当作 queryEntities。例如 n、P、Q、k、Number Theory、this problem 都不要输出。",
+			"queryEntities 只用于匹配已有实体；不要输出你不确定是否稳定存在于记忆库中的实体。",
 			"queryShape 必须是对象，且只能包含：timeframe(\"current\"|\"historical\"|\"compare\"|\"timeless\")、granularity(\"summary\"|\"exact_detail\")、referentialMode(\"anchored\"|\"deictic\")、evidenceNeed(\"workflow_context\"|\"canonical_state\"|\"factual_history\"|\"event_history\"|\"relation\"|\"chunk\")。",
-			"answerGranularity 只能是 \"summary\" 或 \"detail\"。",
-			"evidenceFidelity 只能是 \"low\"、\"medium\"、\"high\"。",
-			"routeWeights 必须是对象，且只能包含 workflow、factual、temporal、explanatory 四个键；每项是 0 到 1 之间的数字，总和应尽量接近 1。",
-			"anchors 必须只来自原始 query 或明确给定的上下文，不能臆造；如果不确定，宁可减少 anchors 并提高 ambiguityLevel。",
-			"candidateSurfaces 只能从以下集合中选择：state、fact、event、task、chunk、graph、entity_alias。",
-			"evidenceGoals 是可选数组；每项只能包含：goal(string)、positiveQueries(string[])、negativeHints(string[])、focusAnchors(string[])、preferredSurfaces(candidateSurfaces 子集)、fidelity(\"low\"|\"medium\"|\"high\")。",
-			"evidenceGoals 只描述本次 query 需要哪些证据角色；positiveQueries 是短检索语句，不是用户事实，也不是最终答案。",
-			"evidenceGoals 的 focusAnchors 必须来自原始 query 或 focusedQuery，不能发明新实体、新物品、新地点、新时间或新结论。",
-			"evidencePlan 是可选对象；只能包含 slots 和 operation。它描述要填哪些证据槽，不是最终答案。",
-			"slot 只能包含：id、role、requiredRole、description、subjectHints(string[])、relationHints(string[])、capabilityQueries(string[])、negativeHints(string[])、requiredFields(string[])、preferredLayers、fallbackLayers、minEvidence。role 只能是 \"query_context\"、\"answer_evidence\"、\"answer_value\"、\"answer_event\"、\"time_constraint\"、\"user_resource\"、\"prior_advice\"、\"supporting_context\"。requiredRole 只能是 \"query_context\"、\"user_resource\"、\"prior_advice\"、\"answer_value\"、\"answer_event\"、\"time_constraint\"。layers 只能从 state、fact、event、task、chunk、graph、entity_alias、control、strategy、abstraction、belief、snippet 中选。",
-			"slot 的 subjectHints 必须来自原始 query 或 focusedQuery；relationHints/requiredFields 只能描述证据角色和证据形态，不得引入新实体、答案值或结论。",
-			"semanticBridges 是可选数组；每项只能包含 bridgeId、sourceConcept、role、evidenceShape、retrievalQueries、positiveSignals、negativeSignals、preferredLayers、hypothesisOnly。",
-			"semanticBridges 是 evidence contract 的检索假设，不是用户事实。role 只能是 query_context、user_resource、prior_advice、answer_value、answer_event、time_constraint；evidenceShape 只能是 event、attribute_value、resource_affordance、query_context、time_constraint、aggregate_item、causal_explanation、validation_evidence、status_answer、decision_value、availability_statement；hypothesisOnly 必须为 true。",
-			"semanticBridges 要把抽象概念翻译成可检索的证据形态。retrievalQueries/positiveSignals 必须是具体证据形态，不要输出 requested topic、query context、matching event、count target 这类模板壳词。",
-			"如果 query 询问原因、根因、为什么通过/失败/修复，semanticBridges 应使用 evidenceShape=causal_explanation 描述“真正机制/原因/修复点”，validation_evidence 只能表示测试或验证结果，不能替代原因。",
-			"如果 query 询问当前状态、是否仍然 open/active/resolved/completed，semanticBridges 应使用 evidenceShape=status_answer，并把历史诊断、旧 blocker 或只说明验证结果的证据放进 negativeSignals 或 support。",
-			"如果 query 是 yes/no、should/can/must/required 这类决策问题，semanticBridges 应使用 evidenceShape=decision_value；结论必须绑定 query_context，不要只检索泛泛的 yes/no 或 required 词。",
-			"如果 query 询问 secret/token/password/API key 等敏感值是否可见、真实、存储、提供，semanticBridges 应使用 evidenceShape=availability_statement；可用性/缺失/红acted 证据是答案形态，不要让 raw secret 文本成为检索目标。",
-			"如果 query 明确询问之前 assistant 的回答、建议、推荐、说明或曾经告诉用户的内容，evidencePlan 必须包含 role=prior_advice 的 slot，semanticBridges 也应使用 role=prior_advice；不要让下游靠 query 字面词判断 assistant-authored evidence 是否可作为答案。",
-			"如果 query 包含抽象领域词，要写成熟的概念桥接。例如 business milestone 可桥接到 signed contract、first client、first revenue、launch、funding；这些只是检索假设，不表示用户一定有这些事实。",
-			"semanticBridges 禁止输出具体答案值、地点、人名、数字、学校、球队等，除非原始 query 已经明确包含。不要把桥接词写成最终答案，也不要把桥接词写入 anchors。",
-			"如果 query 是建议、推荐、tips、should I 这类需要个性化建议的问题，operation.type 应该倾向 tailor_advice。",
-			"tailor_advice 应输出 2 到 3 个 slots：role=\"query_context\" 表示当前问题，role=\"user_resource\" 表示历史里可改变建议的用户资源/能力/约束，role=\"prior_advice\" 表示历史建议或策略。不要把这三类混成一个笼统 slot。",
-			"tailor_advice 的 evidenceGoals 应按这些证据角色拆分。positiveQueries 是检索语句，可以写“为了当前问题，寻找用户拥有/可用/受限的相关资源”这类语义，但不能写成用户已经拥有某个具体资源，除非原 query 已明确说出。",
-			"tailor_advice 的 user_resource slot 必须把当前问题改写成所需能力、约束或使用场景；不要只写 tips、advice、current need、prior context 这类壳词。",
-			"tailor_advice 的 capabilityQueries 必须描述“需要什么能力/资源/限制来帮助当前问题”，例如围绕续航问题可写补电、减少耗电、充电能力这类功能需求；它们只是检索 hint，不是用户事实，也不是最终答案。",
-			"capabilityQueries 可以包含从问题自然推出的功能、约束、使用场景或方法类别，但不能写成用户已经拥有某个具体资源，除非原 query 已明确说出。",
-			"tailor_advice 的 semanticBridges 应把当前问题桥接为 user_resource/prior_advice 可检索形态，例如“能帮助当前设备续航的资源或限制”“历史里与减少耗电/补电有关的建议”，但不要断言用户拥有某个物品。",
-			"count_aggregate 必须至少拆出 role=\"answer_event\" 的可计数事件槽和 role=\"time_constraint\" 的时间约束槽；不能只输出一个 primary slot，也不能把 attended、hosted、went to、past month 这类泛动词/时间词当答案证据。",
-			"count_aggregate 的 semanticBridges 应把 count target 桥接成多个独立事件证据形态；positiveSignals 必须包含 count target 的领域名词，时间窗口只是约束，不是答案本体。",
-			"temporal query 必须区分 role=\"time_constraint\"、role=\"query_context\" 和 role=\"answer_value\"；时间相似只是约束，不能替代答案主题或答案值。",
-			"temporal query 的 semanticBridges 应把抽象主题桥接成可能的领域证据形态，同时把时间约束作为单独 time_constraint 信号。",
-			"attribute_lookup / return_value query 应区分 role=\"query_context\" 的主题约束和 role=\"answer_value\" 的直接答案证据。answer_value 必须能绑定 query_context；例如 planning to stay 不能脱离 birthday trip to Hawaii 单独成为强答案。",
-			"条件型 return_value/attribute_lookup query（例如“X 对 Y 是否必须/允许/足够/适用”）必须把 Y 放进 query_context，把 X 的结论放进 answer_value。semanticBridges 的 negativeSignals 应描述会改变答案的对照条件或不适用条件；例如 query 问 helper-only/unit-helper 时，runtime output、import boundary、packaging、published surface 这类不同条件只能作为 negativeSignals/contrast，不应替代 helper-only 条件。",
-			"negativeSignals 只能表示“不同上下文/不同条件/不适用领域”的对照信号，不能表示可能的答案极性。比如 optional、not required、not mandatory、skip build 这类可能就是正确答案，不能放进 negativeSignals；如果它们与 query_context 绑定，应作为 answer_value 的正向答案证据。",
-			"条件型 query 里，证据只命中动作词或结论词（例如 build required），但没有绑定 query_context（例如 helper-only unit fix）时，只能作为弱候选；你的 evidencePlan/semanticBridges 要让下游能区分“同一条件下的答案”和“另一个条件下的答案”。",
-			"operation 只能包含 type 和 description；type 只能是 \"return_value\"、\"aggregate\"、\"derive\"、\"compare\"、\"relate\"、\"tailor_advice\" 之一。",
-			"多事件、比较、时间间隔、差值、先后关系这类 query 必须输出多个 slots；每个事件/对象/比较边各占一个 slot，不能用一个笼统 primary slot 代替。",
-			"answerMode 只能是 \"single_fact\"、\"attribute_lookup\"、\"count_aggregate\"、\"multi_evidence\"。",
-			"evidenceCoverage 是兼容字段，只描述答案证据的软评分锚点；只能包含 requiredAnchors(string[])、optionalAnchors(string[])、minProtectedItems(number)、maxProtectedItems(number)。min/max 只是软预算提示，不是注入硬门槛。",
-			"requiredAnchors 必须是问题里的真实主题/属性锚点，不要输出 Question、How many do、How much time do 这类问句壳子。",
-			"detailNeedScore、supportNeed、ambiguityLevel 都必须是 0 到 1 之间的数字。",
-			"turnMode 只能是 \"memory_qa\"、\"workspace_task\"、\"mixed\"。",
-			"compilerProvenance 固定输出 {\"source\":\"llm\"}；其余 provenance 由运行时覆盖。",
-			"focusedQuery 只能做保守重写、消歧和压缩，不得引入 query 中不存在的新实体、新时间、新对比项或新结论。",
-			"保守策略：如果不确定，不要补全；提高 ambiguityLevel，减少 anchors，降低 evidenceFidelity 或 supportNeed。",
-			"简短回答 + 高证据保真度是合法组合。",
+			"primaryRoute 只决定优先查哪类记忆：workflow 查当前任务/状态，factual 查稳定事实/配置，temporal 查过去事件/turn，explanatory 查原因/修复/关系。",
+			"不要输出召回开关字段、evidencePlan、semanticBridges、evidenceGoals、routeWeights、anchors、candidateSurfaces、compilerProvenance 或其他字段；运行时会根据这四个字段生成并校验下游 retrieval contract。",
+			"输入里的 queryEnvelope 是对当前请求的机械窗口视图；rawHash 只用于审计，omittedChars 表示没有展示给你的原文。",
+			"不要根据 omitted 内容臆测事实；只根据可见窗口生成检索计划。",
+			"保守策略：不确定时输出泛化但短的 focusedQuery、空 queryEntities、默认 queryShape，不要输出拒绝召回的决定。",
 			"只输出 JSON。"
 		].join("\n"),
-		user: `原始查询：\n${truncateText(query, 1200)}\n\n当前 deterministic 草案：\n${JSON.stringify(fallback, null, 2)}`
+		user: `当前查询 queryEnvelope：\n${JSON.stringify(promptInput.envelope, null, 2)}\n\n当前非语义 compact scaffold：\n${JSON.stringify(promptInput.scaffold, null, 2)}`
 	};
 }
 function buildTurnSemanticCompilePrompt(messages, fallback) {
-	const messageBlock = messages.map((message, index) => `${index + 1}. role=${message.role} sourceRef=${message.sourceRef || `${message.role}:${message.turnId}`}\n${truncateText(message.content, 400)}`).join("\n\n");
+	const compilerInput = buildTurnSemanticCompilerInput(messages);
 	const compactFallback = summarizeTurnSemanticFallback(fallback);
 	return {
 		system: [
 			"你负责把一个对话轮次编译成语义草案（TurnSemanticFrame）。",
 			"你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
 			"顶层字段只能是：sourceRefs、chunkDrafts、taskProposal、assertionDrafts、correctionDrafts、relationDrafts、resourceAssertions、adviceSignals、supportSpans、compilerProvenance。",
-			"这是对当前轮次的语义编译结果。deterministic 草案只用于提供 sourceRef、chunk/task scaffold 和审计参考，不是语义 truth。",
-			"semantic 字段必须由你显式输出：assertionDrafts、correctionDrafts、relationDrafts、resourceAssertions、adviceSignals 如果没有高价值内容就省略或返回空数组；运行时不会把 deterministic regex 语义自动补回来。",
-			"chunkDrafts、taskProposal、supportSpans 可以省略；省略时运行时会保留 deterministic scaffold。",
+			"这是对当前轮次的语义编译结果。scaffold 只用于提供 sourceRef、chunk/task 容器和审计参考，不是语义 truth。",
+			"semantic 字段必须由你显式输出：assertionDrafts、correctionDrafts、relationDrafts、resourceAssertions、adviceSignals 如果没有高价值内容就省略或返回空数组；运行时不会把本地 regex 语义自动补回来。",
+			"chunkDrafts、taskProposal、supportSpans 可以省略；省略时运行时只保留非语义 scaffold。",
 			"不要把输入文本、长句子或大段摘要复制进输出；输出应该尽可能短。",
 			"这只是 semantic draft，不是最终写库动作。",
+			"输入里的 turnMessageEnvelope 是当前轮消息的机械窗口视图；rawHash 只用于审计，omittedChars 表示没有展示给你的原文。",
+			"不要根据 omitted 内容臆测事实；如果可见窗口不足以证明高价值语义信号，就不要输出对应 semantic 字段。",
 			"你不能输出 final action、classification、owner、supersede、slotReplacement。",
 			"你不能直接决定 durable state/fact/event/graph relation，也不能改写 canonical truth。",
 			"sourceRefs 必须是数组，且只能引用输入里已有的 sourceRef，不能发明新的 sourceRef。",
-			"chunkDrafts 只在 deterministic 草案明显错了时才允许返回；每个 chunkDraft 只允许 sourceRef 和一个不超过 24 个字符的 summary。",
+			"chunkDrafts 只在 scaffold 明显缺少必要 sourceRef 绑定信息时才允许返回；每个 chunkDraft 只允许 sourceRef 和一个不超过 24 个字符的 summary。",
 			"taskProposal 只能表达任务连续性的草案；如果返回 taskProposal，必须把整个对象一起返回。decision 只能是 \"continue\"|\"resume\"|\"new\"|\"none\"，允许字段 targetTaskId、confidence、summary、summaryConfidence、reason；summary 只是一条 working summary 草案，不是事实 owner，也不是最终 assignment。",
-			"assertionDrafts 只能表达 semantic hint，不能表达 final canonical class；familyHint 只能是 \"workflow\"|\"preference\"|\"fact_like\"|\"event_like\"|\"relation_like\"|\"strategy_like\"，timeframeHint 只能是 \"current\"|\"historical\"|\"compare\"|\"timeless\"。strategy_like 只用于步骤顺序、排查原则、程序化 guidance，不代表新增 durable schema。默认只返回 sourceRef、familyHint、timeframeHint、slotHints、confidence，不要返回 entityHints 或 supportSpans，除非 deterministic 草案明显错了。",
+			"assertionDrafts 只能表达 semantic hint，不能表达 final canonical class；familyHint 只能是 \"workflow\"|\"preference\"|\"fact_like\"|\"event_like\"|\"relation_like\"|\"strategy_like\"，timeframeHint 只能是 \"current\"|\"historical\"|\"compare\"|\"timeless\"。strategy_like 只用于步骤顺序、排查原则、程序化 guidance，不代表新增 durable schema。",
+			"entityHints 是唯一实体抽取入口；如果当前 source 有稳定、可复现的具名实体，请在相关 assertionDrafts 上返回 entityHints，格式为 {\"name\":\"...\",\"type\":\"person|project|tool|service|language|framework|concept|organization|unknown\"}。不要输出代词、泛指词、完整句子或只在本句中临时成立的描述。",
+			"如果同一实体只作为 relationDrafts 的 subject/object 或 resourceAssertions 的 resource 出现，可以不重复放进 entityHints；否则需要通过 entityHints 显式给出。supportSpans 默认不要返回，除非 scaffold 把 sourceRef 绑定错了。",
 			"不要把 assertionDrafts 写成 final state/fact/event/relation action。",
 			"relationDrafts 用于明确实体关系，每项必须包含 sourceRef、relation、confidence。relation 只能包含 subject、predicate、object、polarity、rawPredicate、slot/relationSlot、confidence、reason；polarity 必须是 affirmed 或 negated。只有 affirmed 表示可写入正向 graph edge；negated 表示“该关系不成立/负向边界”，只能作为证据支持，不能写成正向 edge。subject/object 必须来自当前轮文本或已给上下文元数据，不得臆测；predicate 必须表达真实关系，例如 uses、depends_on、blocks、owner_of、part_of、supersedes、contradicts、resolved_by、reads、related_to。关系不是 final action，但它是 graph 写入的结构化输入。",
 			"relationDrafts 的 subject/object 必须是可稳定复现的具名项目、模块、文件、工具、人、组织、资源或地点；不要把“这/它/that/it/this/上面的问题/这个偏好”等代词、泛指词、句子片段或纯概念标签当 entity。若只能看到代词但无法从本轮或上下文元数据解析到稳定实体，请省略 relationDraft。",
@@ -690,15 +604,38 @@ function buildTurnSemanticCompilePrompt(messages, fallback) {
 			"adviceSignals 用于同一轮里有用户问题上下文、用户资源、assistant 建议或可复用建议上下文的情况；每项只能包含 problemContext、userResources、assistantRecommendation、domains、sourceRefs、supportText、confidence、semanticStatus(\"observed\"|\"assistant_suggested\")。sourceRefs 必须全部来自输入，必须至少有一个 sourceRef；不要凭空生成 strategy。",
 			"一次输出最多 8 个高价值 signals：relationDrafts 最多 4 条，resourceAssertions 最多 3 条，adviceSignals 最多 2 条。优先输出未来 advice/preference/recall 明显有用、且有 sourceRef 的结构化内容。",
 			"correctionDrafts 只表达纠偏草案，不做最终物化；每项只需要 sourceRef、correction、confidence。correction 本身只应在文本里明确出现 current/historical change cue 时输出；priorValue 和 nextValue 只写简短短语，不要复制整句；运行时会自动补 lineage。",
-			"supportSpans 默认不要返回；只有 deterministic 草案把 sourceRef 绑定错了时才允许返回，而且 text 必须是很短的精确子串。",
+			"supportSpans 默认不要返回；只有 scaffold 把 sourceRef 绑定错了时才允许返回，而且 text 必须是很短的精确子串。",
 			"compilerProvenance 可以省略；如果返回它，只允许 {\"source\":\"llm\"}；其余 provenance 由运行时覆盖。",
 			"保守策略：纯提问、假设、条件句、引用第三方内容，不要输出高置信 assertionDraft。",
 			"如果一句话是否构成 assertion 不确定，宁可降低 confidence，或不输出对应 assertionDraft。",
 			"一条 source 可以产出多个 assertionDraft，但不要为了看起来完整而补造草案；整个输出里 assertionDraft 最多 2 条，correctionDraft 最多 1 条。",
-			"如果本轮没有值得写入的语义信号，可以返回 {}；这表示没有 compiler-confirmed semantic signals，不表示接受 deterministic semantic hints。",
+			"如果本轮没有值得写入的语义信号，可以返回 {}；这表示没有 compiler-confirmed semantic signals，不表示接受任何本地语义 hints。",
 			"只输出 JSON。"
 		].join("\n"),
-		user: `当前轮次消息：\n${messageBlock}\n\n当前 deterministic 草案摘要：\n${JSON.stringify(compactFallback, null, 2)}`
+		user: `当前轮次 turnMessageEnvelope：\n${JSON.stringify(compilerInput, null, 2)}\n\n当前非语义 scaffold 摘要：\n${JSON.stringify(compactFallback, null, 2)}`
+	};
+}
+function buildLongTurnSemanticScanPrompt(input, fallback) {
+	const compactFallback = summarizeTurnSemanticFallback(fallback);
+	return {
+		system: [
+			"你负责扫描超长对话轮次的机械分段视图，补足 compact turn compiler 可能看不到的语义草案。",
+			"你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
+			"顶层字段只能是：sourceRefs、chunkDrafts、taskProposal、assertionDrafts、correctionDrafts、relationDrafts、resourceAssertions、adviceSignals、supportSpans、compilerProvenance。",
+			"这些 segments 是当前轮消息的机械切片，不是旧记忆。你不能输出 final action、classification、owner、supersede、slotReplacement。",
+			"semantic 字段必须由你显式输出；运行时不会把本地 regex 语义自动补回来。",
+			"entityHints 是唯一实体抽取入口；如果当前 segment 有稳定、可复现的具名实体，请在相关 assertionDrafts 上返回 entityHints，格式为 {\"name\":\"...\",\"type\":\"person|project|tool|service|language|framework|concept|organization|unknown\"}。",
+			"不要把代词、泛指词、完整句子、临时变量、数学符号、代码局部变量或只在本句临时成立的描述当 entity。",
+			"relationDrafts 只用于明确实体关系；subject/object 必须是可稳定复现的具名实体，predicate 必须表达真实关系。",
+			"resourceAssertions 只用于用户明确拥有、使用、刚获得、正在考虑的具体资源、工具、账号、服务、能力或约束。",
+			"adviceSignals 只用于同一轮中可复用的用户问题上下文、用户资源、assistant 建议或建议上下文。",
+			"sourceRefs 必须引用输入里已有的 sourceRef，不能发明新的 sourceRef。",
+			"不要复制大段 segment 文本；supportText/supportSpans 只允许很短的原文依据。",
+			"如果 segments 只是长材料、日志、代码、题目或 assistant 长答案，且没有值得长期使用的用户事实/偏好/关系/资源/任务状态，可以返回 {}。",
+			"保守策略：不确定是否值得写入时，不输出对应 semantic 字段。",
+			"只输出 JSON。"
+		].join("\n"),
+		user: `长轮次 longTurnSegmentScan：\n${JSON.stringify(input, null, 2)}\n\n当前非语义 scaffold 摘要：\n${JSON.stringify(compactFallback, null, 2)}`
 	};
 }
 function hasRecognizedTurnSemanticPatch(value) {
@@ -781,6 +718,55 @@ function normalizeTurnSemanticFamilyHint(value) {
 }
 function normalizeTurnSemanticTimeframeHint(value) {
 	return value === "current" || value === "historical" || value === "compare" || value === "timeless" ? value : void 0;
+}
+const TURN_ENTITY_HINT_TYPES = new Set([
+	"person",
+	"project",
+	"tool",
+	"service",
+	"language",
+	"framework",
+	"concept",
+	"organization",
+	"unknown"
+]);
+const DISALLOWED_ENTITY_HINTS = new Set([
+	"it",
+	"this",
+	"that",
+	"they",
+	"them",
+	"这些",
+	"这个",
+	"这",
+	"那个",
+	"那",
+	"它",
+	"他们",
+	"她们",
+	"它们"
+]);
+function normalizeTurnSemanticEntityHints(value) {
+	if (!Array.isArray(value)) return;
+	const seen = /* @__PURE__ */ new Set();
+	const normalized = [];
+	for (const entry of value) {
+		if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+		const record = entry;
+		const name = typeof record.name === "string" ? record.name.trim() : "";
+		if (!name || !isValidEntityName(name) || DISALLOWED_ENTITY_HINTS.has(normalizeText(name))) continue;
+		const key = normalizeText(name);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const rawType = typeof record.type === "string" ? record.type.trim() : "";
+		const type = TURN_ENTITY_HINT_TYPES.has(rawType) ? rawType : void 0;
+		normalized.push({
+			name,
+			...type ? { type } : {}
+		});
+		if (normalized.length >= 8) break;
+	}
+	return normalized.length > 0 ? normalized : void 0;
 }
 function normalizedStringArray(value, limit) {
 	if (!Array.isArray(value)) return [];
@@ -912,6 +898,7 @@ function normalizeCompiledTurnSemanticPatch(messages, patch) {
 		const sourceRef = typeof entry?.sourceRef === "string" ? entry.sourceRef : void 0;
 		const familyHint = normalizeTurnSemanticFamilyHint(entry?.familyHint);
 		const timeframeHint = normalizeTurnSemanticTimeframeHint(entry?.timeframeHint);
+		const entityHints = normalizeTurnSemanticEntityHints(entry?.entityHints);
 		const lineage = sourceRef ? withLineage(sourceRef) : void 0;
 		if (!sourceRef || !familyHint || !timeframeHint || !lineage) return null;
 		return {
@@ -919,7 +906,7 @@ function normalizeCompiledTurnSemanticPatch(messages, patch) {
 			sourceRef,
 			familyHint,
 			timeframeHint,
-			...Array.isArray(entry?.entityHints) ? { entityHints: entry.entityHints } : {},
+			...entityHints ? { entityHints } : {},
 			...Array.isArray(entry?.slotHints) ? { slotHints: entry.slotHints.filter((slot) => typeof slot === "string" && slot.trim().length > 0) } : {},
 			...Array.isArray(entry?.supportSpans) ? { supportSpans: entry.supportSpans } : {},
 			...typeof entry?.confidence === "number" && Number.isFinite(entry.confidence) ? { confidence: clamp01(entry.confidence) } : {},
@@ -1027,13 +1014,27 @@ function buildConsolidationBatchConfirmPrompt(items) {
 		}).join("\n\n") || "无候选"
 	};
 }
+function llmUnavailableTaskSummary() {
+	return {
+		title: "Conversation task",
+		summary: "",
+		metadataJson: {
+			taskPhase: "investigating",
+			closureScore: 0,
+			verificationScore: 0,
+			contradictionRisk: .5,
+			summarySource: "llm_unavailable",
+			summaryQuality: "working"
+		}
+	};
+}
 function materializeTaskSummaryJudgeResult(evidence, result) {
-	const fallback = summarizeTaskHeuristically(evidence.chunks);
-	const fallbackPhase = isTaskPhase(fallback.metadataJson.taskPhase) ? fallback.metadataJson.taskPhase : "investigating";
+	const fallback = llmUnavailableTaskSummary();
+	const fallbackPhase = "investigating";
 	const rawTaskPhase = isTaskPhase(result.taskPhase) ? result.taskPhase : fallbackPhase;
-	const closureScore = typeof result.closureScore === "number" && Number.isFinite(result.closureScore) ? clamp01(result.closureScore) : typeof fallback.metadataJson.closureScore === "number" ? clamp01(fallback.metadataJson.closureScore) : 0;
-	const verificationScore = typeof result.verificationScore === "number" && Number.isFinite(result.verificationScore) ? clamp01(result.verificationScore) : typeof fallback.metadataJson.verificationScore === "number" ? clamp01(fallback.metadataJson.verificationScore) : 0;
-	const contradictionRisk = typeof result.contradictionRisk === "number" && Number.isFinite(result.contradictionRisk) ? clamp01(result.contradictionRisk) : typeof fallback.metadataJson.contradictionRisk === "number" ? clamp01(fallback.metadataJson.contradictionRisk) : .2;
+	const closureScore = typeof result.closureScore === "number" && Number.isFinite(result.closureScore) ? clamp01(result.closureScore) : 0;
+	const verificationScore = typeof result.verificationScore === "number" && Number.isFinite(result.verificationScore) ? clamp01(result.verificationScore) : 0;
+	const contradictionRisk = typeof result.contradictionRisk === "number" && Number.isFinite(result.contradictionRisk) ? clamp01(result.contradictionRisk) : .5;
 	const candidateResolution = result.candidateResolution?.trim() || void 0;
 	const eventSummary = result.eventSummary?.trim() || void 0;
 	const eventType = result.eventType?.trim() || "task_outcome";
@@ -1044,16 +1045,13 @@ function materializeTaskSummaryJudgeResult(evidence, result) {
 	const sanitizedCandidateResolution = candidateResolution && resolutionSupport?.supported ? candidateResolution : void 0;
 	const sanitizedEventSummary = eventSummary && eventSupport?.supported ? eventSummary : void 0;
 	const confidence = clamp01(.42 * closureScore + .38 * verificationScore + .2 * (1 - contradictionRisk));
-	const canonicalTaskMetadata = sanitizeTaskMetadata({
-		...fallback.metadataJson,
-		...result.project?.trim() ? { project: result.project.trim() } : {},
-		...result.currentTask?.trim() ? { currentTask: result.currentTask.trim() } : {},
-		...result.nextAction?.trim() ? { nextAction: result.nextAction.trim() } : {},
-		...result.blocker?.trim() ? { blocker: result.blocker.trim() } : {}
-	});
 	const metadataJson = {
-		...fallback.metadataJson,
-		...canonicalTaskMetadata,
+		...sanitizeTaskMetadata({
+			...result.project?.trim() ? { project: result.project.trim() } : {},
+			...result.currentTask?.trim() ? { currentTask: result.currentTask.trim() } : {},
+			...result.nextAction?.trim() ? { nextAction: result.nextAction.trim() } : {},
+			...result.blocker?.trim() ? { blocker: result.blocker.trim() } : {}
+		}),
 		taskPhase,
 		closureScore,
 		verificationScore,
@@ -1200,9 +1198,13 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 			}),
 			signal: AbortSignal.timeout(3e4)
 		});
-		if (response.ok) return parseOpenAiCompatibleResponse(response);
-		const detail = await response.text();
-		if (response.status !== 400 && response.status !== 404 && response.status !== 422 && response.status !== 500) throw new Error(`openai-compatible ${response.status}: ${detail}`);
+		if (response.ok) {
+			const jsonModeText = await parseOpenAiCompatibleResponse(response);
+			if (jsonModeText.trim()) return jsonModeText;
+		} else {
+			const detail = await response.text();
+			if (response.status !== 400 && response.status !== 404 && response.status !== 422 && response.status !== 500) throw new Error(`openai-compatible ${response.status}: ${detail}`);
+		}
 	}
 	return parseOpenAiCompatibleResponse(await fetch(endpoint, {
 		method: "POST",
@@ -1223,53 +1225,53 @@ var MemxReasoner = class {
 		this.judgeModel = loadJudgeModelConfig(config, logger);
 	}
 	async summarizeChunk(text, role = "user", options = {}) {
-		const fallback = summarizeHeuristically(text);
-		if (options.allowLlm === false || shouldUseHeuristicChunkSummary(text, role)) {
+		const fallback = localChunkPreview(text);
+		if (options.allowLlm === false) {
 			this.recordTrace({
 				label: "chunk-summary",
-				mode: "heuristic",
+				mode: "degraded",
 				provenance: "deterministic",
-				detail: options.allowLlm === false ? "Chunk summary stayed on the deterministic hot path." : "Chunk summary stayed on the heuristic fast path.",
+				detail: "Chunk summary LLM was explicitly disabled; stored only a local preview.",
 				stage: options.stage
 			});
 			recordMemoryLlmBudgetCall(options.audit, {
 				label: "chunk-summary",
 				stage: options.stage ?? "write_hot_path",
 				provenance: "deterministic",
-				mode: "heuristic",
-				detail: options.allowLlm === false ? "chunk-summary hot path forced to heuristic" : "chunk-summary heuristic fast path"
+				mode: "degraded",
+				detail: "chunk-summary LLM explicitly disabled; local preview is not semantic extraction"
 			});
 			return fallback;
 		}
-		return truncateText((await this.callJson("chunk-summary", buildChunkPrompt(text, role), "heuristic", options))?.summary?.trim() || fallback, 180);
+		return truncateText((await this.callJson("chunk-summary", buildChunkPrompt(text, role), "degraded", options))?.summary?.trim() || "", 180);
 	}
 	async summarizeTask(chunks, options = {}) {
-		const fallback = summarizeTaskHeuristically(chunks);
-		if (options.allowLlm === false || shouldUseHeuristicTaskSummary(chunks)) {
+		const fallback = llmUnavailableTaskSummary();
+		if (options.allowLlm === false) {
 			this.recordTrace({
 				label: "task-summary",
-				mode: "heuristic",
+				mode: "degraded",
 				provenance: "deterministic",
-				detail: options.allowLlm === false ? "Task summary stayed on the deterministic hot path." : "Task summary stayed on the heuristic fast path.",
+				detail: "Task summary LLM was explicitly disabled; semantic summary is unavailable.",
 				stage: options.stage
 			});
 			recordMemoryLlmBudgetCall(options.audit, {
 				label: "task-summary",
 				stage: options.stage ?? "write_hot_path",
 				provenance: "deterministic",
-				mode: "heuristic",
-				detail: options.allowLlm === false ? "task-summary hot path forced to heuristic" : "task-summary heuristic fast path"
+				mode: "degraded",
+				detail: "task-summary LLM explicitly disabled; semantic task summary unavailable"
 			});
 			return fallback;
 		}
 		const promptChunks = chunks.slice(-16);
-		const result = await this.callJson("task-summary", buildTaskPrompt(promptChunks), "heuristic", options);
+		const result = await this.callJson("task-summary", buildTaskPrompt(promptChunks), "degraded", options);
 		if (!result) return fallback;
-		const fallbackPhase = isTaskPhase(fallback.metadataJson.taskPhase) ? fallback.metadataJson.taskPhase : "investigating";
+		const fallbackPhase = "investigating";
 		const rawTaskPhase = isTaskPhase(result.taskPhase) ? result.taskPhase : fallbackPhase;
-		const closureScore = typeof result.closureScore === "number" && Number.isFinite(result.closureScore) ? clamp01(result.closureScore) : typeof fallback.metadataJson.closureScore === "number" ? clamp01(fallback.metadataJson.closureScore) : 0;
-		const verificationScore = typeof result.verificationScore === "number" && Number.isFinite(result.verificationScore) ? clamp01(result.verificationScore) : typeof fallback.metadataJson.verificationScore === "number" ? clamp01(fallback.metadataJson.verificationScore) : 0;
-		const contradictionRisk = typeof result.contradictionRisk === "number" && Number.isFinite(result.contradictionRisk) ? clamp01(result.contradictionRisk) : typeof fallback.metadataJson.contradictionRisk === "number" ? clamp01(fallback.metadataJson.contradictionRisk) : .2;
+		const closureScore = typeof result.closureScore === "number" && Number.isFinite(result.closureScore) ? clamp01(result.closureScore) : 0;
+		const verificationScore = typeof result.verificationScore === "number" && Number.isFinite(result.verificationScore) ? clamp01(result.verificationScore) : 0;
+		const contradictionRisk = typeof result.contradictionRisk === "number" && Number.isFinite(result.contradictionRisk) ? clamp01(result.contradictionRisk) : .5;
 		const candidateResolution = result.candidateResolution?.trim() || void 0;
 		const eventSummary = result.eventSummary?.trim() || void 0;
 		const eventType = result.eventType?.trim() || "task_outcome";
@@ -1280,16 +1282,13 @@ var MemxReasoner = class {
 		const sanitizedCandidateResolution = candidateResolution && resolutionSupport?.supported ? candidateResolution : void 0;
 		const sanitizedEventSummary = eventSummary && eventSupport?.supported ? eventSummary : void 0;
 		const confidence = clamp01(.42 * closureScore + .38 * verificationScore + .2 * (1 - contradictionRisk));
-		const canonicalTaskMetadata = sanitizeTaskMetadata({
-			...fallback.metadataJson,
-			...result.project?.trim() ? { project: result.project.trim() } : {},
-			...result.currentTask?.trim() ? { currentTask: result.currentTask.trim() } : {},
-			...result.nextAction?.trim() ? { nextAction: result.nextAction.trim() } : {},
-			...result.blocker?.trim() ? { blocker: result.blocker.trim() } : {}
-		});
 		const metadataJson = {
-			...fallback.metadataJson,
-			...canonicalTaskMetadata,
+			...sanitizeTaskMetadata({
+				...result.project?.trim() ? { project: result.project.trim() } : {},
+				...result.currentTask?.trim() ? { currentTask: result.currentTask.trim() } : {},
+				...result.nextAction?.trim() ? { nextAction: result.nextAction.trim() } : {},
+				...result.blocker?.trim() ? { blocker: result.blocker.trim() } : {}
+			}),
 			taskPhase,
 			closureScore,
 			verificationScore,
@@ -1315,14 +1314,24 @@ var MemxReasoner = class {
 	}
 	async summarizeTaskFromEvidence(evidence, options = {}) {
 		if (evidence.chunks.length === 0) return null;
-		const result = await this.callJson("task-summary", buildTaskSummaryEvidencePrompt(evidence), "heuristic", options);
+		const result = await this.callJson("task-summary", buildTaskSummaryEvidencePrompt(evidence), "degraded", {
+			...options,
+			maxTokens: Math.min(options.maxTokens ?? 1200, 1200),
+			jsonMode: true,
+			temperature: 0
+		});
 		if (!result) return null;
 		return materializeTaskSummaryJudgeResult(evidence, result);
 	}
 	async summarizeTaskEvidenceBatch(evidenceSets, options = {}) {
 		const selected = evidenceSets.filter((entry) => entry.chunks.length > 0);
 		if (selected.length === 0) return null;
-		const result = await this.callJson("task-summary-batch", buildTaskSummaryEvidenceBatchPrompt(selected), "heuristic", options);
+		const result = await this.callJson("task-summary-batch", buildTaskSummaryEvidenceBatchPrompt(selected), "degraded", {
+			...options,
+			maxTokens: Math.min(options.maxTokens ?? 1200, 1200),
+			jsonMode: true,
+			temperature: 0
+		});
 		if (!result?.tasks || result.tasks.length === 0) return null;
 		const evidenceByTaskId = new Map(selected.map((entry) => [entry.taskId, entry]));
 		const summaries = /* @__PURE__ */ new Map();
@@ -1357,7 +1366,7 @@ var MemxReasoner = class {
 	}
 	async judgeTaskAssignment(currentTask, candidates, incomingTurn) {
 		if (!incomingTurn.trim()) return null;
-		const result = await this.callJson("task-assignment", buildTaskAssignmentPrompt(currentTask, candidates, incomingTurn));
+		const result = await this.callJson("task-assignment", buildTaskAssignmentPrompt(currentTask, candidates, incomingTurn), "degraded");
 		if (!result) return null;
 		const decision = result.decision === "continue" || result.decision === "resume" || result.decision === "new" ? result.decision : void 0;
 		if (!decision) return null;
@@ -1373,10 +1382,9 @@ var MemxReasoner = class {
 		};
 	}
 	async judgeNewTopic(currentContext, newMessage) {
-		const fallback = judgeNewTopicHeuristically(currentContext, newMessage);
-		const result = await this.callJson("topic-judge", buildTopicPrompt(currentContext, newMessage));
+		const result = await this.callJson("topic-judge", buildTopicPrompt(currentContext, newMessage), "degraded");
 		if (typeof result?.isNewTopic === "boolean") return result.isNewTopic;
-		return fallback;
+		return null;
 	}
 	async judgeDedup(newSummary, sourceText, candidates) {
 		const result = await this.callJson("dedup-judge", buildDedupPrompt(newSummary, sourceText, candidates), "degraded");
@@ -1403,7 +1411,7 @@ var MemxReasoner = class {
 		if (!result) return fallback;
 		const focusedQuery = truncateText(result.focusedQuery?.trim() || fallback.focusedQuery, 160);
 		return {
-			shouldRecall: typeof result.shouldRecall === "boolean" ? result.shouldRecall : fallback.shouldRecall,
+			shouldRecall: Boolean(focusedQuery || fallback.focusedQuery),
 			focusedQuery: focusedQuery || fallback.focusedQuery,
 			reason: result.reason?.trim() || fallback.reason,
 			routeHint: result.routeHint === "workflow" || result.routeHint === "factual" || result.routeHint === "temporal" || result.routeHint === "explanatory" || result.routeHint === "mixed" ? result.routeHint : fallback.routeHint,
@@ -1414,7 +1422,7 @@ var MemxReasoner = class {
 		const fallback = conservativeRoutePrior(query, this.isEnabled() ? "degraded" : "disabled");
 		const result = await this.callJson("route-prior", buildRoutePriorPrompt(query), "degraded");
 		if (!result) return fallback;
-		const resolvedPrior = isRouteType(result.primaryRoute) ? null : heuristicRoutePrior(query);
+		const resolvedPrior = isRouteType(result.primaryRoute) ? null : fallback;
 		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : resolvedPrior.primaryRoute;
 		const secondaryRoutes = Array.isArray(result.secondaryRoutes) ? result.secondaryRoutes.filter((route) => isPrimaryRouteType(route)) : fallback.secondaryRoutes;
 		const focusedQueries = {};
@@ -1447,13 +1455,13 @@ var MemxReasoner = class {
 		};
 		const focusedQuery = truncateText(result.focusedQuery?.trim() || planFallback.focusedQuery, 160);
 		const plan = {
-			shouldRecall: typeof result.shouldRecall === "boolean" ? result.shouldRecall : planFallback.shouldRecall,
+			shouldRecall: Boolean(focusedQuery || planFallback.focusedQuery),
 			focusedQuery: focusedQuery || planFallback.focusedQuery,
 			reason: result.reason?.trim() || planFallback.reason,
 			routeHint: result.routeHint === "workflow" || result.routeHint === "factual" || result.routeHint === "temporal" || result.routeHint === "explanatory" || result.routeHint === "mixed" ? result.routeHint : planFallback.routeHint,
 			judgmentMode: "llm"
 		};
-		const resolvedPrior = isRouteType(result.primaryRoute) ? null : heuristicRoutePrior(query);
+		const resolvedPrior = isRouteType(result.primaryRoute) ? null : routeFallback;
 		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : resolvedPrior.primaryRoute;
 		const secondaryRoutes = Array.isArray(result.secondaryRoutes) ? result.secondaryRoutes.filter((route) => isPrimaryRouteType(route)) : routeFallback.secondaryRoutes;
 		const routeFocusedQueries = {};
@@ -1477,7 +1485,7 @@ var MemxReasoner = class {
 	async compileQuerySemantics(query, fallback, options = {}) {
 		const result = await this.callJson("query-compile", buildQueryCompilePrompt(query, fallback), "degraded", {
 			...options,
-			maxTokens: Math.min(options.maxTokens ?? 1600, 1600),
+			maxTokens: Math.min(options.maxTokens ?? 600, 600),
 			jsonMode: true,
 			temperature: 0
 		});
@@ -1511,6 +1519,45 @@ var MemxReasoner = class {
 			}
 		};
 	}
+	async compileLongTurnSemantics(input, fallback, options = {}) {
+		const result = await this.callJson("turn-semantic-long-scan", buildLongTurnSemanticScanPrompt(input, fallback), "degraded", {
+			...options,
+			maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
+			jsonMode: true,
+			temperature: 0
+		});
+		if (!result) return null;
+		if (!hasRecognizedTurnSemanticPatch(result)) return null;
+		const messagesBySourceRef = new Map(fallback.sourceRefs.map((sourceRef) => [sourceRef, {
+			role: "user",
+			content: "",
+			scope: "",
+			sessionKey: "",
+			turnId: sourceRef,
+			sourceRef,
+			observedAt: ""
+		}]));
+		const syntheticMessages = input.messages.map((message) => ({
+			role: message.role,
+			content: "",
+			scope: "",
+			sessionKey: "",
+			turnId: message.turnId,
+			sourceRef: message.sourceRef,
+			observedAt: ""
+		}));
+		for (const message of syntheticMessages) messagesBySourceRef.set(message.sourceRef, message);
+		return {
+			...normalizeCompiledTurnSemanticPatch([...messagesBySourceRef.values()], result),
+			compilerProvenance: {
+				source: "llm",
+				mode: "llm",
+				promptVersion: `${TURN_SEMANTIC_COMPILE_PROMPT_VERSION}:long-turn-scan`,
+				model: this.judgeModel?.model,
+				reasons: ["long-turn-semantic-scan"]
+			}
+		};
+	}
 	async judgeRouteEvidence(query, routeType, candidates) {
 		const fallback = conservativeRouteEvidenceDecision(routeType, this.isEnabled() ? "degraded" : "disabled");
 		const result = await this.callJson(`route-evidence:${routeType}`, buildRouteEvidencePrompt(query, routeType, candidates), "degraded");
@@ -1539,7 +1586,7 @@ var MemxReasoner = class {
 		};
 	}
 	async judgeAbstractionCandidate(candidate, options = {}) {
-		const result = await this.callJson("abstraction-refinement", buildAbstractionCandidatePrompt(candidate), "heuristic", {
+		const result = await this.callJson("abstraction-refinement", buildAbstractionCandidatePrompt(candidate), "degraded", {
 			...options,
 			stage: options.stage ?? "maintenance_async"
 		});
@@ -1557,7 +1604,7 @@ var MemxReasoner = class {
 		};
 	}
 	async judgeCandidatePolicy(candidate, options = {}) {
-		const result = await this.callJson("candidate-policy", buildCandidatePolicyPrompt(candidate, this.config), "heuristic", options);
+		const result = await this.callJson("candidate-policy", buildCandidatePolicyPrompt(candidate, this.config), "degraded", options);
 		if (!result || !isMemoryAction(result.action)) return null;
 		const workflows = normalizeWorkflowHints(result.workflows);
 		const workflow = normalizeWorkflowHint(result.workflow);
@@ -1580,21 +1627,19 @@ var MemxReasoner = class {
 		};
 	}
 	async confirmConsolidationFact(text, preference, options = {}) {
-		const result = await this.callJson("consolidation-fact-confirm", buildConsolidationFactConfirmPrompt(text, preference), "heuristic", {
+		return (await this.callJson("consolidation-fact-confirm", buildConsolidationFactConfirmPrompt(text, preference), "degraded", {
 			...options,
 			stage: options.stage ?? "maintenance_async"
-		});
-		return result === null ? true : result.confirmed === true;
+		}))?.confirmed === true;
 	}
 	async confirmConsolidationRelation(text, relation, options = {}) {
-		const result = await this.callJson("consolidation-relation-confirm", buildConsolidationRelationConfirmPrompt(text, relation), "heuristic", {
+		return (await this.callJson("consolidation-relation-confirm", buildConsolidationRelationConfirmPrompt(text, relation), "degraded", {
 			...options,
 			stage: options.stage ?? "maintenance_async"
-		});
-		return result === null ? true : result.confirmed === true;
+		}))?.confirmed === true;
 	}
 	async judgeQueryRouteWithLlm(query) {
-		const result = await this.callJson("query-route", buildQueryRoutePrompt(query));
+		const result = await this.callJson("query-route", buildQueryRoutePrompt(query), "degraded");
 		if (!result || typeof result.routeType !== "string" || typeof result.routeConfidence !== "number") return null;
 		return {
 			routeType: result.routeType,
@@ -1603,8 +1648,7 @@ var MemxReasoner = class {
 		};
 	}
 	async validateStrategyCluster(entries) {
-		const result = await this.callJson("strategy-cluster-validation", buildStrategyClusterValidationPrompt(entries));
-		return result === null ? true : result.valid === true;
+		return (await this.callJson("strategy-cluster-validation", buildStrategyClusterValidationPrompt(entries), "degraded"))?.valid === true;
 	}
 	getResolvedJudgeModel() {
 		return this.judgeModel ? {
@@ -1705,7 +1749,7 @@ var MemxReasoner = class {
 			}
 		};
 	}
-	async callJson(label, prompt, failureMode = "heuristic", options = {}) {
+	async callJson(label, prompt, failureMode = "degraded", options = {}) {
 		if (!this.judgeModel) {
 			this.recordTrace({
 				label,
@@ -1719,7 +1763,7 @@ var MemxReasoner = class {
 				stage: options.stage ?? "write_hot_path",
 				provenance: "deterministic",
 				mode: "disabled",
-				detail: "LLM classifier unavailable; deterministic fallback remained active."
+				detail: "LLM classifier unavailable; caller must use a degraded non-semantic outcome."
 			});
 			return null;
 		}
@@ -1769,7 +1813,7 @@ var MemxReasoner = class {
 				label,
 				mode: failureMode,
 				provenance: "hybrid",
-				detail: failureMode === "heuristic" ? `LLM request returned unparsable output; heuristic fallback was used (${summarizeParseFailure(raw)}).` : `LLM request returned unparsable output; the caller degraded conservatively instead of rebuilding semantics heuristically (${summarizeParseFailure(raw)}).`,
+				detail: `LLM request returned unparsable output; the caller degraded conservatively instead of rebuilding semantics locally (${summarizeParseFailure(raw)}).`,
 				stage: options.stage,
 				provider: this.judgeModel.provider,
 				model: this.judgeModel.model
@@ -1781,7 +1825,7 @@ var MemxReasoner = class {
 				mode: failureMode,
 				provider: this.judgeModel.provider,
 				model: this.judgeModel.model,
-				detail: failureMode === "heuristic" ? `LLM output was unparsable; heuristic fallback was used (${summarizeParseFailure(raw)}).` : `LLM output was unparsable; caller degraded conservatively (${summarizeParseFailure(raw)}).`,
+				detail: `LLM output was unparsable; caller degraded conservatively (${summarizeParseFailure(raw)}).`,
 				promptChars,
 				responseChars,
 				estimatedPromptTokens,
@@ -1796,14 +1840,14 @@ var MemxReasoner = class {
 			const key = `${label}:${this.judgeModel.provider}:${this.judgeModel.model}`;
 			if (!this.warned.has(key)) {
 				this.warned.add(key);
-				this.logger.warn(failureMode === "heuristic" ? `memory-memx: ${label} fell back to heuristics (${String(error)})` : `memory-memx: ${label} degraded conservatively after LLM failure (${String(error)})`);
+				this.logger.warn(`memory-memx: ${label} degraded conservatively after LLM failure (${String(error)})`);
 			}
 			this.logger.info?.(`memory-memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=error mode=${failureMode} err=${String(error).slice(0, 120)}`);
 			this.recordTrace({
 				label,
 				mode: failureMode,
 				provenance: "hybrid",
-				detail: failureMode === "heuristic" ? `LLM request failed and heuristic fallback was used: ${String(error)}` : `LLM request failed; the caller degraded conservatively instead of rebuilding semantics heuristically: ${String(error)}`,
+				detail: `LLM request failed; the caller degraded conservatively instead of rebuilding semantics locally: ${String(error)}`,
 				stage: options.stage,
 				provider: this.judgeModel.provider,
 				model: this.judgeModel.model
