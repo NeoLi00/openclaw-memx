@@ -1,0 +1,181 @@
+<svg width="1200" height="820" viewBox="0 0 1200 820" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">MemX 细粒度架构</title>
+  <desc id="desc">MemX 写入、维护和召回链路，以及共享记忆对象和 lineage。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="820" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#F4F7F2"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#EAF3FF"/>
+      <stop offset="1" stop-color="#DCEBFF"/>
+    </linearGradient>
+    <linearGradient id="store" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F2F7EE"/>
+      <stop offset="1" stop-color="#E3EEDB"/>
+    </linearGradient>
+    <linearGradient id="async" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFF5E8"/>
+      <stop offset="1" stop-color="#FBE5C8"/>
+    </linearGradient>
+    <filter id="shadow" x="-8" y="-8" width="116" height="116" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#234" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M1 1L11 6L1 11Z" fill="#34699A"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M1 1L11 6L1 11Z" fill="#527A35"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M1 1L11 6L1 11Z" fill="#A96524"/>
+    </marker>
+    <style>
+      .title { font: 700 28px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #17212B; }
+      .subtitle { font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #5A6572; }
+      .lane { font: 700 15px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; fill: #526170; }
+      .box-title { font: 700 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #162433; }
+      .box-text { font: 500 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #55616D; }
+      .tiny { font: 600 11px Inter, ui-sans-serif, system-ui, sans-serif; fill: #64717D; }
+      .pill { font: 700 11px Inter, ui-sans-serif, system-ui, sans-serif; fill: #395069; }
+      .card { filter: url(#shadow); stroke-width: 1.2; }
+      .lineBlue { stroke: #34699A; stroke-width: 2.4; marker-end: url(#arrowBlue); }
+      .lineGreen { stroke: #527A35; stroke-width: 2.4; marker-end: url(#arrowGreen); }
+      .lineOrange { stroke: #A96524; stroke-width: 2.4; marker-end: url(#arrowOrange); }
+      .dash { stroke-dasharray: 7 7; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="820" rx="28" fill="url(#bg)"/>
+  <text x="48" y="52" class="title">MemX 记忆架构</text>
+  <text x="48" y="78" class="subtitle">同一个 turn contract 贯穿写入、维护和召回，并用 lineage 连接每条证据。</text>
+
+  <rect x="34" y="112" width="1132" height="155" rx="18" fill="#EEF6FF" stroke="#CADDF2"/>
+  <text x="58" y="142" class="lane">HOT PATH：当前 TURN</text>
+  <rect x="58" y="166" width="160" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="76" y="192" class="box-title">OpenClaw Hooks</text>
+  <text x="76" y="214" class="box-text">before_prompt_build</text>
+  <text x="76" y="232" class="box-text">agent_end</text>
+
+  <rect x="270" y="166" width="165" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="288" y="192" class="box-title">Turn Capture</text>
+  <text x="288" y="214" class="box-text">只捕获当前 turn</text>
+  <text x="288" y="232" class="box-text">去掉 MemX 注入</text>
+
+  <rect x="488" y="166" width="185" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="506" y="192" class="box-title">TurnSemanticFrame</text>
+  <text x="506" y="214" class="box-text">LLM-only entities</text>
+  <text x="506" y="232" class="box-text">断言、关系、support spans</text>
+
+  <rect x="730" y="166" width="185" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="748" y="192" class="box-title">Policy + Write</text>
+  <text x="748" y="214" class="box-text">候选分类</text>
+  <text x="748" y="232" class="box-text">物化记忆对象</text>
+
+  <rect x="970" y="166" width="160" height="72" rx="12" fill="#F5FAFF" stroke="#A9C7E8" class="card"/>
+  <text x="988" y="192" class="box-title">Prompt Inject</text>
+  <text x="988" y="214" class="box-text">runtime context</text>
+  <text x="988" y="232" class="box-text">位于当前 query 上方</text>
+
+  <path d="M218 202H266" class="lineBlue"/>
+  <path d="M435 202H484" class="lineBlue"/>
+  <path d="M673 202H726" class="lineBlue"/>
+  <path d="M915 202H966" class="lineBlue"/>
+
+  <rect x="34" y="304" width="1132" height="210" rx="18" fill="#F5FAF0" stroke="#D3E2C8"/>
+  <text x="58" y="334" class="lane">共享记忆存储</text>
+
+  <rect x="58" y="358" width="184" height="104" rx="12" fill="url(#store)" stroke="#B9D0A8" class="card"/>
+  <text x="76" y="384" class="box-title">证据层</text>
+  <text x="76" y="407" class="box-text">conversation_chunks</text>
+  <text x="76" y="425" class="box-text">source_segments</text>
+  <text x="76" y="443" class="box-text">conversation_tasks</text>
+
+  <rect x="284" y="358" width="214" height="104" rx="12" fill="url(#store)" stroke="#B9D0A8" class="card"/>
+  <text x="302" y="384" class="box-title">规范记忆层</text>
+  <text x="302" y="407" class="box-text">state、facts、events</text>
+  <text x="302" y="425" class="box-text">entities + aliases</text>
+  <text x="302" y="443" class="box-text">graph_edges</text>
+
+  <rect x="540" y="358" width="188" height="104" rx="12" fill="url(#store)" stroke="#B9D0A8" class="card"/>
+  <text x="558" y="384" class="box-title">搜索层</text>
+  <text x="558" y="407" class="box-text">vector_docs</text>
+  <text x="558" y="425" class="box-text">FTS + embeddings</text>
+  <text x="558" y="443" class="box-text">hybrid candidates</text>
+
+  <rect x="770" y="358" width="178" height="104" rx="12" fill="url(#store)" stroke="#B9D0A8" class="card"/>
+  <text x="788" y="384" class="box-title">学习层</text>
+  <text x="788" y="407" class="box-text">signals + beliefs</text>
+  <text x="788" y="425" class="box-text">abstractions</text>
+  <text x="788" y="443" class="box-text">outcome hypotheses</text>
+
+  <rect x="990" y="358" width="140" height="104" rx="12" fill="#F8FBF5" stroke="#B9D0A8" class="card"/>
+  <text x="1008" y="384" class="box-title">Lineage</text>
+  <text x="1008" y="407" class="box-text">source_ref</text>
+  <text x="1008" y="425" class="box-text">support refs</text>
+  <text x="1008" y="443" class="box-text">epochs</text>
+
+  <path d="M150 238V354" class="lineGreen"/>
+  <path d="M822 238V354" class="lineGreen"/>
+  <path d="M242 410H280" class="lineGreen"/>
+  <path d="M498 410H536" class="lineGreen"/>
+  <path d="M728 410H766" class="lineGreen"/>
+  <path d="M948 410H986" class="lineGreen"/>
+
+  <rect x="34" y="552" width="543" height="202" rx="18" fill="#FFF5E8" stroke="#EAD0AD"/>
+  <text x="58" y="582" class="lane">异步维护链路</text>
+  <rect x="58" y="606" width="160" height="96" rx="12" fill="url(#async)" stroke="#DDB783" class="card"/>
+  <text x="76" y="632" class="box-title">Batch Trigger</text>
+  <text x="76" y="655" class="box-text">turn 阈值</text>
+  <text x="76" y="673" class="box-text">idle</text>
+  <text x="76" y="691" class="box-text">shutdown</text>
+
+  <rect x="258" y="606" width="172" height="96" rx="12" fill="url(#async)" stroke="#DDB783" class="card"/>
+  <text x="276" y="632" class="box-title">Segment Scan</text>
+  <text x="276" y="655" class="box-text">长 source groups</text>
+  <text x="276" y="673" class="box-text">LLM semantic drafts</text>
+  <text x="276" y="691" class="box-text">同一个 frame contract</text>
+
+  <rect x="470" y="606" width="84" height="96" rx="12" fill="#FFF9F1" stroke="#DDB783" class="card"/>
+  <text x="489" y="632" class="box-title">Promote</text>
+  <text x="489" y="655" class="box-text">belief</text>
+  <text x="489" y="673" class="box-text">graph</text>
+  <text x="489" y="691" class="box-text">state</text>
+
+  <path d="M218 654H254" class="lineOrange"/>
+  <path d="M430 654H466" class="lineOrange"/>
+  <path d="M512 606V468" class="lineOrange dash"/>
+
+  <rect x="623" y="552" width="543" height="202" rx="18" fill="#EEF6FF" stroke="#CADDF2"/>
+  <text x="647" y="582" class="lane">召回编译与证据包</text>
+  <rect x="647" y="606" width="150" height="96" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="665" y="632" class="box-title">Query Compiler</text>
+  <text x="665" y="655" class="box-text">entities + anchors</text>
+  <text x="665" y="673" class="box-text">evidence plan</text>
+  <text x="665" y="691" class="box-text">semantic bridges</text>
+
+  <rect x="837" y="606" width="150" height="96" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="855" y="632" class="box-title">MemoryObject</text>
+  <text x="855" y="655" class="box-text">state/task/fact</text>
+  <text x="855" y="673" class="box-text">event/graph/chunk</text>
+  <text x="855" y="691" class="box-text">belief + lineage</text>
+
+  <rect x="1027" y="606" width="104" height="96" rx="12" fill="#F5FAFF" stroke="#A9C7E8" class="card"/>
+  <text x="1045" y="632" class="box-title">Packet</text>
+  <text x="1045" y="655" class="box-text">slots</text>
+  <text x="1045" y="673" class="box-text">units</text>
+  <text x="1045" y="691" class="box-text">audit</text>
+
+  <path d="M797 654H833" class="lineBlue"/>
+  <path d="M987 654H1023" class="lineBlue"/>
+  <path d="M912 606V468" class="lineBlue dash"/>
+  <path d="M1080 606V242" class="lineBlue dash"/>
+
+  <rect x="48" y="776" width="200" height="26" rx="13" fill="#EAF3FF" stroke="#BFD7F0"/>
+  <text x="68" y="794" class="pill">蓝色：prompt hot path</text>
+  <rect x="280" y="776" width="204" height="26" rx="13" fill="#F2F7EE" stroke="#C7D9B8"/>
+  <text x="300" y="794" class="pill">绿色：共享存储</text>
+  <rect x="516" y="776" width="216" height="26" rx="13" fill="#FFF5E8" stroke="#E4C293"/>
+  <text x="536" y="794" class="pill">橙色：异步维护</text>
+  <text x="782" y="794" class="tiny">所有注入行都保留 source refs，便于回溯到原始证据。</text>
+</svg>

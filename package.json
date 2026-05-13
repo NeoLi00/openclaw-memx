@@ -10,6 +10,8 @@
     "openclaw.plugin.json",
     "README.md",
     "README-ch.md",
+    "ARCHITECTURE.md",
+    "ARCHITECTURE-ch.md",
     "assets"
   ],
   "scripts": {

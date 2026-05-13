@@ -13,7 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a>
+  <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a> ·
+  <a href="./ARCHITECTURE-ch.md">架构深读</a>
 </p>
 
 ---
