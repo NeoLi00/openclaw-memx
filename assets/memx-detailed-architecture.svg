@@ -48,39 +48,44 @@
 
   <rect width="1200" height="820" rx="28" fill="url(#bg)"/>
   <text x="48" y="52" class="title">MemX Memory Architecture</text>
-  <text x="48" y="78" class="subtitle">One turn contract feeds write, maintenance, and recall through shared lineage and evidence packets.</text>
+  <text x="48" y="78" class="subtitle">Host adapters normalize agent traffic into one memory engine for write, maintenance, and recall.</text>
 
   <rect x="34" y="112" width="1132" height="155" rx="18" fill="#EEF6FF" stroke="#CADDF2"/>
-  <text x="58" y="142" class="lane">HOT PATH: CURRENT TURN</text>
-  <rect x="58" y="166" width="160" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
-  <text x="76" y="192" class="box-title">OpenClaw Hooks</text>
-  <text x="76" y="214" class="box-text">before_prompt_build</text>
-  <text x="76" y="232" class="box-text">agent_end</text>
+  <text x="58" y="142" class="lane">HOST ADAPTERS + CURRENT TURN HOT PATH</text>
+  <rect x="58" y="162" width="214" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="76" y="186" class="box-title">Host Adapters</text>
+  <text x="76" y="207" class="box-text">OpenClaw memory slot hooks</text>
+  <text x="76" y="225" class="box-text">Codex / Claude Code hooks</text>
+  <text x="76" y="243" class="box-text">Generic MCP clients</text>
 
-  <rect x="270" y="166" width="165" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
-  <text x="288" y="192" class="box-title">Turn Capture</text>
-  <text x="288" y="214" class="box-text">current prompt only</text>
-  <text x="288" y="232" class="box-text">strip MemX context</text>
+  <rect x="310" y="162" width="166" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="328" y="186" class="box-title">Turn Envelope</text>
+  <text x="328" y="207" class="box-text">normalized host payload</text>
+  <text x="328" y="225" class="box-text">current turn only</text>
+  <text x="328" y="243" class="box-text">strip MemX context</text>
 
-  <rect x="488" y="166" width="185" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
-  <text x="506" y="192" class="box-title">TurnSemanticFrame</text>
-  <text x="506" y="214" class="box-text">LLM-only entities</text>
-  <text x="506" y="232" class="box-text">assertions, relations, spans</text>
+  <rect x="514" y="162" width="184" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="532" y="186" class="box-title">TurnSemanticFrame</text>
+  <text x="532" y="207" class="box-text">LLM-only entities</text>
+  <text x="532" y="225" class="box-text">assertions + relations</text>
+  <text x="532" y="243" class="box-text">support spans</text>
 
-  <rect x="730" y="166" width="185" height="72" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
-  <text x="748" y="192" class="box-title">Policy + Write</text>
-  <text x="748" y="214" class="box-text">classify candidate</text>
-  <text x="748" y="232" class="box-text">materialize object</text>
+  <rect x="736" y="162" width="170" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
+  <text x="754" y="186" class="box-title">Policy + Write</text>
+  <text x="754" y="207" class="box-text">classify candidate</text>
+  <text x="754" y="225" class="box-text">materialize object</text>
+  <text x="754" y="243" class="box-text">update indexes</text>
 
-  <rect x="970" y="166" width="160" height="72" rx="12" fill="#F5FAFF" stroke="#A9C7E8" class="card"/>
-  <text x="988" y="192" class="box-title">Prompt Inject</text>
-  <text x="988" y="214" class="box-text">runtime context</text>
-  <text x="988" y="232" class="box-text">above query</text>
+  <rect x="960" y="162" width="170" height="84" rx="12" fill="#F5FAFF" stroke="#A9C7E8" class="card"/>
+  <text x="978" y="186" class="box-title">Recall Output</text>
+  <text x="978" y="207" class="box-text">hidden runtime context</text>
+  <text x="978" y="225" class="box-text">above current query</text>
+  <text x="978" y="243" class="box-text">or MCP response</text>
 
-  <path d="M218 202H266" class="lineBlue"/>
-  <path d="M435 202H484" class="lineBlue"/>
-  <path d="M673 202H726" class="lineBlue"/>
-  <path d="M915 202H966" class="lineBlue"/>
+  <path d="M272 204H306" class="lineBlue"/>
+  <path d="M476 204H510" class="lineBlue"/>
+  <path d="M698 204H732" class="lineBlue"/>
+  <path d="M906 204H956" class="lineBlue"/>
 
   <rect x="34" y="304" width="1132" height="210" rx="18" fill="#F5FAF0" stroke="#D3E2C8"/>
   <text x="58" y="334" class="lane">SHARED MEMORY STORE</text>
@@ -115,8 +120,8 @@
   <text x="1008" y="425" class="box-text">support refs</text>
   <text x="1008" y="443" class="box-text">epochs</text>
 
-  <path d="M150 238V354" class="lineGreen"/>
-  <path d="M822 238V354" class="lineGreen"/>
+  <path d="M393 246V354" class="lineGreen"/>
+  <path d="M822 246V354" class="lineGreen"/>
   <path d="M242 410H280" class="lineGreen"/>
   <path d="M498 410H536" class="lineGreen"/>
   <path d="M728 410H766" class="lineGreen"/>

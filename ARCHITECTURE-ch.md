@@ -14,7 +14,7 @@ MemX 的核心契约是：每一条可召回记忆都必须能回溯到 turn、s
 
 ## 运行时形态
 
-MemX 现在由共享记忆引擎和宿主 adapter 组成。
+MemX 的运行时由宿主 adapter 层和共享记忆引擎组成。
 
 对 OpenClaw，MemX 接管 memory slot，并只依赖两个运行时 hook：
 

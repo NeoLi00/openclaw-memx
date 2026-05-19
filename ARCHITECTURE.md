@@ -16,7 +16,7 @@ from.
 
 ## Runtime Shape
 
-MemX has a shared memory engine plus host adapters.
+MemX is organized as a host adapter layer in front of a shared memory engine.
 
 For OpenClaw, MemX owns the memory slot and uses two runtime hooks:
 
