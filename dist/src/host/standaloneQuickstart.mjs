@@ -175,7 +175,7 @@ function redactSummary(options, steps) {
 		llmApiKey: options.llmApiKeyEnv ? {
 			source: "env",
 			id: options.llmApiKeyEnv
-		} : "plaintext-redacted",
+		} : options.llmApiKey ? "plaintext-redacted" : null,
 		embeddingProvider: options.embeddingProvider,
 		embeddingModel: options.embeddingModel,
 		embeddingPythonBin: options.embeddingPythonBin || null,

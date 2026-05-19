@@ -8,9 +8,6 @@ import { spawn } from "node:child_process";
 const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
 const PLUGIN_ID = "memory-memx";
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
-const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_AGENT_MODEL = "deepseek-v4-pro";
-const DEFAULT_MEMX_MODEL = "deepseek-v4-flash";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 function asConfig(input) {
 	return input && typeof input === "object" && !Array.isArray(input) ? structuredClone(input) : {};
@@ -30,22 +27,38 @@ function normalizeEmbeddingProvider(provider) {
 	if (!provider || provider === "local") return "sentence-transformers-local";
 	return provider;
 }
+function normalizeLlmProvider(provider) {
+	const trimmed = trimOrUndefined(provider);
+	if (trimmed === "openai-compatible" || trimmed === "anthropic" || trimmed === "google" || trimmed === "ollama") return trimmed;
+}
 function normalizeOptions(options) {
-	const preset = options.preset ?? "deepseek";
-	const providerId = trimOrUndefined(options.providerId) ?? "deepseek";
-	const baseUrl = trimOrUndefined(options.baseUrl) ?? (preset === "deepseek" ? DEFAULT_DEEPSEEK_BASE_URL : void 0);
-	if (!baseUrl) throw new Error("baseUrl is required for custom quickstart providers");
-	if (options.apiKey && options.apiKeyEnv) throw new Error("use either --api-key or --api-key-env, not both");
-	if (!trimOrUndefined(options.apiKey) && !trimOrUndefined(options.apiKeyEnv)) throw new Error("quickstart requires --api-key or --api-key-env");
+	const rawLlmProvider = trimOrUndefined(options.llmProvider);
+	const parsedLlmProvider = normalizeLlmProvider(rawLlmProvider);
+	if (rawLlmProvider && !parsedLlmProvider) throw new Error("unsupported --llm-provider. Expected openai-compatible, anthropic, google, or ollama");
+	const llmProvider = parsedLlmProvider ?? (options.providerId ? "openai-compatible" : void 0);
+	if (!llmProvider) throw new Error("quickstart requires --llm-provider (openai-compatible, anthropic, google, or ollama)");
+	const providerId = trimOrUndefined(options.providerId) ?? llmProvider;
+	const llmBaseUrl = trimOrUndefined(options.llmBaseUrl) ?? trimOrUndefined(options.baseUrl);
+	if (!llmBaseUrl) throw new Error("quickstart requires --llm-base-url");
+	const agentModel = trimOrUndefined(options.agentModel);
+	if (!agentModel) throw new Error("quickstart requires --agent-model");
+	const llmModel = trimOrUndefined(options.llmModel) ?? trimOrUndefined(options.memxModel);
+	if (!llmModel) throw new Error("quickstart requires --llm-model");
+	const llmApiKey = trimOrUndefined(options.llmApiKey) ?? trimOrUndefined(options.apiKey);
+	const llmApiKeyEnv = trimOrUndefined(options.llmApiKeyEnv) ?? trimOrUndefined(options.apiKeyEnv);
+	if (llmApiKey && llmApiKeyEnv) throw new Error("use either --llm-api-key or --llm-api-key-env, not both");
+	if (!llmApiKey && !llmApiKeyEnv && llmProvider !== "ollama") throw new Error("quickstart requires --llm-api-key or --llm-api-key-env");
 	const homeDir = options.homeDir ?? homedir();
 	const embeddingProvider = normalizeEmbeddingProvider(options.embeddingProvider);
 	return {
 		...options,
-		preset,
+		llmProvider,
 		providerId,
-		baseUrl,
-		agentModel: trimOrUndefined(options.agentModel) ?? DEFAULT_AGENT_MODEL,
-		memxModel: trimOrUndefined(options.memxModel) ?? DEFAULT_MEMX_MODEL,
+		llmBaseUrl,
+		llmApiKey,
+		llmApiKeyEnv,
+		agentModel,
+		llmModel,
 		embeddingProvider,
 		embeddingModel: trimOrUndefined(options.embeddingModel) ?? DEFAULT_EMBEDDING_MODEL,
 		embeddingPythonBin: trimOrUndefined(options.embeddingPythonBin) ?? (embeddingProvider === "sentence-transformers-local" ? localVenvPython(homeDir) : ""),
@@ -56,26 +69,30 @@ function normalizeOptions(options) {
 	};
 }
 function apiKeyValue(options) {
-	const envName = trimOrUndefined(options.apiKeyEnv);
+	const envName = trimOrUndefined(options.llmApiKeyEnv);
 	if (envName) return {
 		source: "env",
 		provider: "default",
 		id: envName
 	};
-	const key = trimOrUndefined(options.apiKey);
-	if (!key) throw new Error("quickstart requires --api-key or --api-key-env");
-	return key;
+	return trimOrUndefined(options.llmApiKey);
+}
+function apiForProvider(provider) {
+	switch (provider) {
+		case "anthropic": return "anthropic-messages";
+		case "google": return "google-generative-ai";
+		case "ollama": return "ollama";
+		case "openai-compatible": return "openai-completions";
+	}
 }
 function displayName(model) {
-	if (model === DEFAULT_AGENT_MODEL) return "DeepSeek V4 Pro";
-	if (model === DEFAULT_MEMX_MODEL) return "DeepSeek V4 Flash";
 	return model.split(/[-_:./]+/u).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ");
 }
-function modelEntry(model) {
+function modelEntry(model, provider) {
 	return {
 		id: model,
 		name: displayName(model),
-		api: "openai-completions",
+		api: apiForProvider(provider),
 		reasoning: false,
 		input: ["text"],
 		cost: {
@@ -88,11 +105,11 @@ function modelEntry(model) {
 		maxTokens: 8192
 	};
 }
-function mergeModels(existing, models) {
+function mergeModels(existing, models, provider) {
 	const byId = /* @__PURE__ */ new Map();
 	for (const entry of existing ?? []) if (entry?.id) byId.set(entry.id, entry);
 	for (const model of models) byId.set(model, {
-		...modelEntry(model),
+		...modelEntry(model, provider),
 		...byId.get(model) ?? {}
 	});
 	return [...byId.values()];
@@ -158,7 +175,10 @@ function memxEntry(currentEntry, options) {
 				enableTurnScheduler: true,
 				enableCompatibilityMemoryTools: false,
 				llmClassifierEnabled: true,
-				llmClassifierModel: modelRef(options.providerId, options.memxModel)
+				llmProvider: options.llmProvider,
+				llmBaseURL: options.llmBaseUrl,
+				llmApiKey: apiKeyValue(options),
+				llmClassifierModel: modelRef(options.providerId, options.llmModel)
 			}
 		}
 	};
@@ -167,22 +187,23 @@ function applyOpenClawQuickstartConfig(input, rawOptions) {
 	const options = normalizeOptions(rawOptions);
 	const next = asConfig(input);
 	const agentRef = modelRef(options.providerId, options.agentModel);
-	const memxRef = modelRef(options.providerId, options.memxModel);
+	const memxRef = modelRef(options.providerId, options.llmModel);
+	const apiKey = apiKeyValue(options);
 	const providers = { ...next.models?.providers ?? {} };
 	const existingProvider = providers[options.providerId] ?? {};
 	providers[options.providerId] = {
 		...existingProvider,
-		api: "openai-completions",
-		baseUrl: options.baseUrl,
-		apiKey: apiKeyValue(options),
-		models: mergeModels(existingProvider.models, [options.agentModel, options.memxModel])
+		api: apiForProvider(options.llmProvider),
+		baseUrl: options.llmBaseUrl,
+		apiKey,
+		models: mergeModels(existingProvider.models, [options.agentModel, options.llmModel], options.llmProvider)
 	};
 	const defaults = withAllowlistModels(withPrimaryModel(next.agents?.defaults, agentRef), [{
 		ref: agentRef,
 		alias: displayName(options.agentModel)
 	}, {
 		ref: memxRef,
-		alias: displayName(options.memxModel)
+		alias: displayName(options.llmModel)
 	}]);
 	const allow = new Set(next.plugins?.allow ?? []);
 	allow.add(PLUGIN_ID);
@@ -284,15 +305,15 @@ async function defaultRunCommand(command, args) {
 }
 function publicSummary(options, steps) {
 	return {
-		preset: options.preset,
+		llmProvider: options.llmProvider,
 		providerId: options.providerId,
-		baseUrl: options.baseUrl,
+		llmBaseUrl: options.llmBaseUrl,
 		agentModel: modelRef(options.providerId, options.agentModel),
-		memxModel: modelRef(options.providerId, options.memxModel),
-		apiKey: options.apiKeyEnv ? {
+		llmModel: modelRef(options.providerId, options.llmModel),
+		llmApiKey: options.llmApiKeyEnv ? {
 			source: "env",
-			id: options.apiKeyEnv
-		} : "plaintext-redacted",
+			id: options.llmApiKeyEnv
+		} : options.llmApiKey ? "plaintext-redacted" : null,
 		embeddingProvider: options.embeddingProvider,
 		embeddingModel: options.embeddingModel,
 		embeddingPythonBin: options.embeddingPythonBin || null,
@@ -316,7 +337,7 @@ async function runOpenClawQuickstart(rawOptions, deps = {}) {
 		dryRun: Boolean(options.dryRun),
 		configPath: options.configPath,
 		...publicSummary(options, steps),
-		nextStep: options.skipRestart ? "Restart OpenClaw so the updated MemX config is applied." : "OpenClaw was restarted; run openclaw tui or your normal client."
+		nextStep: options.dryRun ? "Dry run only; rerun without --dry-run to write config and execute the planned steps." : options.skipRestart ? "Restart OpenClaw so the updated MemX config is applied." : "OpenClaw was restarted; run openclaw tui or your normal client."
 	};
 }
 //#endregion

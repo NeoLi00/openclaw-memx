@@ -268,7 +268,11 @@ function redactSummary(options: NormalizedStandaloneOptions, steps: StandaloneQu
     llmProvider: options.llmProvider,
     llmBaseUrl: options.llmBaseUrl,
     llmModel: options.llmModel,
-    llmApiKey: options.llmApiKeyEnv ? { source: "env", id: options.llmApiKeyEnv } : "plaintext-redacted",
+    llmApiKey: options.llmApiKeyEnv
+      ? { source: "env", id: options.llmApiKeyEnv }
+      : options.llmApiKey
+        ? "plaintext-redacted"
+        : null,
     embeddingProvider: options.embeddingProvider,
     embeddingModel: options.embeddingModel,
     embeddingPythonBin: options.embeddingPythonBin || null,

@@ -4,14 +4,11 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
-import type { MemoryPluginConfig } from "../types.js";
+import type { MemoryLlmProvider, MemoryPluginConfig } from "../types.js";
 
 const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
 const PLUGIN_ID = "memory-memx";
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
-const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_AGENT_MODEL = "deepseek-v4-pro";
-const DEFAULT_MEMX_MODEL = "deepseek-v4-flash";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
 type SecretRef = { source: "env"; provider: "default"; id: string };
@@ -61,12 +58,21 @@ type OpenClawConfigLike = {
 type OpenClawAgentDefaults = NonNullable<OpenClawConfigLike["agents"]>["defaults"];
 
 export type OpenClawQuickstartOptions = {
-  preset?: "deepseek" | "custom";
+  llmProvider?: MemoryLlmProvider;
+  llmBaseUrl?: string;
+  llmModel?: string;
+  llmApiKey?: string;
+  llmApiKeyEnv?: string;
+  /** @deprecated Use llmProvider plus the default provider id. */
   providerId?: string;
+  /** @deprecated Use llmBaseUrl. */
   baseUrl?: string;
+  /** @deprecated Use llmApiKey. */
   apiKey?: string;
+  /** @deprecated Use llmApiKeyEnv. */
   apiKeyEnv?: string;
   agentModel?: string;
+  /** @deprecated Use llmModel. */
   memxModel?: string;
   embeddingProvider?: "local" | MemoryPluginConfig["embedding"]["provider"];
   embeddingModel?: string;
@@ -87,11 +93,11 @@ export type OpenClawQuickstartOptions = {
 type NormalizedOpenClawQuickstartOptions = Required<
   Pick<
     OpenClawQuickstartOptions,
-    | "preset"
+    | "llmProvider"
     | "providerId"
-    | "baseUrl"
+    | "llmBaseUrl"
     | "agentModel"
-    | "memxModel"
+    | "llmModel"
     | "embeddingModel"
     | "configPath"
     | "homeDir"
@@ -101,11 +107,11 @@ type NormalizedOpenClawQuickstartOptions = Required<
 > &
   Omit<
     OpenClawQuickstartOptions,
-    | "preset"
+    | "llmProvider"
     | "providerId"
-    | "baseUrl"
+    | "llmBaseUrl"
     | "agentModel"
-    | "memxModel"
+    | "llmModel"
     | "embeddingModel"
     | "configPath"
     | "homeDir"
@@ -114,6 +120,8 @@ type NormalizedOpenClawQuickstartOptions = Required<
   > & {
     embeddingProvider: MemoryPluginConfig["embedding"]["provider"];
     embeddingPythonBin: string;
+    llmApiKey?: string;
+    llmApiKeyEnv?: string;
   };
 
 export type QuickstartCommandStep = {
@@ -161,32 +169,67 @@ function normalizeEmbeddingProvider(
   return provider;
 }
 
+function normalizeLlmProvider(provider: string | undefined): MemoryLlmProvider | undefined {
+  const trimmed = trimOrUndefined(provider);
+  if (
+    trimmed === "openai-compatible" ||
+    trimmed === "anthropic" ||
+    trimmed === "google" ||
+    trimmed === "ollama"
+  ) {
+    return trimmed;
+  }
+  return undefined;
+}
+
 function normalizeOptions(
   options: OpenClawQuickstartOptions,
 ): NormalizedOpenClawQuickstartOptions {
-  const preset = options.preset ?? "deepseek";
-  const providerId = trimOrUndefined(options.providerId) ?? "deepseek";
-  const baseUrl =
-    trimOrUndefined(options.baseUrl) ??
-    (preset === "deepseek" ? DEFAULT_DEEPSEEK_BASE_URL : undefined);
-  if (!baseUrl) {
-    throw new Error("baseUrl is required for custom quickstart providers");
+  const rawLlmProvider = trimOrUndefined(options.llmProvider);
+  const parsedLlmProvider = normalizeLlmProvider(rawLlmProvider);
+  if (rawLlmProvider && !parsedLlmProvider) {
+    throw new Error(
+      "unsupported --llm-provider. Expected openai-compatible, anthropic, google, or ollama",
+    );
   }
-  if (options.apiKey && options.apiKeyEnv) {
-    throw new Error("use either --api-key or --api-key-env, not both");
+  const llmProvider = parsedLlmProvider ?? (options.providerId ? "openai-compatible" : undefined);
+  if (!llmProvider) {
+    throw new Error(
+      "quickstart requires --llm-provider (openai-compatible, anthropic, google, or ollama)",
+    );
   }
-  if (!trimOrUndefined(options.apiKey) && !trimOrUndefined(options.apiKeyEnv)) {
-    throw new Error("quickstart requires --api-key or --api-key-env");
+  const providerId = trimOrUndefined(options.providerId) ?? llmProvider;
+  const llmBaseUrl = trimOrUndefined(options.llmBaseUrl) ?? trimOrUndefined(options.baseUrl);
+  if (!llmBaseUrl) {
+    throw new Error("quickstart requires --llm-base-url");
+  }
+  const agentModel = trimOrUndefined(options.agentModel);
+  if (!agentModel) {
+    throw new Error("quickstart requires --agent-model");
+  }
+  const llmModel = trimOrUndefined(options.llmModel) ?? trimOrUndefined(options.memxModel);
+  if (!llmModel) {
+    throw new Error("quickstart requires --llm-model");
+  }
+  const llmApiKey = trimOrUndefined(options.llmApiKey) ?? trimOrUndefined(options.apiKey);
+  const llmApiKeyEnv = trimOrUndefined(options.llmApiKeyEnv) ?? trimOrUndefined(options.apiKeyEnv);
+  if (llmApiKey && llmApiKeyEnv) {
+    throw new Error("use either --llm-api-key or --llm-api-key-env, not both");
+  }
+  if (!llmApiKey && !llmApiKeyEnv && llmProvider !== "ollama") {
+    throw new Error("quickstart requires --llm-api-key or --llm-api-key-env");
   }
   const homeDir = options.homeDir ?? homedir();
   const embeddingProvider = normalizeEmbeddingProvider(options.embeddingProvider);
   return {
     ...options,
-    preset,
+    llmProvider,
     providerId,
-    baseUrl,
-    agentModel: trimOrUndefined(options.agentModel) ?? DEFAULT_AGENT_MODEL,
-    memxModel: trimOrUndefined(options.memxModel) ?? DEFAULT_MEMX_MODEL,
+    llmBaseUrl,
+    llmApiKey,
+    llmApiKeyEnv,
+    agentModel,
+    llmModel,
     embeddingProvider,
     embeddingModel: trimOrUndefined(options.embeddingModel) ?? DEFAULT_EMBEDDING_MODEL,
     embeddingPythonBin:
@@ -199,25 +242,28 @@ function normalizeOptions(
   };
 }
 
-function apiKeyValue(options: NormalizedOpenClawQuickstartOptions): string | SecretRef {
-  const envName = trimOrUndefined(options.apiKeyEnv);
+function apiKeyValue(options: NormalizedOpenClawQuickstartOptions): string | SecretRef | undefined {
+  const envName = trimOrUndefined(options.llmApiKeyEnv);
   if (envName) {
     return { source: "env", provider: "default", id: envName };
   }
-  const key = trimOrUndefined(options.apiKey);
-  if (!key) {
-    throw new Error("quickstart requires --api-key or --api-key-env");
+  return trimOrUndefined(options.llmApiKey);
+}
+
+function apiForProvider(provider: MemoryLlmProvider): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic-messages";
+    case "google":
+      return "google-generative-ai";
+    case "ollama":
+      return "ollama";
+    case "openai-compatible":
+      return "openai-completions";
   }
-  return key;
 }
 
 function displayName(model: string): string {
-  if (model === DEFAULT_AGENT_MODEL) {
-    return "DeepSeek V4 Pro";
-  }
-  if (model === DEFAULT_MEMX_MODEL) {
-    return "DeepSeek V4 Flash";
-  }
   return model
     .split(/[-_:./]+/u)
     .filter(Boolean)
@@ -225,11 +271,11 @@ function displayName(model: string): string {
     .join(" ");
 }
 
-function modelEntry(model: string): OpenClawModelEntry {
+function modelEntry(model: string, provider: MemoryLlmProvider): OpenClawModelEntry {
   return {
     id: model,
     name: displayName(model),
-    api: "openai-completions",
+    api: apiForProvider(provider),
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -238,7 +284,11 @@ function modelEntry(model: string): OpenClawModelEntry {
   };
 }
 
-function mergeModels(existing: OpenClawModelEntry[] | undefined, models: string[]): OpenClawModelEntry[] {
+function mergeModels(
+  existing: OpenClawModelEntry[] | undefined,
+  models: string[],
+  provider: MemoryLlmProvider,
+): OpenClawModelEntry[] {
   const byId = new Map<string, OpenClawModelEntry>();
   for (const entry of existing ?? []) {
     if (entry?.id) {
@@ -246,7 +296,7 @@ function mergeModels(existing: OpenClawModelEntry[] | undefined, models: string[
     }
   }
   for (const model of models) {
-    byId.set(model, { ...modelEntry(model), ...(byId.get(model) ?? {}) });
+    byId.set(model, { ...modelEntry(model, provider), ...(byId.get(model) ?? {}) });
   }
   return [...byId.values()];
 }
@@ -329,7 +379,10 @@ function memxEntry(
         enableTurnScheduler: true,
         enableCompatibilityMemoryTools: false,
         llmClassifierEnabled: true,
-        llmClassifierModel: modelRef(options.providerId, options.memxModel),
+        llmProvider: options.llmProvider,
+        llmBaseURL: options.llmBaseUrl,
+        llmApiKey: apiKeyValue(options),
+        llmClassifierModel: modelRef(options.providerId, options.llmModel),
       },
     },
   };
@@ -342,20 +395,25 @@ export function applyOpenClawQuickstartConfig(
   const options = normalizeOptions(rawOptions);
   const next = asConfig(input);
   const agentRef = modelRef(options.providerId, options.agentModel);
-  const memxRef = modelRef(options.providerId, options.memxModel);
+  const memxRef = modelRef(options.providerId, options.llmModel);
+  const apiKey = apiKeyValue(options);
   const providers = { ...(next.models?.providers ?? {}) };
   const existingProvider = providers[options.providerId] ?? {};
   providers[options.providerId] = {
     ...existingProvider,
-    api: "openai-completions",
-    baseUrl: options.baseUrl,
-    apiKey: apiKeyValue(options),
-    models: mergeModels(existingProvider.models, [options.agentModel, options.memxModel]),
+    api: apiForProvider(options.llmProvider),
+    baseUrl: options.llmBaseUrl,
+    apiKey,
+    models: mergeModels(
+      existingProvider.models,
+      [options.agentModel, options.llmModel],
+      options.llmProvider,
+    ),
   };
 
   const defaults = withAllowlistModels(withPrimaryModel(next.agents?.defaults, agentRef), [
     { ref: agentRef, alias: displayName(options.agentModel) },
-    { ref: memxRef, alias: displayName(options.memxModel) },
+    { ref: memxRef, alias: displayName(options.llmModel) },
   ]);
   const allow = new Set(next.plugins?.allow ?? []);
   allow.add(PLUGIN_ID);
@@ -453,12 +511,16 @@ async function defaultRunCommand(
 
 function publicSummary(options: NormalizedOpenClawQuickstartOptions, steps: QuickstartCommandStep[]) {
   return {
-    preset: options.preset,
+    llmProvider: options.llmProvider,
     providerId: options.providerId,
-    baseUrl: options.baseUrl,
+    llmBaseUrl: options.llmBaseUrl,
     agentModel: modelRef(options.providerId, options.agentModel),
-    memxModel: modelRef(options.providerId, options.memxModel),
-    apiKey: options.apiKeyEnv ? { source: "env", id: options.apiKeyEnv } : "plaintext-redacted",
+    llmModel: modelRef(options.providerId, options.llmModel),
+    llmApiKey: options.llmApiKeyEnv
+      ? { source: "env", id: options.llmApiKeyEnv }
+      : options.llmApiKey
+        ? "plaintext-redacted"
+        : null,
     embeddingProvider: options.embeddingProvider,
     embeddingModel: options.embeddingModel,
     embeddingPythonBin: options.embeddingPythonBin || null,
@@ -491,8 +553,10 @@ export async function runOpenClawQuickstart(
     dryRun: Boolean(options.dryRun),
     configPath: options.configPath,
     ...publicSummary(options, steps),
-    nextStep: options.skipRestart
-      ? "Restart OpenClaw so the updated MemX config is applied."
-      : "OpenClaw was restarted; run openclaw tui or your normal client.",
+    nextStep: options.dryRun
+      ? "Dry run only; rerun without --dry-run to write config and execute the planned steps."
+      : options.skipRestart
+        ? "Restart OpenClaw so the updated MemX config is applied."
+        : "OpenClaw was restarted; run openclaw tui or your normal client.",
   };
 }

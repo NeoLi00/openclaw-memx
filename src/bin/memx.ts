@@ -31,8 +31,18 @@ function hasFlag(argv: string[], name: string): boolean {
 
 function parseOpenClawQuickstartOptions(argv: string[]) {
   const embeddingProvider = readOption(argv, "--embedding-provider");
+  const llmProvider = readOption(argv, "--llm-provider");
   return {
-    preset: readOption(argv, "--preset") as "deepseek" | "custom" | undefined,
+    llmProvider: llmProvider as
+      | "openai-compatible"
+      | "anthropic"
+      | "google"
+      | "ollama"
+      | undefined,
+    llmBaseUrl: readOption(argv, "--llm-base-url"),
+    llmModel: readOption(argv, "--llm-model"),
+    llmApiKey: readOption(argv, "--llm-api-key"),
+    llmApiKeyEnv: readOption(argv, "--llm-api-key-env"),
     providerId: readOption(argv, "--provider-id"),
     baseUrl: readOption(argv, "--base-url"),
     apiKey: readOption(argv, "--api-key"),

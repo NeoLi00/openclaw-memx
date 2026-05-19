@@ -115,3 +115,18 @@ test("standalone quickstart local embedding install plan is exec-form only", asy
     assert.doesNotMatch(step.command, /\s/);
   }
 });
+
+test("standalone quickstart dry run shows no API key for local Ollama", async () => {
+  const { runStandaloneMemxQuickstart } = await import("../dist/src/host/standaloneQuickstart.mjs");
+
+  const result = await runStandaloneMemxQuickstart({
+    target: "mcp",
+    llmProvider: "ollama",
+    llmBaseUrl: "http://127.0.0.1:11434",
+    llmModel: "qwen2.5:7b",
+    skipEmbeddingDeps: true,
+    dryRun: true,
+  });
+
+  assert.equal(result.llmApiKey, null);
+});

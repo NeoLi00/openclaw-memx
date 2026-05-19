@@ -57,6 +57,24 @@ README 命令默认使用 GitHub package spec。每次全新执行都会拉取 G
 不需要等待 npm publish。以后如果明确要用 npm 发布通道，再把 `github:NeoLi00/openclaw-memx`
 换成 `@neoli00/memory-memx`。
 
+先把下面这些值填好，再运行对应命令：
+
+- `--llm-provider`：MemX 要调用的 LLM provider adapter。可选 `openai-compatible`、
+  `anthropic`、`google` 或 `ollama`。
+- `--llm-base-url`：provider 的 base URL。例如 `https://api.openai.com/v1`、
+  `https://api.anthropic.com/v1`、`https://generativelanguage.googleapis.com/v1beta`，或者
+  Ollama 的 `http://127.0.0.1:11434`。
+- `--llm-model`：MemX 用来做记忆编译、召回规划和维护的模型。建议选速度快、成本低、JSON 输出
+  稳定的模型。
+- `--llm-api-key`：provider API key。如果不想写明文，用
+  `--llm-api-key-env PROVIDER_API_KEY`，配置里会保存环境变量引用。本地 Ollama 可以不传 key。
+- `--agent-model`：只用于 OpenClaw。它是 OpenClaw 回答用户的主模型；MemX 仍然用
+  `--llm-model` 做记忆工作。
+
+默认 embedding 是本地 `sentence-transformers-local`，模型 `intfloat/multilingual-e5-small`。
+只有想覆盖默认值时才需要额外传 `--embedding-provider` 和 `--embedding-model`。使用 `--dry-run`
+可以先预览会写入哪些文件、会执行哪些 exec-form 命令。
+
 ### Claude Code
 
 ```bash
@@ -81,12 +99,11 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 
 ```bash
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
-  --preset custom \
-  --provider-id my-provider \
-  --base-url https://llm.example.com/v1 \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
   --agent-model my-main-model \
-  --memx-model my-fast-memory-model \
-  --api-key sk-your-provider-key
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
 ```
 
 ### 通用 MCP
@@ -105,9 +122,9 @@ Claude Code、Codex 和通用 MCP client 配置完成后，需要启动共享本
 npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
-默认 embedding：本地 `sentence-transformers-local`，模型 `intfloat/multilingual-e5-small`。
-如果不想把 key 直接写进配置，用 `--llm-api-key-env PROVIDER_API_KEY`。使用 `--dry-run` 可以
-只预览配置和 exec-form 命令。
+OpenClaw 现在和 standalone hosts 使用同一组 LLM 参数。quickstart 不再提供任何 provider 专用
+preset；如果使用 OpenAI-compatible gateway 或类似服务，使用 `--llm-provider openai-compatible`
+并填入对应的 base URL。
 
 ## MemX 能做什么
 
@@ -260,5 +277,5 @@ openclaw memx reindex
 
 | 层 | 推荐选择 | 原因 |
 | --- | --- | --- |
-| LLM compiler | 任意兼容的 OpenClaw LLM provider；给 `--memx-model` 选择一个快速、低成本模型 | 语义规划质量足够做记忆编译 |
+| LLM compiler | 任意兼容的 LLM provider；给 `--llm-model` 选择一个快速、低成本模型 | 语义规划质量足够做记忆编译 |
 | Embedding | `intfloat/multilingual-e5-small` | 本地运行，多语言召回，不产生 embedding API 费用 |

@@ -27,7 +27,11 @@ function hasFlag(argv, name) {
 function parseOpenClawQuickstartOptions(argv) {
 	const embeddingProvider = readOption(argv, "--embedding-provider");
 	return {
-		preset: readOption(argv, "--preset"),
+		llmProvider: readOption(argv, "--llm-provider"),
+		llmBaseUrl: readOption(argv, "--llm-base-url"),
+		llmModel: readOption(argv, "--llm-model"),
+		llmApiKey: readOption(argv, "--llm-api-key"),
+		llmApiKeyEnv: readOption(argv, "--llm-api-key-env"),
 		providerId: readOption(argv, "--provider-id"),
 		baseUrl: readOption(argv, "--base-url"),
 		apiKey: readOption(argv, "--api-key"),

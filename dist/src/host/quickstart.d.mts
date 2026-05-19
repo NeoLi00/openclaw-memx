@@ -1,4 +1,4 @@
-import { MemoryPluginConfig } from "../types.mjs";
+import { MemoryLlmProvider, MemoryPluginConfig } from "../types.mjs";
 
 //#region src/host/quickstart.d.ts
 type SecretRef = {
@@ -48,12 +48,16 @@ type OpenClawConfigLike = {
   [key: string]: unknown;
 };
 type OpenClawQuickstartOptions = {
-  preset?: "deepseek" | "custom";
-  providerId?: string;
-  baseUrl?: string;
-  apiKey?: string;
+  llmProvider?: MemoryLlmProvider;
+  llmBaseUrl?: string;
+  llmModel?: string;
+  llmApiKey?: string;
+  llmApiKeyEnv?: string; /** @deprecated Use llmProvider plus the default provider id. */
+  providerId?: string; /** @deprecated Use llmBaseUrl. */
+  baseUrl?: string; /** @deprecated Use llmApiKey. */
+  apiKey?: string; /** @deprecated Use llmApiKeyEnv. */
   apiKeyEnv?: string;
-  agentModel?: string;
+  agentModel?: string; /** @deprecated Use llmModel. */
   memxModel?: string;
   embeddingProvider?: "local" | MemoryPluginConfig["embedding"]["provider"];
   embeddingModel?: string;

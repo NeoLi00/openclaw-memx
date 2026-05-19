@@ -57,6 +57,26 @@ The README commands use the GitHub package spec. A fresh run pulls current GitHu
 do not wait for an npm publish. To use the npm release channel later, replace
 `github:NeoLi00/openclaw-memx` with `@neoli00/memory-memx`.
 
+Fill in these values before running a command:
+
+- `--llm-provider`: the provider adapter MemX should call. Choose one of `openai-compatible`,
+  `anthropic`, `google`, or `ollama`.
+- `--llm-base-url`: the base URL for that provider. Examples: `https://api.openai.com/v1`,
+  `https://api.anthropic.com/v1`, `https://generativelanguage.googleapis.com/v1beta`, or
+  `http://127.0.0.1:11434` for Ollama.
+- `--llm-model`: the model MemX uses for memory compilation, recall planning, and maintenance.
+  Pick a fast, low-cost model with reliable JSON output.
+- `--llm-api-key`: the API key for the provider. Use `--llm-api-key-env PROVIDER_API_KEY` if you
+  want the config to reference an environment variable instead of storing plaintext. For local
+  Ollama, omit the key.
+- `--agent-model`: OpenClaw only. This is the main model OpenClaw uses to answer the user; MemX
+  still uses `--llm-model` for memory work.
+
+The default embedding setup is local `sentence-transformers-local` with
+`intfloat/multilingual-e5-small`. Add `--embedding-provider` and `--embedding-model` only when you
+want to override that default. Use `--dry-run` to preview the files and exec-form commands before
+writing anything.
+
 ### Claude Code
 
 ```bash
@@ -81,12 +101,11 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 
 ```bash
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
-  --preset custom \
-  --provider-id my-provider \
-  --base-url https://llm.example.com/v1 \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
   --agent-model my-main-model \
-  --memx-model my-fast-memory-model \
-  --api-key sk-your-provider-key
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
 ```
 
 ### Generic MCP
@@ -105,9 +124,9 @@ For Claude Code, Codex, and generic MCP clients, start the shared local service 
 npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
-Defaults: local `sentence-transformers-local` embeddings with `intfloat/multilingual-e5-small`.
-Use `--llm-api-key-env PROVIDER_API_KEY` to store an environment reference instead of a plaintext
-key. Use `--dry-run` to preview the planned config and exec-form commands.
+OpenClaw uses the same LLM flags as the standalone hosts. The quickstart path has no
+provider-specific preset; use `--llm-provider openai-compatible` plus your provider's base URL for
+OpenAI-compatible gateways and similar services.
 
 ## What MemX can do
 
@@ -267,5 +286,5 @@ retrieval, and local-first operation:
 
 | Layer | Recommended choice | Why |
 | --- | --- | --- |
-| LLM compiler | Any compatible OpenClaw LLM provider; choose a fast, low-cost model for `--memx-model` | Semantic planning with enough quality for memory compilation |
+| LLM compiler | Any compatible LLM provider; choose a fast, low-cost model for `--llm-model` | Semantic planning with enough quality for memory compilation |
 | Embedding | `intfloat/multilingual-e5-small` | Fast local multilingual retrieval with no embedding API bill |
