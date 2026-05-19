@@ -1,114 +1,84 @@
 <p align="center">
-  <img src="./assets/memx-architecture.svg" alt="MemX architecture" width="920">
-</p>
-
-<h1 align="center">MemX Memory for OpenClaw</h1>
-
-<p align="center">
-  <strong>Long-term agent memory with self-learning, self-maintenance, and relationship-aware recall.</strong>
-</p>
-
-<p align="center">
-  Contact: <a href="mailto:neoliriven@gmail.com">neoliriven@gmail.com</a>
+  <img src="./assets/memx-cover.svg" alt="MemX - AI agent 的自学习，自维护记忆" width="920">
 </p>
 
 <p align="center">
   <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a> ·
-  <a href="./ARCHITECTURE.md">Architecture</a>
+  <a href="./ARCHITECTURE.md">Architecture</a> ·
+  <a href="mailto:neoliriven@gmail.com">Contact</a>
 </p>
 
 ---
 
-MemX is a local-first long-term memory plugin for OpenClaw. It helps agents keep working with you
-across days, projects, decisions, corrections, and evolving preferences.
+MemX turns completed work into structured, searchable, self-maintained memory, then injects only the evidence an agent needs for the current query.
+It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-compatible client through the same local memory layer.
 
-**What it adds:** stable work memory, task state, relationship recall, learned habits, automatic
-cleanup, and compact evidence injection.
+## Benchmarks
 
-## What it can do
+<table>
+  <thead>
+    <tr>
+      <th>Suite</th>
+      <th>Scope</th>
+      <th>R@3 success rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>LongMemEval-S</strong></td>
+      <td>Long-context memory retrieval</td>
+      <td><strong>94.2%</strong></td>
+    </tr>
+    <tr>
+      <td><strong>Chinese engineering cases</strong></td>
+      <td>30 Chinese cases, each with 20+ turns</td>
+      <td><strong>100%</strong></td>
+    </tr>
+  </tbody>
+</table>
 
-### Remember work over time
+## Architecture
 
-MemX keeps the useful parts of long conversations: project decisions, user preferences, task status,
-important events, and raw evidence. Long inputs and long agent replies are split into linked segments
-so precise slices can be recalled without losing the original turn.
+<p align="center">
+  <img src="./assets/memx-overview.svg" alt="MemX coarse architecture" width="920">
+</p>
 
----
+## Agent support
 
-### Connect related things
+<p align="center">
+  <img src="./assets/memx-agent-support.svg" alt="MemX supported agents" width="920">
+</p>
 
-MemX includes relationship-aware memory. It can keep track of how projects, repos, tools, people,
-resources, blockers, and outcomes relate to each other. When the same object is mentioned with
-different names, MemX can use aliases and identity evidence to keep the memory connected.
+## Quick start
 
-Example: if a project is later called "Raven API", "the auth repo", or just "Raven", MemX can keep
-those references tied together when the evidence supports it.
+Requirements: Node.js 22.14+ or Node 24. OpenClaw installs require OpenClaw 2026.3.25+. Python 3 is
+needed only for the default local embedding runtime.
 
----
+The README commands use the GitHub package spec. A fresh run pulls current GitHub code, so installs
+do not wait for an npm publish. To use the npm release channel later, replace
+`github:NeoLi00/openclaw-memx` with `@neoli00/memory-memx`.
 
-### Learn from repeated collaboration
-
-MemX can notice stable patterns across repeated work. For example, it can learn that you prefer small
-reversible patches, that a certain project needs API checks before UI work, or that a recurring task
-usually follows the same review flow.
-
-These learned patterns remain tied to supporting evidence. They are not loose summaries with no
-source.
-
----
-
-### Maintain itself
-
-MemX continuously keeps memory usable:
-
-- repeated evidence can become a stable memory;
-- corrected information can replace older information;
-- old task state can stop competing with current state;
-- high-level summaries can point back to raw evidence;
-- noisy control turns such as OpenClaw heartbeat checks are ignored.
-
-The result is a memory store that evolves with the work instead of becoming a stale transcript.
-
----
-
-### Recall useful evidence
-
-When the agent needs memory, MemX does not dump everything into the prompt. It searches across
-facts, events, state, chunks, relationships, resources, and learned patterns, then builds compact
-evidence lines for the current question.
-
-The agent sees what matters now, with enough source context to answer reliably.
-
-## Evaluation signal
-
-In the current internal long-running engineering-memory replay suite, MemX reached **100% recall of
-the expected memory evidence**. That means the expected evidence was written, retrievable, and
-available to prompt injection in the tested scenarios.
-
-## OpenClaw quickstart
-
-Requirements: OpenClaw 2026.3.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
-when you use local embeddings.
-
-`memx quickstart openclaw` is OpenClaw-specific. It writes OpenClaw's config, installs the
-OpenClaw memory plugin, assigns `plugins.slots.memory`, restarts the Gateway, and runs the MemX
-doctor check. Codex, Claude Code, and generic MCP agents use the [multi-agent adapters](#multi-agent-adapters)
-section instead.
-
-The shortest DeepSeek example is:
+### Claude Code
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key sk-your-deepseek-key
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
 ```
 
-The quickstart commands use the GitHub package spec by default. A fresh run pulls the current
-GitHub code, so README installs do not wait for an npm publish. If you intentionally want the npm
-release channel after a package is published, replace `github:NeoLi00/openclaw-memx` with
-`@neoli00/memory-memx`.
+### Codex
 
-This is only a provider example. MemX can use any OpenAI-compatible provider that OpenClaw can call.
-For a generic provider, pass the provider endpoint and choose one main agent model plus one fast,
-low-cost semantic compiler model:
+```bash
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
+```
+
+### OpenClaw
 
 ```bash
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
@@ -116,39 +86,42 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
   --provider-id my-provider \
   --base-url https://llm.example.com/v1 \
   --agent-model my-main-model \
-  --memx-model my-fast-model \
+  --memx-model my-fast-memory-model \
   --api-key sk-your-provider-key
 ```
 
-The embedding defaults are:
-
-- Embedding provider: `sentence-transformers-local`
-- Embedding model: `intfloat/multilingual-e5-small`
-- Local embedding Python: `~/.openclaw/memx/.venv/bin/python`
-
-The quickstart creates the local embedding venv, installs `sentence-transformers` and `torch`,
-installs the MemX plugin with `openclaw plugins install github:NeoLi00/openclaw-memx`, writes the MemX
-config, restarts the Gateway, and runs `openclaw memx doctor --deep`.
-
-To avoid putting the API key directly in `~/.openclaw/openclaw.json`, store an env SecretRef
-instead:
+### Generic MCP
 
 ```bash
-export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key-env DEEPSEEK_API_KEY
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
 ```
 
-Useful embedding overrides:
+For Claude Code, Codex, and generic MCP clients, start the shared local service after configuration:
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
-  --api-key sk-your-deepseek-key \
-  --embedding-model intfloat/multilingual-e5-small
+npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
-Use `--dry-run` to preview the planned config and exec-form commands without writing files or
-running installers. Use `--skip-embedding-deps` if you already installed the local embedding Python
-dependencies.
+Defaults: local `sentence-transformers-local` embeddings with `intfloat/multilingual-e5-small`.
+Use `--llm-api-key-env PROVIDER_API_KEY` to store an environment reference instead of a plaintext
+key. Use `--dry-run` to preview the planned config and exec-form commands.
+
+## What MemX can do
+
+- **Remember work over time**: project decisions, user preferences, task status, long source
+  segments, and raw evidence stay linked to the original turn.
+- **Connect related things**: projects, repos, tools, files, resources, blockers, and outcomes can
+  be represented as entities and graph edges.
+- **Learn collaboration patterns**: repeated evidence can become reusable guidance without losing
+  its supporting sources.
+- **Maintain itself**: corrections can supersede older facts, stable evidence can be promoted, and
+  stale task state stops competing with current state.
+- **Recall compact evidence**: facts, events, state, chunks, relationships, resources, and learned
+  patterns are searched together, then injected as small evidence lines.
 
 For local development with live edits, link the cloned repository instead of copying it into
 OpenClaw's managed plugin directory:
@@ -162,71 +135,13 @@ openclaw gateway restart
 openclaw memx doctor --deep
 ```
 
-## Multi-agent adapters
+## Integration surfaces
 
-MemX now ships three integration surfaces:
-
-- **OpenClaw native memory plugin**: the existing `memory-memx` plugin owns
-  `plugins.slots.memory`, injects recall through `before_prompt_build`, and captures completed
-  turns through `agent_end`.
+- **OpenClaw native memory plugin**: owns `plugins.slots.memory`, injects recall through
+  `before_prompt_build`, and captures completed turns through `agent_end`.
 - **Codex and Claude Code native plugin assets**: `.codex-plugin/plugin.json` and
-  `.claude-plugin/plugin.json` register the same MemX MCP server plus host lifecycle hooks.
-- **Generic MCP**: any MCP-capable agent can use the `memx` MCP server without native hooks.
-
-For Codex, Claude Code, or a generic MCP client, use the standalone quickstart. It writes MemX's
-own config at `~/.memx/config.json`; OpenClaw config is not required.
-
-```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
-  --llm-provider openai-compatible \
-  --llm-base-url https://llm.example.com/v1 \
-  --llm-model fast-memory-model \
-  --llm-api-key sk-your-provider-key
-```
-
-For Claude Code, change only the target:
-
-```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
-  --llm-provider openai-compatible \
-  --llm-base-url https://llm.example.com/v1 \
-  --llm-model fast-memory-model \
-  --llm-api-key sk-your-provider-key
-```
-
-For an MCP-only client, generate the MemX config and print a generic MCP block:
-
-```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
-  --llm-provider openai-compatible \
-  --llm-base-url https://llm.example.com/v1 \
-  --llm-model fast-memory-model \
-  --llm-api-key sk-your-provider-key
-```
-
-All standalone quickstarts default to local embeddings:
-
-- Embedding provider: `sentence-transformers-local`
-- Embedding model: `intfloat/multilingual-e5-small`
-- Python venv: `~/.memx/.venv/bin/python`
-
-Use `--llm-api-key-env PROVIDER_API_KEY` instead of `--llm-api-key` if you want the config file to
-reference an environment variable. Use `--embedding-provider`, `--embedding-model`,
-`--embedding-base-url`, and `--embedding-api-key` when you want remote embeddings instead of the
-local default.
-
-Start the local service after configuration:
-
-```bash
-npx -y -p github:NeoLi00/openclaw-memx memx-server
-```
-
-Codex and Claude Code native plugin hook capture still uses `MEMX_URL` (`http://localhost:3878` by
-default). The bundled hook definitions use exec-form `command` plus `args`, not shell command
-strings, so plugin installers do not need to evaluate shell tokenization.
-
-OpenClaw users should prefer `memx quickstart openclaw` for first-time setup. Source checkouts can
-still use `openclaw plugins install --link .` plus `openclaw memx setup` for local development.
+  `.claude-plugin/plugin.json` register the MemX MCP server plus host lifecycle hooks.
+- **Generic MCP**: any MCP-capable client can use the `memx` MCP server without native hooks.
 
 ## What `memx setup` changes
 
