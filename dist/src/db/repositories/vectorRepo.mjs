@@ -1,4 +1,5 @@
 import { safeJsonParse } from "../../support.mjs";
+import { buildLexicalSearchText } from "../../search/lexical.mjs";
 //#region src/db/repositories/vectorRepo.ts
 var VectorRepo = class {
 	db;
@@ -36,7 +37,7 @@ var VectorRepo = class {
 		for (const doc of docs) {
 			stmt.run(doc.docId, doc.docKind, doc.sourceId, doc.scope, doc.agentId, doc.text, JSON.stringify(doc.metadataJson), doc.createdAt, doc.updatedAt, doc.materializedEpoch ?? 0);
 			ftsDelete.run(doc.docId);
-			ftsInsert.run(doc.docId, doc.docKind, doc.sourceId, doc.scope, doc.agentId, doc.text);
+			ftsInsert.run(doc.docId, doc.docKind, doc.sourceId, doc.scope, doc.agentId, buildLexicalSearchText(doc.text));
 		}
 	}
 	deleteDocs(docIds) {

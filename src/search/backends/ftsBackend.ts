@@ -1,4 +1,10 @@
 import type { VectorRepo } from "../../db/repositories/vectorRepo.js";
+import {
+  buildFtsMatchQuery,
+  buildLexicalSearchText,
+  hasCjkLexicalTerms,
+  lexicalSearchTerms,
+} from "../lexical.js";
 import type {
   RetrievalBackend,
   RetrievalSearchParams,
@@ -6,40 +12,8 @@ import type {
   VectorDocRecord,
 } from "../../types.js";
 
-const SEARCH_STOPWORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "do",
-  "does",
-  "i",
-  "is",
-  "of",
-  "on",
-  "the",
-  "to",
-  "was",
-  "what",
-]);
-
-function tokenizeSearch(query: string): string[] {
-  return query
-    .toLowerCase()
-    .split(/[^a-z0-9_.:-]+/)
-    .map((term) => term.trim())
-    .filter((term) => term.length > 1 && !SEARCH_STOPWORDS.has(term));
-}
-
-function toFtsQuery(query: string): string {
-  const terms = tokenizeSearch(query);
-  if (terms.length === 0) {
-    return query;
-  }
-  return terms.map((term) => `"${term}"`).join(" OR ");
-}
-
 function fallbackKeywordSearch(repo: VectorRepo, params: RetrievalSearchParams): SearchHit[] {
-  const terms = tokenizeSearch(params.query);
+  const terms = lexicalSearchTerms(params.query);
   if (terms.length === 0) {
     return [];
   }
@@ -53,8 +27,8 @@ function fallbackKeywordSearch(repo: VectorRepo, params: RetrievalSearchParams):
   });
   return docs
     .map((doc) => {
-      const lower = doc.text.toLowerCase();
-      const score = terms.reduce((acc, term) => acc + (lower.includes(term) ? 0.18 : 0), 0);
+      const searchText = buildLexicalSearchText(doc.text);
+      const score = terms.reduce((acc, term) => acc + (searchText.includes(term) ? 0.18 : 0), 0);
       return {
         docId: doc.docId,
         text: doc.text,
@@ -66,6 +40,20 @@ function fallbackKeywordSearch(repo: VectorRepo, params: RetrievalSearchParams):
     .filter((hit) => hit.score > 0)
     .sort((left, right) => right.score - left.score)
     .slice(0, params.limit);
+}
+
+function mergeFtsHits(primary: SearchHit[], fallback: SearchHit[], limit: number): SearchHit[] {
+  if (fallback.length === 0) {
+    return primary.slice(0, limit);
+  }
+  const merged = new Map<string, SearchHit>();
+  for (const hit of [...primary, ...fallback]) {
+    const existing = merged.get(hit.docId);
+    if (!existing || hit.score > existing.score) {
+      merged.set(hit.docId, hit);
+    }
+  }
+  return [...merged.values()].sort((left, right) => right.score - left.score).slice(0, limit);
 }
 
 export class SqliteFtsBackend implements RetrievalBackend {
@@ -83,12 +71,12 @@ export class SqliteFtsBackend implements RetrievalBackend {
     try {
       const hits = this.repo.keywordSearch({
         ...params,
-        query: toFtsQuery(params.query),
+        query: buildFtsMatchQuery(params.query),
       });
-      if (hits.length > 0) {
+      if (hits.length > 0 && !hasCjkLexicalTerms(params.query)) {
         return hits;
       }
-      return fallbackKeywordSearch(this.repo, params);
+      return mergeFtsHits(hits, fallbackKeywordSearch(this.repo, params), params.limit);
     } catch {
       return fallbackKeywordSearch(this.repo, params);
     }

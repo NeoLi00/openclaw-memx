@@ -1,22 +1,14 @@
 import { clamp01, orderByScore } from "../../support.js";
 import type { SearchHit } from "../../types.js";
+import { lexicalSearchTerms } from "../lexical.js";
 
 const RRF_K = 60;
 const MMR_LAMBDA = 0.72;
 const RECENCY_HALF_LIFE_DAYS = 21;
 
-function tokenize(text: string): string[] {
-  return (
-    text
-      .toLowerCase()
-      .match(/[\p{L}\p{N}_.:-]+/gu)
-      ?.filter((token) => token.length > 1) ?? []
-  );
-}
-
 function lexicalSimilarity(left: string, right: string): number {
-  const leftTokens = new Set(tokenize(left));
-  const rightTokens = new Set(tokenize(right));
+  const leftTokens = new Set(lexicalSearchTerms(left));
+  const rightTokens = new Set(lexicalSearchTerms(right));
   if (leftTokens.size === 0 || rightTokens.size === 0) {
     return 0;
   }

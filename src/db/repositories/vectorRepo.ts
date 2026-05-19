@@ -1,4 +1,5 @@
 import { safeJsonParse } from "../../support.js";
+import { buildLexicalSearchText } from "../../search/lexical.js";
 import type { SearchHit, VectorDocRecord } from "../../types.js";
 import type { MemxDbClient } from "../client.js";
 
@@ -77,7 +78,14 @@ export class VectorRepo {
       // Manual FTS sync ensures correctness regardless of trigger availability
       // (triggers provide a safety net for direct SQL operations).
       ftsDelete.run(doc.docId);
-      ftsInsert.run(doc.docId, doc.docKind, doc.sourceId, doc.scope, doc.agentId, doc.text);
+      ftsInsert.run(
+        doc.docId,
+        doc.docKind,
+        doc.sourceId,
+        doc.scope,
+        doc.agentId,
+        buildLexicalSearchText(doc.text),
+      );
     }
   }
 
