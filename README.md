@@ -90,29 +90,68 @@ available to prompt injection in the tested scenarios.
 Requirements: OpenClaw 2026.3.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
 when you use local embeddings.
 
-Install from GitHub source, write the recommended MemX config, restart the Gateway, then verify.
-This assumes OpenClaw already has a working model provider configured. If this is a fresh
-OpenClaw install, configure a provider first, or use the DeepSeek example below before relying on
-LLM-powered memory compilation.
+The recommended one-line setup configures OpenClaw, MemX's LLM, and local embeddings in one pass:
 
 ```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
-openclaw plugins install .
-openclaw memx setup --local-embedding
-openclaw gateway restart
-openclaw memx doctor --deep
+npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key sk-your-deepseek-key
 ```
 
-Run `openclaw plugins install .` from a clean clone before installing development dependencies.
-If the directory already has `node_modules`, use a fresh clone or remove `node_modules` first so
-OpenClaw's install scanner only sees plugin package files.
+By default this uses DeepSeek as the OpenAI-compatible LLM provider:
+
+- OpenClaw main model: `deepseek/deepseek-v4-pro`
+- MemX semantic compiler model: `deepseek/deepseek-v4-flash`
+- Embedding provider: `sentence-transformers-local`
+- Embedding model: `intfloat/multilingual-e5-small`
+- Local embedding Python: `~/.openclaw/memx/.venv/bin/python`
+
+The quickstart creates the local embedding venv, installs `sentence-transformers` and `torch`,
+installs the MemX plugin with `openclaw plugins install @neoli00/memory-memx`, writes the MemX
+config, restarts the Gateway, and runs `openclaw memx doctor --deep`.
+
+To avoid putting the API key directly in `~/.openclaw/openclaw.json`, store an env SecretRef
+instead:
+
+```bash
+export DEEPSEEK_API_KEY="sk-your-deepseek-key"
+npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key-env DEEPSEEK_API_KEY
+```
+
+Useful overrides:
+
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart openclaw \
+  --api-key sk-your-deepseek-key \
+  --agent-model deepseek-v4-pro \
+  --memx-model deepseek-v4-flash \
+  --embedding-model intfloat/multilingual-e5-small
+```
+
+For another OpenAI-compatible LLM provider:
+
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart openclaw \
+  --preset custom \
+  --provider-id my-provider \
+  --base-url https://llm.example.com/v1 \
+  --agent-model my-main-model \
+  --memx-model my-fast-model \
+  --api-key sk-your-provider-key
+```
+
+Use `--dry-run` to preview the planned config and exec-form commands without writing files or
+running installers. Use `--skip-embedding-deps` if you already installed the local embedding Python
+dependencies.
 
 For local development with live edits, link the cloned repository instead of copying it into
 OpenClaw's managed plugin directory:
 
 ```bash
+git clone https://github.com/NeoLi00/openclaw-memx.git
+cd openclaw-memx
 openclaw plugins install --link .
+openclaw memx setup --local-embedding
+openclaw gateway restart
+openclaw memx doctor --deep
 ```
 
 ## Multi-agent adapters
@@ -168,11 +207,13 @@ Claude Code can be wired with:
 npx -y -p @neoli00/memory-memx memx connect claude-code
 ```
 
-OpenClaw users should still use the normal OpenClaw flow (`openclaw plugins install .` then
-`openclaw memx setup`) because that path gives MemX the precise prompt-injection point above the
-current effective query.
+OpenClaw users should prefer `memx quickstart openclaw` for first-time setup. Source checkouts can
+still use `openclaw plugins install --link .` plus `openclaw memx setup` for local development.
 
 ## What `memx setup` changes
+
+`memx quickstart openclaw` writes the same MemX plugin settings as `openclaw memx setup`, and also
+writes the selected OpenClaw LLM provider plus `agents.defaults.model.primary`.
 
 `openclaw memx setup` is the normal configuration step after the plugin is installed. It writes the
 recommended OpenClaw config for MemX:
@@ -196,70 +237,7 @@ them deliberately instead of relying on both memory systems at the same time.
 
 ## Model and embedding setup
 
-### Fresh OpenClaw with an LLM provider
-
-On a fresh OpenClaw install with no existing provider, configure an LLM provider first, point MemX
-at that provider/model, then restart and run the deep doctor probe. The commands below use DeepSeek
-only as an example; any compatible OpenClaw model provider can be used by replacing
-`deepseek/deepseek-v4-flash` with your own `provider/model`.
-
-```bash
-git clone https://github.com/NeoLi00/openclaw-memx.git
-cd openclaw-memx
-openclaw plugins install .
-
-python3 -m venv "$HOME/.openclaw/memx/.venv"
-"$HOME/.openclaw/memx/.venv/bin/python" -m pip install -U pip sentence-transformers torch
-
-openclaw config set models.providers.deepseek '{
-  "api": "openai-completions",
-  "baseUrl": "https://api.deepseek.com",
-  "apiKey": "sk-your-deepseek-key",
-  "models": [
-    {
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
-      "api": "openai-completions",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 64000,
-      "maxTokens": 8192
-    }
-  ]
-}' --strict-json
-
-openclaw memx setup \
-  --local-embedding \
-  --embedding-python "$HOME/.openclaw/memx/.venv/bin/python" \
-  --llm-model deepseek/deepseek-v4-flash
-openclaw gateway restart
-openclaw memx doctor --deep
-```
-
-If you prefer not to store the API key directly in `~/.openclaw/openclaw.json`, store an env
-template instead, and make sure the Gateway process has that environment variable:
-
-```bash
-export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-openclaw config set models.providers.deepseek '{
-  "api": "openai-completions",
-  "baseUrl": "https://api.deepseek.com",
-  "apiKey": "${DEEPSEEK_API_KEY}",
-  "models": [
-    {
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
-      "api": "openai-completions",
-      "reasoning": false,
-      "input": ["text"],
-      "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-      "contextWindow": 64000,
-      "maxTokens": 8192
-    }
-  ]
-}' --strict-json
-```
+### Reuse an existing OpenClaw provider
 
 MemX can reuse your existing OpenClaw provider. If OpenClaw already has a compatible provider
 configured, you can simply point MemX at that provider/model:

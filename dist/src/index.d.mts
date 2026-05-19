@@ -2,6 +2,7 @@ import { GenericMcpConfig, applyClaudeJsonConnect, applyCodexTomlConnect, buildG
 import { MemxHostId, MemxHostMessage, MemxTurnEnvelope, normalizeHookPayload, normalizeObservePayload } from "./host/hookPayload.mjs";
 import { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, defaultMemxProxy, handleMcpRequest } from "./host/mcpProtocol.mjs";
 import { EvidenceBundle } from "./types.mjs";
+import { OpenClawQuickstartOptions, QuickstartCommandResult, QuickstartCommandStep, QuickstartDeps, applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, runOpenClawQuickstart } from "./host/quickstart.mjs";
 import { MemxHostService, MemxRecallRequest, MemxServiceOptions, createServiceConfigFromEnv, stableHostTurnId } from "./host/service.mjs";
 import { OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
 
