@@ -35,8 +35,8 @@ test("package ships standalone bins and native plugin assets", () => {
     "memx-mcp",
     "memx-server",
   ]);
-  assert.equal(pkg.bin.memx, "./dist/src/bin/memx.mjs");
-  assert.equal(pkg.bin["memx-mcp"], "./dist/src/bin/memx-mcp.mjs");
+  assert.equal(pkg.bin.memx, "dist/src/bin/memx.mjs");
+  assert.equal(pkg.bin["memx-mcp"], "dist/src/bin/memx-mcp.mjs");
 
   for (const path of [".codex-plugin", ".claude-plugin", ".mcp.json", "hooks", "skills"]) {
     assert.ok(pkg.files.includes(path), `package files must include ${path}`);

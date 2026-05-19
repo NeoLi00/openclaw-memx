@@ -6,10 +6,10 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "memx": "./dist/src/bin/memx.mjs",
-    "memx-server": "./dist/src/bin/memx-server.mjs",
-    "memx-mcp": "./dist/src/bin/memx-mcp.mjs",
-    "memx-hook": "./dist/src/bin/memx-hook.mjs"
+    "memx": "dist/src/bin/memx.mjs",
+    "memx-server": "dist/src/bin/memx-server.mjs",
+    "memx-mcp": "dist/src/bin/memx-mcp.mjs",
+    "memx-hook": "dist/src/bin/memx-hook.mjs"
   },
   "files": [
     "dist",
