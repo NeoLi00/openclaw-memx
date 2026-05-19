@@ -11,6 +11,8 @@ MemOS-main/
 training/
 *.pdf
 *.png
+!assets/agent-logos/
+!assets/agent-logos/*.png
 *.jpg
 *.jpeg
 *.gif
