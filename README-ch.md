@@ -14,7 +14,7 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
 
 ## Benchmark
 
-<table>
+<table align="center">
   <thead>
     <tr>
       <th>测试集</th>
@@ -44,27 +44,26 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
 
 ## Agent 支持
 
-<table>
+<table align="center">
   <tr>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/codex.png" alt="Codex logo" width="42"><br>
-      <strong>Codex</strong><br>
-      <sub>原生 + hooks + MCP</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="42"><br>
-      <strong>Claude Code</strong><br>
-      <sub>原生 + hooks + MCP</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="42"><br>
-      <strong>OpenClaw</strong><br>
-      <sub>原生 + hooks</sub>
-    </td>
-    <td align="center" width="25%">
-      <strong>MCP</strong><br>
-      <sub>任何兼容 MCP 的 client</sub>
-    </td>
+    <td align="center" width="56"><img src="./assets/agent-logos/codex.png" alt="Codex logo" width="34"></td>
+    <td><strong>Codex</strong></td>
+    <td><sub>原生 + hooks + MCP</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="34"></td>
+    <td><strong>Claude Code</strong></td>
+    <td><sub>原生 + hooks + MCP</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="34"></td>
+    <td><strong>OpenClaw</strong></td>
+    <td><sub>原生 + hooks</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><strong>MCP</strong></td>
+    <td><strong>MCP clients</strong></td>
+    <td><sub>任何兼容 MCP 的 client</sub></td>
   </tr>
 </table>
 

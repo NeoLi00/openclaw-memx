@@ -14,7 +14,7 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
 
 ## Benchmarks
 
-<table>
+<table align="center">
   <thead>
     <tr>
       <th>Suite</th>
@@ -44,27 +44,26 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
 
 ## Agent support
 
-<table>
+<table align="center">
   <tr>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/codex.png" alt="Codex logo" width="42"><br>
-      <strong>Codex</strong><br>
-      <sub>native + hooks + MCP</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="42"><br>
-      <strong>Claude Code</strong><br>
-      <sub>native + hooks + MCP</sub>
-    </td>
-    <td align="center" width="25%">
-      <img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="42"><br>
-      <strong>OpenClaw</strong><br>
-      <sub>native + hooks</sub>
-    </td>
-    <td align="center" width="25%">
-      <strong>MCP</strong><br>
-      <sub>any MCP-compatible client</sub>
-    </td>
+    <td align="center" width="56"><img src="./assets/agent-logos/codex.png" alt="Codex logo" width="34"></td>
+    <td><strong>Codex</strong></td>
+    <td><sub>native + hooks + MCP</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="34"></td>
+    <td><strong>Claude Code</strong></td>
+    <td><sub>native + hooks + MCP</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="34"></td>
+    <td><strong>OpenClaw</strong></td>
+    <td><sub>native + hooks</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="56"><strong>MCP</strong></td>
+    <td><strong>MCP clients</strong></td>
+    <td><sub>any MCP-compatible client</sub></td>
   </tr>
 </table>
 
