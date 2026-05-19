@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/memx-cover.svg" alt="MemX - AI agent 的自学习，自维护记忆" width="920">
+  <img src="./assets/memx-cover.svg" alt="memX - AI agent 的自学习，自维护记忆" width="920">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
 
 ---
 
-MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长期记忆，并只把当前 query 需要的证据注入 prompt。
+memX 把完成后的工作 turn 编译成结构化、可检索、可维护的长期记忆，并只把当前 query 需要的证据注入 prompt。
 它原生适配 Codex、Claude Code、OpenClaw，也能通过同一层本地记忆接入任何支持 MCP 的 client。
 
 ## Benchmark
@@ -39,7 +39,7 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
 ## 架构
 
 <p align="center">
-  <img src="./assets/memx-overview-zh.svg" alt="MemX 粗粒度架构" width="920">
+  <img src="./assets/memx-overview-zh.svg" alt="memX 粗粒度架构" width="920">
 </p>
 
 ## Agent 支持
@@ -73,17 +73,17 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
 embedding 运行时时才需要 Python 3。
 
 README 命令默认使用 GitHub package spec。每次全新执行都会拉取 GitHub 当前代码，因此安装流程
-不需要等待 npm publish。以后如果明确要用 npm 发布通道，再把 `github:NeoLi00/openclaw-memx`
-换成 `@neoli00/memory-memx`。
+不需要等待 npm publish。以后如果明确要用 npm 发布通道，再把 `github:NeoLi00/memX`
+换成 `@neoli00/memx`。
 
 先把下面这些值填好，再运行对应命令：
 
-- `--llm-provider`：MemX 要调用的 LLM provider adapter。可选 `openai-compatible`、
+- `--llm-provider`：memX 要调用的 LLM provider adapter。可选 `openai-compatible`、
   `anthropic`、`google` 或 `ollama`。
 - `--llm-base-url`：provider 的 base URL。例如 `https://api.openai.com/v1`、
   `https://api.anthropic.com/v1`、`https://generativelanguage.googleapis.com/v1beta`，或者
   Ollama 的 `http://127.0.0.1:11434`。
-- `--llm-model`：MemX 用来做记忆编译、召回规划和维护的模型。建议选速度快、成本低、JSON 输出
+- `--llm-model`：memX 用来做记忆编译、召回规划和维护的模型。建议选速度快、成本低、JSON 输出
   稳定的模型。
 - `--llm-api-key`：provider API key。如果不想写明文，用
   `--llm-api-key-env PROVIDER_API_KEY`，配置里会保存环境变量引用。本地 Ollama 可以不传 key。
@@ -95,7 +95,7 @@ README 命令默认使用 GitHub package spec。每次全新执行都会拉取 G
 ### Claude Code
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
+npx -y -p github:NeoLi00/memX memx quickstart claude-code \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -105,7 +105,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
 ### Codex
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
+npx -y -p github:NeoLi00/memX memx quickstart codex \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -115,7 +115,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 ### OpenClaw
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
+npx -y -p github:NeoLi00/memX memx quickstart openclaw \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -125,7 +125,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
 ### 通用 MCP
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
+npx -y -p github:NeoLi00/memX memx quickstart mcp \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -135,10 +135,10 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
 Claude Code、Codex 和通用 MCP client 配置完成后，需要启动共享本地服务：
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx-server
+npx -y -p github:NeoLi00/memX memx-server
 ```
 
-## MemX 能做什么
+## memX 能做什么
 
 - **长期记住工作上下文**：项目决策、用户偏好、任务状态、长 source segments 和原始证据都能
   保留来源关系。

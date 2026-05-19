@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/memx-detailed-architecture-zh.svg" alt="MemX 细粒度架构图" width="960">
+  <img src="./assets/memx-detailed-architecture-zh.svg" alt="memX 细粒度架构图" width="960">
 </p>
 
 <p align="center">
@@ -7,36 +7,36 @@
   <a href="./ARCHITECTURE-ch.md">中文</a>
 </p>
 
-# MemX 架构深读
+# memX 架构深读
 
-MemX 的核心契约是：每一条可召回记忆都必须能回溯到 turn、source segment 或派生对象。写入、
+memX 的核心契约是：每一条可召回记忆都必须能回溯到 turn、source segment 或派生对象。写入、
 维护、召回三条链路因此共用同一套 lineage，而不是各自维护一份无法解释来源的摘要。
 
 ## 运行时形态
 
-MemX 的运行时由宿主 adapter 层和共享记忆引擎组成。
+memX 的运行时由宿主 adapter 层和共享记忆引擎组成。
 
-对 OpenClaw，MemX 接管 memory slot，并只依赖两个运行时 hook：
+对 OpenClaw，memX 接管 memory slot，并只依赖两个运行时 hook：
 
 - `before_prompt_build`：agent 回答前执行召回。
 - `agent_end`：agent 回答后捕获本轮 turn。
 
-旧的 `memory_search` / `memory_get` 兼容工具默认关闭。MemX 召回结果会作为 runtime context
+旧的 `memory_search` / `memory_get` 兼容工具默认关闭。memX 召回结果会作为 runtime context
 注入，而不是显示成用户消息。注入指令也会告诉 agent：除非用户明确询问这些文件，否则不要把工作区
 `MEMORY.md` / `memory/*.md` 当作当前活动记忆后端。
 
-对 Codex 和 Claude Code，MemX 提供原生 plugin manifest 和宿主 hook。这些 hook 会把宿主 payload
+对 Codex 和 Claude Code，memX 提供原生 plugin manifest 和宿主 hook。这些 hook 会把宿主 payload
 归一化成 `MemxTurnEnvelope`：包含 `hostId`、`actorId`、`sessionId`、`workspaceDir`、`eventName`
-以及规范化后的 user/assistant/tool 消息，然后发给本地 MemX service。service 统一持有 DB、
+以及规范化后的 user/assistant/tool 消息，然后发给本地 memX service。service 统一持有 DB、
 embedding worker、turn scheduler 和 maintenance loop，因此 hook 自身不会启动独立记忆 worker。
 
-对其它 agent，MemX 通过 MCP 工具暴露同一套记忆引擎。MCP-only agent 可以调用 `memx_recall`、
+对其它 agent，memX 通过 MCP 工具暴露同一套记忆引擎。MCP-only agent 可以调用 `memx_recall`、
 `memx_remember`、`memx_observe`、`memx_forget`、`memx_stats` 和 `memx_audit`。这条路径有意比
 OpenClaw adapter 更薄：它优先保证广泛兼容，而不是假设每个宿主都有精确的 prompt 注入 hook。
 
 ## 记忆对象设计
 
-MemX 的存储分三层。
+memX 的存储分三层。
 
 ### 1. 证据层
 
@@ -93,7 +93,7 @@ MemX 的存储分三层。
 写入链路在一个 turn 完成后开始。
 
 1. **Turn Capture**
-   MemX 从 `agent_end` 读取显式的当前 turn payload。它会排除 MemX 注入上下文、system scaffolding、
+   memX 从 `agent_end` 读取显式的当前 turn payload。它会排除 memX 注入上下文、system scaffolding、
    陈旧历史和 heartbeat/control turn，得到只属于当前 turn 的 user/assistant/tool 内容。
 
 2. **证据持久化**
@@ -169,7 +169,7 @@ event、graph edge、belief 和 abstraction。
    超长 query 会被 compact，而不是机械截断。hook hot path 不会再跑第二次长文本 scan。
 
 2. **Candidate Generation**
-   MemX 从 state、task、fact、event、chunk、graph path、entity alias、abstraction、belief 和
+   memX 从 state、task、fact、event、chunk、graph path、entity alias、abstraction、belief 和
    vector search 收集候选。hybrid retrieval 结合 lexical/BM25、embedding 和结构化评分。lexical
    index 使用 Unicode script-aware word segmentation，并对 Han/kana/Hangul 做有界 subword expansion，
    让中、日、韩短 query 在 embedding 冷启动或不可用时也能匹配更长的记忆文本。
@@ -184,7 +184,7 @@ event、graph edge、belief 和 abstraction。
    route-aware budgets。
 
 5. **Prompt Injection**
-   最终证据被渲染成紧凑的 MemX context block，放在当前 effective query 上方。TUI/gateway 会话中，
+   最终证据被渲染成紧凑的 memX context block，放在当前 effective query 上方。TUI/gateway 会话中，
    它以隐藏 runtime context 记录，便于审计，但不会显示成用户文本。
 
 ## 三条链路如何契合
@@ -198,5 +198,5 @@ event、graph edge、belief 和 abstraction。
   graph、entity alias、abstraction、belief、strategy 和 snippet。
 - Retrieval audit 把最终 prompt lines 绑定回 packet ids 和 source refs，因此可以解释为什么一条记忆被注入。
 
-这就是 MemX 的核心设计：一套语义抽取契约、一套 typed memory store、一套贯穿写入、维护和 prompt
+这就是 memX 的核心设计：一套语义抽取契约、一套 typed memory store、一套贯穿写入、维护和 prompt
 注入的 recall packet 契约。

@@ -1,9 +1,9 @@
 ---
 name: memx
-description: Use when an agent needs to recall, save, inspect, or audit MemX memories through the bundled MCP tools.
+description: Use when an agent needs to recall, save, inspect, or audit memX memories through the bundled MCP tools.
 ---
 
-# MemX Memory
+# memX Memory
 
 Use `memx_recall` for focused memory lookup before relying on past project details.
 Use `memx_remember` only for durable, reusable facts, preferences, decisions, resources, and task state.

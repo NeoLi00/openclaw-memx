@@ -1,6 +1,6 @@
 <svg width="1200" height="820" viewBox="0 0 1200 820" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Detailed MemX architecture</title>
-  <desc id="desc">MemX write, maintenance, and recall paths with shared memory objects and lineage.</desc>
+  <title id="title">Detailed memX architecture</title>
+  <desc id="desc">memX write, maintenance, and recall paths with shared memory objects and lineage.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="820" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FBFF"/>
@@ -47,7 +47,7 @@
   </defs>
 
   <rect width="1200" height="820" rx="28" fill="url(#bg)"/>
-  <text x="48" y="52" class="title">MemX Memory Architecture</text>
+  <text x="48" y="52" class="title">memX Memory Architecture</text>
   <text x="48" y="78" class="subtitle">Host adapters normalize agent traffic into one memory engine for write, maintenance, and recall.</text>
 
   <rect x="34" y="112" width="1132" height="155" rx="18" fill="#EEF6FF" stroke="#CADDF2"/>
@@ -62,7 +62,7 @@
   <text x="328" y="186" class="box-title">Turn Envelope</text>
   <text x="328" y="207" class="box-text">normalized host payload</text>
   <text x="328" y="225" class="box-text">current turn only</text>
-  <text x="328" y="243" class="box-text">strip MemX context</text>
+  <text x="328" y="243" class="box-text">strip memX context</text>
 
   <rect x="514" y="162" width="184" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
   <text x="532" y="186" class="box-title">TurnSemanticFrame</text>

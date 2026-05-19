@@ -4,10 +4,16 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
+import {
+  LEGACY_MEMX_PLUGIN_ID,
+  MEMX_PLUGIN_ID,
+  MEMX_REPOSITORY_SPEC,
+  withoutLegacyPluginIds,
+} from "../identity.js";
 import type { MemoryLlmProvider, MemoryPluginConfig } from "../types.js";
 
-const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
-const PLUGIN_ID = "memory-memx";
+const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
+const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
@@ -266,14 +272,23 @@ function memxEntry(
   };
 }
 
+function currentMemxEntry(
+  entries: Record<string, Record<string, unknown>> | undefined,
+): Record<string, unknown> | undefined {
+  return entries?.[PLUGIN_ID] ?? entries?.[LEGACY_MEMX_PLUGIN_ID];
+}
+
 export function applyOpenClawQuickstartConfig(
   input: unknown,
   rawOptions: OpenClawQuickstartOptions,
 ): OpenClawConfigLike {
   const options = normalizeOptions(rawOptions);
   const next = asConfig(input);
-  const allow = new Set(next.plugins?.allow ?? []);
+  const allow = new Set(withoutLegacyPluginIds(next.plugins?.allow));
   allow.add(PLUGIN_ID);
+  const entries = { ...(next.plugins?.entries ?? {}) };
+  const existingEntry = currentMemxEntry(entries);
+  delete entries[LEGACY_MEMX_PLUGIN_ID];
 
   return {
     ...next,
@@ -285,8 +300,8 @@ export function applyOpenClawQuickstartConfig(
         memory: PLUGIN_ID,
       },
       entries: {
-        ...(next.plugins?.entries ?? {}),
-        [PLUGIN_ID]: memxEntry(next.plugins?.entries?.[PLUGIN_ID], options),
+        ...entries,
+        [PLUGIN_ID]: memxEntry(existingEntry, options),
       },
     },
   };
@@ -403,7 +418,7 @@ export async function runOpenClawQuickstart(
     nextStep: options.dryRun
       ? "Dry run only; rerun without --dry-run to write config and execute the planned steps."
       : options.skipRestart
-        ? "Restart OpenClaw so the updated MemX config is applied."
+        ? "Restart OpenClaw so the updated memX config is applied."
         : "OpenClaw was restarted; run openclaw tui or your normal client.",
   };
 }

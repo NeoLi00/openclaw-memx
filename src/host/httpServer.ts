@@ -42,7 +42,7 @@ export async function startMemxHttpServer(options: { port?: number; host?: strin
       }
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (req.method === "GET" && (url.pathname === "/v1/health" || url.pathname === "/health")) {
-        json(res, 200, { ok: true, service: "memory-memx" });
+        json(res, 200, { ok: true, service: "memx" });
         return;
       }
       if (req.method === "GET" && url.pathname === "/v1/stats") {
@@ -81,7 +81,7 @@ export async function startMemxHttpServer(options: { port?: number; host?: strin
   await new Promise<void>((resolve) => {
     server.listen(port, host, resolve);
   });
-  console.error(`memory-memx: server listening on http://${host}:${port}`);
+  console.error(`memx: server listening on http://${host}:${port}`);
 
   const close = async (signal: NodeJS.Signals) => {
     const configuredTimeoutMs = Number(
@@ -96,7 +96,7 @@ export async function startMemxHttpServer(options: { port?: number; host?: strin
       service.close(),
       new Promise<void>((resolve) => {
         timeout = setTimeout(() => {
-          console.error(`memory-memx: shutdown timed out after ${timeoutMs}ms (${signal})`);
+          console.error(`memx: shutdown timed out after ${timeoutMs}ms (${signal})`);
           resolve();
         }, timeoutMs);
         timeout.unref();

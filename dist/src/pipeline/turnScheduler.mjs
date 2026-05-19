@@ -286,7 +286,7 @@ var MemxTurnScheduler = class {
 		if (messages.length === 0) return this.chain;
 		this.chain = this.chain.then(() => this.processTurn(ctx, messages)).catch((error) => {
 			const turnId = messages[0]?.turnId ?? "unknown";
-			this.logger.warn(`memory-memx: turn scheduler failed for turn ${turnId} (${messages.length} messages): ${String(error)}`);
+			this.logger.warn(`memx: turn scheduler failed for turn ${turnId} (${messages.length} messages): ${String(error)}`);
 		});
 		return this.chain;
 	}
@@ -471,11 +471,11 @@ var MemxTurnScheduler = class {
 		if (!activeTask) return;
 		const createdChunks = [];
 		const results = await Promise.allSettled(safeMessages.map((message, index) => this.processMessage(ctx, activeTask, message, index, createdChunks, turnSemanticFrame)));
-		for (const [index, result] of results.entries()) if (result.status === "rejected") this.logger.warn(`memory-memx: turn scheduler skipped message ${index} for task ${activeTask.taskId}: ${String(result.reason)}`);
+		for (const [index, result] of results.entries()) if (result.status === "rejected") this.logger.warn(`memx: turn scheduler skipped message ${index} for task ${activeTask.taskId}: ${String(result.reason)}`);
 		try {
 			await this.summarizeAndUpdateTask(ctx, activeTask, safeMessages, turnSemanticFrame);
 		} catch (error) {
-			this.logger.warn(`memory-memx: turn scheduler failed task summarization for ${activeTask.taskId}: ${String(error)}`);
+			this.logger.warn(`memx: turn scheduler failed task summarization for ${activeTask.taskId}: ${String(error)}`);
 		}
 	}
 	/** Process a single message: chunk creation, dedup, candidate extraction, policy eval, write. */

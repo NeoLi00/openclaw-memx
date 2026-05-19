@@ -27,8 +27,9 @@ function collectCommandHooks(hooksConfig) {
 test("package ships standalone bins and native plugin assets", () => {
   const pkg = readJson("package.json");
 
+  assert.equal(pkg.name, "@neoli00/memx");
+  assert.equal(pkg.openclaw.install.npmSpec, "@neoli00/memx");
   assert.deepEqual(Object.keys(pkg.bin).sort(), [
-    "memory-memx",
     "memx",
     "memx-hook",
     "memx-mcp",
@@ -45,7 +46,9 @@ test("package ships standalone bins and native plugin assets", () => {
 
 test("Codex native plugin manifest wires MCP and supported hooks only", () => {
   const manifest = readJson(".codex-plugin/plugin.json");
-  assert.equal(manifest.name, "memory-memx");
+  assert.equal(manifest.name, "memx");
+  assert.equal(manifest.homepage, "https://github.com/NeoLi00/memX");
+  assert.equal(manifest.repository, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.equal(manifest.hooks, "./hooks/hooks.codex.json");
   assert.equal(manifest.skills, "./skills/");
@@ -82,7 +85,9 @@ test("Codex native plugin manifest wires MCP and supported hooks only", () => {
 
 test("Claude Code native plugin manifest keeps Claude-only hooks separate", () => {
   const manifest = readJson(".claude-plugin/plugin.json");
-  assert.equal(manifest.name, "memory-memx");
+  assert.equal(manifest.name, "memx");
+  assert.equal(manifest.homepage, "https://github.com/NeoLi00/memX");
+  assert.equal(manifest.repository, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.equal(manifest.hooks, "./hooks/hooks.json");
 
@@ -111,7 +116,7 @@ test("Claude Code native plugin manifest keeps Claude-only hooks separate", () =
   }
 });
 
-test("native MCP config runs the local MemX MCP binary from plugin root", () => {
+test("native MCP config runs the local memX MCP binary from plugin root", () => {
   const mcp = readJson(".mcp.json");
   const entry = mcp.mcpServers.memx;
   assert.equal(entry.command, "node");
@@ -146,7 +151,7 @@ test("host protocol normalizes Codex and Claude hooks into the same turn envelop
   assert.match(claude.messages[0].content, /validator\.py/);
 });
 
-test("MCP handler exposes MemX tools and proxies calls to REST", async () => {
+test("MCP handler exposes memX tools and proxies calls to REST", async () => {
   const { handleMcpRequest } = await import("../dist/src/host/mcpProtocol.mjs");
   const calls = [];
   const proxy = async (path, init) => {
@@ -193,14 +198,14 @@ test("connect helpers generate Codex TOML and generic MCP JSON without duplicati
   const second = applyCodexTomlConnect(first);
   assert.equal(hasCodexMemxBlock(second), true);
   assert.equal((second.match(/\[mcp_servers\.memx\]/g) ?? []).length, 1);
-  assert.match(second, /github:NeoLi00\/openclaw-memx/);
+  assert.match(second, /github:NeoLi00\/memX/);
 
   const generic = buildGenericMcpConfig();
   assert.equal(generic.mcpServers.memx.command, "npx");
   assert.deepEqual(generic.mcpServers.memx.args, [
     "-y",
     "-p",
-    "github:NeoLi00/openclaw-memx",
+    "github:NeoLi00/memX",
     "memx-mcp",
   ]);
 });

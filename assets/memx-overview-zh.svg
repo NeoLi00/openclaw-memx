@@ -1,6 +1,6 @@
 <svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">MemX 粗粒度架构</title>
-  <desc id="desc">Agent 通过原生 hook 或 MCP 接入，MemX 编译 query 和 turn，从 SQLite 记忆库召回，并在后台维护记忆。</desc>
+  <title id="title">memX 粗粒度架构</title>
+  <desc id="desc">Agent 通过原生 hook 或 MCP 接入，memX 编译 query 和 turn，从 SQLite 记忆库召回，并在后台维护记忆。</desc>
   <defs>
     <linearGradient id="panel" x1="0" x2="1200" y1="0" y2="520" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FAFC"/>

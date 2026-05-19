@@ -1,6 +1,6 @@
 <svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">MemX coarse architecture</title>
-  <desc id="desc">Agents enter through native hooks or MCP, MemX compiles turns and queries, retrieves from a SQLite memory store, and maintains memory in the background.</desc>
+  <title id="title">memX coarse architecture</title>
+  <desc id="desc">Agents enter through native hooks or MCP, memX compiles turns and queries, retrieves from a SQLite memory store, and maintains memory in the background.</desc>
   <defs>
     <linearGradient id="panel" x1="0" x2="1200" y1="0" y2="520" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FAFC"/>

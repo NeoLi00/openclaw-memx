@@ -1,12 +1,11 @@
 {
-  "name": "@neoli00/memory-memx",
+  "name": "@neoli00/memx",
   "version": "2026.3.14",
-  "description": "Compiler-guided, entity-aware long-term memory for OpenClaw agents.",
+  "description": "memX: self-learning, self-maintaining memory for AI agents.",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "memory-memx": "./dist/src/bin/memx.mjs",
     "memx": "./dist/src/bin/memx.mjs",
     "memx-server": "./dist/src/bin/memx-server.mjs",
     "memx-mcp": "./dist/src/bin/memx-mcp.mjs",
@@ -49,7 +48,7 @@
       "./dist/index.mjs"
     ],
     "install": {
-      "npmSpec": "@neoli00/memory-memx",
+      "npmSpec": "@neoli00/memx",
       "minHostVersion": ">=2026.3.25"
     },
     "compat": {

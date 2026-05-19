@@ -153,7 +153,7 @@ function asEnvelopeContext(
     runId: envelope.runId,
   });
   if (!ctx) {
-    throw new Error("unable to build MemX operation context");
+    throw new Error("unable to build memX operation context");
   }
   return ctx;
 }
@@ -180,7 +180,7 @@ function formatEvidenceRows(title: string, rows: Array<{ text: string; observedA
 
 function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
   const lines = [
-    "## MemX Memory",
+    "## memX Memory",
     "Use the following remembered context only when it directly helps the current request.",
     ...formatEvidenceRows("Guidance", bundle.behavioralGuidance.map((text) => ({ text })), Math.min(limit, 4)),
     ...formatEvidenceRows("State", bundle.states, limit),
@@ -242,7 +242,7 @@ export class MemxHostService {
         }),
       )
       .catch((error) => {
-        this.logger.warn(`memory-memx: host observe flush failed (${String(error)})`);
+        this.logger.warn(`memx: host observe flush failed (${String(error)})`);
       });
     return {
       ok: true,

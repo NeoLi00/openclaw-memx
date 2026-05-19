@@ -34,7 +34,7 @@ async function runMemxHook(argv = process.argv.slice(2)) {
 	try {
 		await post("/v1/observe", normalizeHookPayload(host, eventName, payload), Number.isFinite(timeoutMs) ? timeoutMs : 3e3);
 	} catch (error) {
-		if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memory-memx hook failed: ${error instanceof Error ? error.message : String(error)}`);
+		if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 //#endregion

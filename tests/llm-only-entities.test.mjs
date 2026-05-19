@@ -446,15 +446,15 @@ test("query compiler uses LLM semantics when available", async () => {
 
 test("query compiler accepts lightweight query intent and derives entity recall surfaces", async () => {
   const result = await compileQuery({
-    query: "之前 memory-memx 的 node_modules 安装问题是什么",
+    query: "之前 memx 的 node_modules 安装问题是什么",
     ctx: minimalCtx(),
     reasoner: {
       isEnabled: () => true,
       compileQuerySemantics: async () => ({
         shouldRecall: true,
-        focusedQuery: "memory-memx node_modules install blocker",
+        focusedQuery: "memx node_modules install blocker",
         queryEntities: [
-          { name: "memory-memx", type: "project", role: "subject" },
+          { name: "memx", type: "project", role: "subject" },
           { name: "n", type: "concept", role: "context" },
           { name: "Q", type: "concept", role: "context" },
         ],
@@ -471,7 +471,7 @@ test("query compiler accepts lightweight query intent and derives entity recall 
 
   assert.equal(result.shouldRecall, true);
   assert.deepEqual(result.queryEntities, [
-    { name: "memory-memx", type: "project", role: "subject" },
+    { name: "memx", type: "project", role: "subject" },
   ]);
   assert.equal(result.primaryRoute, "factual");
   assert.ok((result.routeWeights.factual ?? 0) > 0.5);

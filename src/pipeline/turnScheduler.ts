@@ -460,7 +460,7 @@ export class MemxTurnScheduler {
       .catch((error) => {
         const turnId = messages[0]?.turnId ?? "unknown";
         this.logger.warn(
-          `memory-memx: turn scheduler failed for turn ${turnId} (${messages.length} messages): ${String(error)}`,
+          `memx: turn scheduler failed for turn ${turnId} (${messages.length} messages): ${String(error)}`,
         );
         // Re-throw so callers can detect the failure; the chain stays resolved
         // for subsequent turns since the .catch itself succeeds.
@@ -739,7 +739,7 @@ export class MemxTurnScheduler {
     for (const [index, result] of results.entries()) {
       if (result.status === "rejected") {
         this.logger.warn(
-          `memory-memx: turn scheduler skipped message ${index} for task ${activeTask.taskId}: ${String(result.reason)}`,
+          `memx: turn scheduler skipped message ${index} for task ${activeTask.taskId}: ${String(result.reason)}`,
         );
       }
     }
@@ -750,7 +750,7 @@ export class MemxTurnScheduler {
       await this.summarizeAndUpdateTask(ctx, activeTask, safeMessages, turnSemanticFrame);
     } catch (error) {
       this.logger.warn(
-        `memory-memx: turn scheduler failed task summarization for ${activeTask.taskId}: ${String(error)}`,
+        `memx: turn scheduler failed task summarization for ${activeTask.taskId}: ${String(error)}`,
       );
     }
   }

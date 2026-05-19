@@ -2,6 +2,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { Command } from "commander";
+import {
+  LEGACY_MEMX_PLUGIN_ID,
+  MEMX_BRAND_NAME,
+  MEMX_PLUGIN_ID,
+  withoutLegacyPluginIds,
+} from "../identity.js";
 import { runAbstractionJobs } from "../pipeline/abstractionJobs.js";
 import { runAbstractionPromotion } from "../pipeline/abstractionPromotion.js";
 import { runConsolidation } from "../pipeline/consolidate.js";
@@ -84,6 +90,7 @@ type MemxWipeDbStats = {
 };
 
 const DEFAULT_USER_CONFIG_PATH = path.join(homedir(), ".openclaw", "openclaw.json");
+const PLUGIN_ID = MEMX_PLUGIN_ID;
 
 function defaultSetupEntry(
   config: MemoryPluginConfig,
@@ -161,10 +168,13 @@ export function applyMemxSetupToConfig(
   options: MemxSetupOptions = {},
 ): OpenClawConfigLike {
   const next = normalizeConfig(structuredClone(appConfig));
-  const currentAllow = new Set(next.plugins?.allow ?? []);
-  currentAllow.add("memory-memx");
+  const currentAllow = new Set(withoutLegacyPluginIds(next.plugins?.allow));
+  currentAllow.add(PLUGIN_ID);
 
-  const existingEntry = next.plugins?.entries?.["memory-memx"] ?? {};
+  const existingEntries = { ...(next.plugins?.entries ?? {}) };
+  const existingEntry =
+    existingEntries[PLUGIN_ID] ?? existingEntries[LEGACY_MEMX_PLUGIN_ID] ?? {};
+  delete existingEntries[LEGACY_MEMX_PLUGIN_ID];
   const existingHooks =
     existingEntry.hooks && typeof existingEntry.hooks === "object"
       ? (existingEntry.hooks as Record<string, unknown>)
@@ -233,11 +243,11 @@ export function applyMemxSetupToConfig(
     allow: [...currentAllow],
     slots: {
       ...(next.plugins?.slots ?? {}),
-      memory: "memory-memx",
+      memory: PLUGIN_ID,
     },
     entries: {
-      ...(next.plugins?.entries ?? {}),
-      "memory-memx": setupEntry,
+      ...existingEntries,
+      [PLUGIN_ID]: setupEntry,
     },
   };
 
@@ -252,7 +262,7 @@ export function buildMemxDoctorReport(params: {
   const appConfig = normalizeConfig(params.appConfig);
   const memorySlot = appConfig.plugins?.slots?.memory ?? null;
   const allow = appConfig.plugins?.allow ?? [];
-  const entry = appConfig.plugins?.entries?.["memory-memx"] ?? {};
+  const entry = appConfig.plugins?.entries?.[PLUGIN_ID] ?? {};
   const entryConfig =
     entry.config && typeof entry.config === "object"
       ? (entry.config as Record<string, unknown>)
@@ -282,21 +292,21 @@ export function buildMemxDoctorReport(params: {
     {
       key: "plugin_loaded",
       ok: true,
-      detail: "memory-memx CLI is available, so the plugin is currently loaded.",
+      detail: `${MEMX_BRAND_NAME} CLI is available, so the plugin is currently loaded.`,
     },
     {
       key: "allowed",
-      ok: allow.includes("memory-memx"),
-      detail: allow.includes("memory-memx")
-        ? "plugins.allow includes memory-memx."
-        : "plugins.allow does not include memory-memx.",
+      ok: allow.includes(PLUGIN_ID),
+      detail: allow.includes(PLUGIN_ID)
+        ? `plugins.allow includes ${PLUGIN_ID}.`
+        : `plugins.allow does not include ${PLUGIN_ID}.`,
     },
     {
       key: "memory_slot",
-      ok: memorySlot === "memory-memx",
+      ok: memorySlot === PLUGIN_ID,
       detail:
-        memorySlot === "memory-memx"
-          ? "plugins.slots.memory points to memory-memx."
+        memorySlot === PLUGIN_ID
+          ? `plugins.slots.memory points to ${PLUGIN_ID}.`
           : `plugins.slots.memory points to ${memorySlot ?? "nothing"}.`,
     },
     {
@@ -304,15 +314,15 @@ export function buildMemxDoctorReport(params: {
       ok: entry.enabled !== false,
       detail:
         entry.enabled !== false
-          ? "plugins.entries.memory-memx is enabled."
-          : "plugins.entries.memory-memx is disabled.",
+          ? `plugins.entries.${PLUGIN_ID} is enabled.`
+          : `plugins.entries.${PLUGIN_ID} is disabled.`,
     },
     {
       key: "config_nesting",
       ok: legacyTopLevelConfigKeys.length === 0,
       detail:
         legacyTopLevelConfigKeys.length === 0
-          ? "plugin config keys are nested under plugins.entries.memory-memx.config."
+          ? `plugin config keys are nested under plugins.entries.${PLUGIN_ID}.config.`
           : `legacy top-level plugin keys detected: ${legacyTopLevelConfigKeys.join(", ")}.`,
     },
     {
@@ -350,11 +360,11 @@ export function buildMemxDoctorReport(params: {
         case "entry_enabled":
         case "config_nesting":
         case "turn_scheduler":
-          return "Run `openclaw memx setup` to write the recommended memory-memx config.";
+          return "Run `openclaw memx setup` to write the recommended memX config.";
         case "llm_classifier":
-          return "Run `openclaw memx setup` or set plugins.entries.memory-memx.config.advanced.llmClassifierEnabled=true.";
+          return `Run \`openclaw memx setup\` or set plugins.entries.${PLUGIN_ID}.config.advanced.llmClassifierEnabled=true.`;
         default:
-          return "Review memory-memx configuration.";
+          return "Review memX configuration.";
       }
     });
 
@@ -366,7 +376,7 @@ export function buildMemxDoctorReport(params: {
     checks,
     recommendedFixes: [...new Set(recommendedFixes)],
     configSummary: {
-      allowed: allow.includes("memory-memx"),
+      allowed: allow.includes(PLUGIN_ID),
       memorySlot,
       pluginEnabled: entry.enabled !== false,
       turnSchedulerEnabled: entryAdvanced.enableTurnScheduler !== false,
@@ -418,7 +428,7 @@ async function runEmbeddingProbe(config: MemoryPluginConfig): Promise<EmbeddingP
   });
   try {
     await backend.prewarmLocalEmbeddings();
-    const vectors = await backend.embedTextsBatch(["memory-memx embedding probe"], "query");
+    const vectors = await backend.embedTextsBatch(["memx embedding probe"], "query");
     const dimension = vectors[0]?.length ?? 0;
     return {
       enabled: true,
@@ -471,7 +481,10 @@ function resolveEffectivePluginConfig(
   appConfig: OpenClawConfigLike,
   fallback: MemoryPluginConfig,
 ): MemoryPluginConfig {
-  const entry = appConfig.plugins?.entries?.["memory-memx"] ?? {};
+  const entry =
+    appConfig.plugins?.entries?.[PLUGIN_ID] ??
+    appConfig.plugins?.entries?.[LEGACY_MEMX_PLUGIN_ID] ??
+    {};
   const nested =
     entry.config && typeof entry.config === "object"
       ? (entry.config as Record<string, unknown>)
@@ -742,11 +755,11 @@ export function registerMemxCli(params: {
   appConfig: { agents?: { list?: Array<{ id?: string }> } };
   manager: MemxRuntimeManager;
 }) {
-  const command = params.program.command("memx").description("Manage memory-memx databases");
+  const command = params.program.command("memx").description("Manage memX databases");
 
   command
     .command("setup")
-    .description("Write the recommended memory-memx plugin config into openclaw.json")
+    .description("Write the recommended memX plugin config into openclaw.json")
     .option("--config <file>", "Path to openclaw.json")
     .option("--llm-judge", "Enable the MemOS-style LLM classifier/reasoner")
     .option("--llm-model <provider/model>", "Optional LLM classifier model override")
@@ -812,12 +825,12 @@ export function registerMemxCli(params: {
             {
               ok: true,
               configPath,
-              configuredPlugin: "memory-memx",
-              memorySlot: "memory-memx",
+              configuredPlugin: PLUGIN_ID,
+              memorySlot: PLUGIN_ID,
               llmClassifierEnabled:
                 ((
                   (
-                    next.plugins?.entries?.["memory-memx"]?.config as
+                    next.plugins?.entries?.[PLUGIN_ID]?.config as
                       | Record<string, unknown>
                       | undefined
                   )?.advanced as Record<string, unknown> | undefined
@@ -825,7 +838,7 @@ export function registerMemxCli(params: {
               llmClassifierModel:
                 ((
                   (
-                    next.plugins?.entries?.["memory-memx"]?.config as
+                    next.plugins?.entries?.[PLUGIN_ID]?.config as
                       | Record<string, unknown>
                       | undefined
                   )?.advanced as Record<string, unknown> | undefined
@@ -833,7 +846,7 @@ export function registerMemxCli(params: {
               embeddingProvider:
                 ((
                   (
-                    next.plugins?.entries?.["memory-memx"]?.config as
+                    next.plugins?.entries?.[PLUGIN_ID]?.config as
                       | Record<string, unknown>
                       | undefined
                   )?.embedding as Record<string, unknown> | undefined
@@ -841,12 +854,12 @@ export function registerMemxCli(params: {
               embeddingModel:
                 ((
                   (
-                    next.plugins?.entries?.["memory-memx"]?.config as
+                    next.plugins?.entries?.[PLUGIN_ID]?.config as
                       | Record<string, unknown>
                       | undefined
                   )?.embedding as Record<string, unknown> | undefined
                 )?.model as string | undefined) ?? null,
-              nextStep: "Restart OpenClaw so the updated memory config is applied.",
+              nextStep: "Restart OpenClaw so the updated memX config is applied.",
             },
             null,
             2,
@@ -857,7 +870,7 @@ export function registerMemxCli(params: {
 
   command
     .command("doctor")
-    .description("Check whether OpenClaw is configured to use memory-memx correctly")
+    .description("Check whether OpenClaw is configured to use memX correctly")
     .option("--config <file>", "Path to openclaw.json")
     .option(
       "--deep",
@@ -1014,7 +1027,7 @@ export function registerMemxCli(params: {
 
   command
     .command("wipe")
-    .description("Delete all memory-memx data for one agent from the current memx database")
+    .description("Delete all memX data for one agent from the current memx database")
     .requiredOption("--yes", "Confirm the destructive wipe")
     .option("--agent <id>", "Agent id")
     .action(async (options: { yes?: boolean; agent?: string }) => {
@@ -1045,7 +1058,7 @@ export function registerMemxCli(params: {
   command
     .command("wipe-db")
     .description(
-      "Delete all data from the current memory-memx database file while keeping the schema",
+      "Delete all data from the current memX database file while keeping the schema",
     )
     .requiredOption("--yes", "Confirm the destructive database wipe")
     .option("--agent <id>", "Agent id used to resolve the target dbPath")

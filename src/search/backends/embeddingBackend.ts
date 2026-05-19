@@ -49,7 +49,7 @@ const DEFAULT_LOCAL_PYTHON_BIN = "python3";
 const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 120_000;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 300_000;
-const LOCAL_EMBEDDING_PREWARM_TEXT = "memory-memx local embedding warmup";
+const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(
   new URL("../../../sentence_transformers_embedder.py", import.meta.url),
 );
@@ -126,7 +126,7 @@ class LocalSentenceTransformerWorker {
 
   private async launchServer(timeoutMs: number): Promise<LocalEmbeddingServer> {
     const token = randomUUID();
-    const stateFile = join(tmpdir(), `memory-memx-embedder-${token}.json`);
+    const stateFile = join(tmpdir(), `memx-embedder-${token}.json`);
     const args = [
       LOCAL_WORKER_PATH,
       "--launch-server",
@@ -360,7 +360,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
       .catch((error) => {
         this.handleEmbeddingFailure(
           error,
-          `memory-memx: embeddings unavailable, using lexical retrieval only (${String(error)})`,
+          `memx: embeddings unavailable, using lexical retrieval only (${String(error)})`,
         );
       });
   }
@@ -401,7 +401,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     }
     if (this.embedding.provider === "sentence-transformers-local" && !this.localWorker?.isWarm()) {
       this.logger.debug?.(
-        "memory-memx: local embeddings are warming; skipping prompt hot-path similarity search",
+        "memx: local embeddings are warming; skipping prompt hot-path similarity search",
       );
       return [];
     }
@@ -440,7 +440,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     } catch (error) {
       this.handleEmbeddingFailure(
         error,
-        `memory-memx: similarity search failed, falling back to FTS (${String(error)})`,
+        `memx: similarity search failed, falling back to FTS (${String(error)})`,
       );
       return [];
     }
@@ -461,7 +461,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     } catch (error) {
       this.handleEmbeddingFailure(
         error,
-        `memory-memx: embedding batch unavailable, using lexical fallback (${String(error)})`,
+        `memx: embedding batch unavailable, using lexical fallback (${String(error)})`,
       );
       return [];
     }
@@ -485,7 +485,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
       .catch((error) => {
         this.handleEmbeddingFailure(
           error,
-          `memory-memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`,
+          `memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`,
         );
       })
       .finally(() => {
@@ -510,7 +510,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     this.acceptingUpserts = false;
     void this.localWorker?.close().catch((error) => {
       this.logger.debug?.(
-        `memory-memx: failed to close unavailable local embedding worker (${String(error)})`,
+        `memx: failed to close unavailable local embedding worker (${String(error)})`,
       );
     });
   }
@@ -546,7 +546,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
     } finally {
       const elapsedMs = Math.max(0, Date.now() - started);
       this.logger.info?.(
-        `memory-memx: TIMING embedding label=${label} mode=${mode} batch=${texts.length} provider=${this.embedding.provider} elapsed=${elapsedMs}ms`,
+        `memx: TIMING embedding label=${label} mode=${mode} batch=${texts.length} provider=${this.embedding.provider} elapsed=${elapsedMs}ms`,
       );
     }
   }

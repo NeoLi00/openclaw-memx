@@ -1,3 +1,4 @@
+import { MEMX_BRAND_NAME, MEMX_PLUGIN_ID } from "./identity.mjs";
 import "./host/connect.mjs";
 import { nowIso, randomId, truncateText } from "./support.mjs";
 import "./host/hookPayload.mjs";
@@ -30,7 +31,7 @@ function resolveConfig(api) {
 	if (parsed?.success) return parsed.data;
 	if (parsed && !parsed.success) {
 		const message = parsed.error?.issues?.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
-		api.logger.warn(`memory-memx: invalid config, using defaults (${message ?? "parse error"})`);
+		api.logger.warn(`memx: invalid config, using defaults (${message ?? "parse error"})`);
 	}
 	return DEFAULT_MEMORY_CONFIG;
 }
@@ -166,13 +167,13 @@ function formatProbeLogContext(ctx) {
 }
 function _logPromptContext(logger, tag, prompt, probeContext) {
 	const promptContext = formatMemxContextBlock(prompt);
-	logger.info(`memory-memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`);
+	logger.info(`memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`);
 	return promptContext;
 }
 function buildBackgroundRecallPrompt(config, bundle, query, queryAnalysis, maxChars) {
 	const instructions = [
-		"## MemX Memory",
-		"memory-memx is the active memory backend for this run.",
+		`## ${MEMX_BRAND_NAME} Memory`,
+		`${MEMX_BRAND_NAME} is the active memory backend for this run.`,
 		"Treat the following as remembered context from prior turns and use it directly when it helps answer the user.",
 		"Use remembered preferences and current working context when they fit, but do not narrate memory internals unless the user explicitly asks.",
 		"Auto-recall found background memory, but no final packet-qualified evidence was selected for prompt injection.",
@@ -200,8 +201,8 @@ function buildBackgroundRecallPrompt(config, bundle, query, queryAnalysis, maxCh
 }
 function buildMemxImplicitRecallPrompt(config, bundle, background, queryAnalysis, maxChars) {
 	const instructionBlock = [
-		"## MemX Memory",
-		"memory-memx is the active memory backend for this run.",
+		`## ${MEMX_BRAND_NAME} Memory`,
+		`${MEMX_BRAND_NAME} is the active memory backend for this run.`,
 		"Treat the following as remembered context from prior turns and use it directly when it helps answer the user.",
 		"Use remembered preferences and current working context when they fit, but do not narrate memory internals unless the user explicitly asks.",
 		"Do not ask the user to restate remembered preferences or prior work context unless the current request clearly conflicts with them.",
@@ -286,15 +287,15 @@ function extractPromptQuery(event) {
 }
 function createMemoryMemxPlugin() {
 	return {
-		id: "memory-memx",
-		name: "Memory (MemX)",
+		id: MEMX_PLUGIN_ID,
+		name: MEMX_BRAND_NAME,
 		description: "Local-first multi-tier memory slot aligned with MemOS-style turn capture and recall",
 		kind: "memory",
 		configSchema: memxConfigSchema,
 		register(api) {
 			const config = resolveConfig(api);
 			if (!config.enabled) {
-				api.logger.info("memory-memx: disabled");
+				api.logger.info("memx: disabled");
 				return;
 			}
 			const manager = new MemxRuntimeManager(api.logger);
@@ -345,7 +346,7 @@ function createMemoryMemxPlugin() {
 					runId: ctx.runId
 				});
 				if (!opCtx) {
-					warnOnce("recall.no-agent", "memory-memx: skipping recall without agentId");
+					warnOnce("recall.no-agent", "memx: skipping recall without agentId");
 					return;
 				}
 				try {
@@ -355,7 +356,7 @@ function createMemoryMemxPlugin() {
 						...opCtx,
 						readEpoch: store.client.currentMemoryEpoch(opCtx.agentId)
 					};
-					api.logger.debug?.(`memory-memx: recall snapshot read_epoch=${recallCtx.readEpoch}`);
+					api.logger.debug?.(`memx: recall snapshot read_epoch=${recallCtx.readEpoch}`);
 					const tStore = performance.now();
 					const tFlush = performance.now();
 					const rawQuery = extractPromptQuery(event);
@@ -374,7 +375,7 @@ function createMemoryMemxPlugin() {
 						fullRecall: true,
 						background: backgroundBundle
 					});
-					api.logger.debug?.(`memory-memx: recall trace ${traceLine}`);
+					api.logger.debug?.(`memx: recall trace ${traceLine}`);
 					const bundle = await retrieveEvidence(store, recallCtx, rawQuery, queryAnalysis.focusedQuery || rawQuery, {
 						recallMode: "full",
 						background: backgroundBundle,
@@ -387,7 +388,7 @@ function createMemoryMemxPlugin() {
 						texts: bundle.recalledChunkTexts
 					});
 					const tEnd = performance.now();
-					api.logger.info(`memory-memx: TIMING recall total=${(tEnd - t0).toFixed(0)}ms store=${(tStore - t0).toFixed(0)}ms flush=${(tFlush - tStore).toFixed(0)}ms bg=${(tBackground - tFlush).toFixed(0)}ms compile=${(tFullRecall - tBackground).toFixed(0)}ms build=${(tEnd - tFullRecall).toFixed(0)}ms query="${rawQuery.slice(0, 60)}"`);
+					api.logger.info(`memx: TIMING recall total=${(tEnd - t0).toFixed(0)}ms store=${(tStore - t0).toFixed(0)}ms flush=${(tFlush - tStore).toFixed(0)}ms bg=${(tBackground - tFlush).toFixed(0)}ms compile=${(tFullRecall - tBackground).toFixed(0)}ms build=${(tEnd - tFullRecall).toFixed(0)}ms query="${rawQuery.slice(0, 60)}"`);
 					if (!hasRecallMaterial(bundle)) {
 						if (hasBackgroundRecallMaterial(backgroundBundle)) {
 							emitBackgroundRetrievalSignals(store, recallCtx, {
@@ -411,8 +412,8 @@ function createMemoryMemxPlugin() {
 				} catch (error) {
 					const errorMsg = error instanceof Error ? error.message : String(error);
 					const errorStack = error instanceof Error ? error.stack : void 0;
-					api.logger.warn(`memory-memx: recall failed: ${errorMsg}${errorStack ? `\n${errorStack}` : ""}`);
-					return { prependContext: formatMemxContextBlock("[memory-memx: recall unavailable due to internal error]") };
+					api.logger.warn(`memx: recall failed: ${errorMsg}${errorStack ? `\n${errorStack}` : ""}`);
+					return { prependContext: formatMemxContextBlock("[memx: recall unavailable due to internal error]") };
 				}
 			};
 			api.on("before_prompt_build", recallHandler);
@@ -423,7 +424,7 @@ function createMemoryMemxPlugin() {
 				const lastMsg = allMessages[allMessages.length - 1];
 				if (lastMsg && typeof lastMsg.role === "string") {
 					const content = typeof lastMsg.content === "string" ? lastMsg.content : JSON.stringify(lastMsg.content);
-					api.logger.info(`memory-memx: PROBE agent_end${formatProbeLogContext({
+					api.logger.info(`memx: PROBE agent_end${formatProbeLogContext({
 						agentId: ctx.agentId,
 						sessionKey: ctx.sessionKey,
 						runId: ctx.runId
@@ -437,7 +438,7 @@ function createMemoryMemxPlugin() {
 					runId: ctx.runId
 				});
 				if (!opCtx) {
-					warnOnce("agent_end.no-agent", "memory-memx: skipping capture without agentId");
+					warnOnce("agent_end.no-agent", "memx: skipping capture without agentId");
 					return;
 				}
 				try {
@@ -476,7 +477,7 @@ function createMemoryMemxPlugin() {
 							await store.turnScheduler.flush();
 						}
 						const tAFlush = performance.now();
-						api.logger.info(`memory-memx: TIMING agent_end flush total=${(tAFlush - tA0).toFixed(0)}ms store=${(tAStore - tA0).toFixed(0)}ms msgs=${newMessages.length} captured=${captured.length}`);
+						api.logger.info(`memx: TIMING agent_end flush total=${(tAFlush - tA0).toFixed(0)}ms store=${(tAStore - tA0).toFixed(0)}ms msgs=${newMessages.length} captured=${captured.length}`);
 					}
 					if (config.advanced.enableMaintenanceJobs) {
 						const turnId = captured[0]?.turnId;
@@ -488,13 +489,13 @@ function createMemoryMemxPlugin() {
 						});
 					}
 				} catch (error) {
-					api.logger.warn(`memory-memx: agent_end capture failed (${String(error)})`);
+					api.logger.warn(`memx: agent_end capture failed (${String(error)})`);
 				}
 			});
 			api.registerService({
-				id: "memory-memx",
+				id: MEMX_PLUGIN_ID,
 				start() {
-					api.logger.info("memory-memx: initialized");
+					api.logger.info("memx: initialized");
 				},
 				async stop() {
 					await manager.closeAll();

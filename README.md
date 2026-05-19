@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/memx-cover-en.svg" alt="MemX - self-learning, self-maintaining memory for AI agents" width="920">
+  <img src="./assets/memx-cover-en.svg" alt="memX - self-learning, self-maintaining memory for AI agents" width="920">
 </p>
 
 <p align="center">
@@ -9,7 +9,7 @@
 
 ---
 
-MemX turns completed work into structured, searchable, self-maintained memory, then injects only the evidence an agent needs for the current query.
+memX turns completed work into structured, searchable, self-maintained memory, then injects only the evidence an agent needs for the current query.
 It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-compatible client through the same local memory layer.
 
 ## Benchmarks
@@ -39,7 +39,7 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
 ## Architecture
 
 <p align="center">
-  <img src="./assets/memx-overview.svg" alt="MemX coarse architecture" width="920">
+  <img src="./assets/memx-overview.svg" alt="memX coarse architecture" width="920">
 </p>
 
 ## Agent support
@@ -74,16 +74,16 @@ needed only for the default local embedding runtime.
 
 The README commands use the GitHub package spec. A fresh run pulls current GitHub code, so installs
 do not wait for an npm publish. To use the npm release channel later, replace
-`github:NeoLi00/openclaw-memx` with `@neoli00/memory-memx`.
+`github:NeoLi00/memX` with `@neoli00/memx`.
 
 Fill in these values before running a command:
 
-- `--llm-provider`: the provider adapter MemX should call. Choose one of `openai-compatible`,
+- `--llm-provider`: the provider adapter memX should call. Choose one of `openai-compatible`,
   `anthropic`, `google`, or `ollama`.
 - `--llm-base-url`: the base URL for that provider. Examples: `https://api.openai.com/v1`,
   `https://api.anthropic.com/v1`, `https://generativelanguage.googleapis.com/v1beta`, or
   `http://127.0.0.1:11434` for Ollama.
-- `--llm-model`: the model MemX uses for memory compilation, recall planning, and maintenance.
+- `--llm-model`: the model memX uses for memory compilation, recall planning, and maintenance.
   Pick a fast, low-cost model with reliable JSON output.
 - `--llm-api-key`: the API key for the provider. Use `--llm-api-key-env PROVIDER_API_KEY` if you
   want the config to reference an environment variable instead of storing plaintext. For local
@@ -97,7 +97,7 @@ writing anything.
 ### Claude Code
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
+npx -y -p github:NeoLi00/memX memx quickstart claude-code \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -107,7 +107,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
 ### Codex
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
+npx -y -p github:NeoLi00/memX memx quickstart codex \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -117,7 +117,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 ### OpenClaw
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
+npx -y -p github:NeoLi00/memX memx quickstart openclaw \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -127,7 +127,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
 ### Generic MCP
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
+npx -y -p github:NeoLi00/memX memx quickstart mcp \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -137,10 +137,10 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
 For Claude Code, Codex, and generic MCP clients, start the shared local service after configuration:
 
 ```bash
-npx -y -p github:NeoLi00/openclaw-memx memx-server
+npx -y -p github:NeoLi00/memX memx-server
 ```
 
-## What MemX can do
+## What memX can do
 
 - **Remember work over time**: project decisions, user preferences, task status, long source
   segments, and raw evidence stay linked to the original turn.

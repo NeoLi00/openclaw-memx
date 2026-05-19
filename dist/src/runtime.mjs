@@ -96,7 +96,7 @@ var MemxRuntimeManager = class {
 			try {
 				await store.retrievalBackend.close?.();
 			} catch (error) {
-				this.logger.warn(`memory-memx: retrieval backend close failed (${String(error)})`);
+				this.logger.warn(`memx: retrieval backend close failed (${String(error)})`);
 			} finally {
 				store.client.close();
 			}
@@ -172,7 +172,7 @@ var MemxRuntimeManager = class {
 		});
 		this.maintenanceLoops.set(key, loop);
 		loop.catch((error) => {
-			this.logger.warn?.(`memory-memx: maintenance batch loop failed (${String(error)})`);
+			this.logger.warn?.(`memx: maintenance batch loop failed (${String(error)})`);
 		});
 	}
 	scheduleIdleFlush(store, template) {
@@ -250,7 +250,7 @@ var MemxRuntimeManager = class {
 				});
 				success = true;
 			} catch (error) {
-				this.logger.warn?.(`memory-memx: maintenance batch failed (${String(error)})`);
+				this.logger.warn?.(`memx: maintenance batch failed (${String(error)})`);
 			} finally {
 				const nextState = store.maintenanceRepo.finishBatch({
 					agentId: template.agentId,

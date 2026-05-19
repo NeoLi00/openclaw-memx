@@ -41,7 +41,7 @@ function numberProp(description: string): Record<string, string> {
 export const MEMX_MCP_TOOLS: McpTool[] = [
   {
     name: "memx_recall",
-    description: "Recall relevant MemX memory across working state, facts, events, and graph.",
+    description: "Recall relevant memX memory across working state, facts, events, and graph.",
     inputSchema: {
       type: "object",
       properties: {
@@ -53,7 +53,7 @@ export const MEMX_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "memx_remember",
-    description: "Store reusable memory through the MemX semantic write pipeline.",
+    description: "Store reusable memory through the memX semantic write pipeline.",
     inputSchema: {
       type: "object",
       properties: {
@@ -65,7 +65,7 @@ export const MEMX_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "memx_observe",
-    description: "Append a host turn or lifecycle event to MemX.",
+    description: "Append a host turn or lifecycle event to memX.",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,12 +89,12 @@ export const MEMX_MCP_TOOLS: McpTool[] = [
   },
   {
     name: "memx_stats",
-    description: "Return MemX store statistics for the current shared actor.",
+    description: "Return memX store statistics for the current shared actor.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "memx_audit",
-    description: "Return recent MemX audit signals and maintenance activity.",
+    description: "Return recent memX audit signals and maintenance activity.",
     inputSchema: {
       type: "object",
       properties: {
@@ -184,7 +184,7 @@ export async function handleMcpRequest(
     if (request.method === "initialize") {
       return jsonResponse(id, {
         protocolVersion: "2024-11-05",
-        serverInfo: { name: "memory-memx", version: "2026.3.14" },
+        serverInfo: { name: "memx", version: "2026.3.14" },
         capabilities: { tools: {} },
       });
     }

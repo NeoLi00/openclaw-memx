@@ -1,3 +1,4 @@
+import { LEGACY_MEMX_PLUGIN_ID, MEMX_BRAND_NAME, MEMX_PLUGIN_ID, withoutLegacyPluginIds } from "../identity.mjs";
 import { nowIso, resolveUserPath } from "../support.mjs";
 import { runAbstractionJobs } from "../pipeline/abstractionJobs.mjs";
 import { runAbstractionPromotion } from "../pipeline/abstractionPromotion.mjs";
@@ -10,6 +11,7 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 //#region src/cli/registerCli.ts
 const DEFAULT_USER_CONFIG_PATH = path.join(homedir(), ".openclaw", "openclaw.json");
+const PLUGIN_ID = MEMX_PLUGIN_ID;
 function defaultSetupEntry(config, options) {
 	const llmClassifierEnabled = options.enableLlmJudge === true ? true : config.advanced.llmClassifierEnabled;
 	const llmClassifierModel = options.llmModel?.trim() || config.advanced.llmClassifierModel?.trim() || void 0;
@@ -66,9 +68,11 @@ async function readUserConfig(configPath) {
 }
 function applyMemxSetupToConfig(appConfig, pluginConfig, options = {}) {
 	const next = normalizeConfig(structuredClone(appConfig));
-	const currentAllow = new Set(next.plugins?.allow ?? []);
-	currentAllow.add("memory-memx");
-	const existingEntry = next.plugins?.entries?.["memory-memx"] ?? {};
+	const currentAllow = new Set(withoutLegacyPluginIds(next.plugins?.allow));
+	currentAllow.add(PLUGIN_ID);
+	const existingEntries = { ...next.plugins?.entries ?? {} };
+	const existingEntry = existingEntries[PLUGIN_ID] ?? existingEntries["memory-memx"] ?? {};
+	delete existingEntries[LEGACY_MEMX_PLUGIN_ID];
 	const existingHooks = existingEntry.hooks && typeof existingEntry.hooks === "object" ? existingEntry.hooks : {};
 	const existingConfig = existingEntry.config && typeof existingEntry.config === "object" ? existingEntry.config : {};
 	const setupConfig = defaultSetupEntry(pluginConfig, options).config ?? {};
@@ -111,11 +115,11 @@ function applyMemxSetupToConfig(appConfig, pluginConfig, options = {}) {
 		allow: [...currentAllow],
 		slots: {
 			...next.plugins?.slots ?? {},
-			memory: "memory-memx"
+			memory: PLUGIN_ID
 		},
 		entries: {
-			...next.plugins?.entries ?? {},
-			"memory-memx": setupEntry
+			...existingEntries,
+			[PLUGIN_ID]: setupEntry
 		}
 	};
 	return next;
@@ -124,7 +128,7 @@ function buildMemxDoctorReport(params) {
 	const appConfig = normalizeConfig(params.appConfig);
 	const memorySlot = appConfig.plugins?.slots?.memory ?? null;
 	const allow = appConfig.plugins?.allow ?? [];
-	const entry = appConfig.plugins?.entries?.["memory-memx"] ?? {};
+	const entry = appConfig.plugins?.entries?.[PLUGIN_ID] ?? {};
 	const entryConfig = entry.config && typeof entry.config === "object" ? entry.config : {};
 	const legacyTopLevelConfigKeys = [
 		"dbPath",
@@ -147,27 +151,27 @@ function buildMemxDoctorReport(params) {
 		{
 			key: "plugin_loaded",
 			ok: true,
-			detail: "memory-memx CLI is available, so the plugin is currently loaded."
+			detail: `${MEMX_BRAND_NAME} CLI is available, so the plugin is currently loaded.`
 		},
 		{
 			key: "allowed",
-			ok: allow.includes("memory-memx"),
-			detail: allow.includes("memory-memx") ? "plugins.allow includes memory-memx." : "plugins.allow does not include memory-memx."
+			ok: allow.includes(PLUGIN_ID),
+			detail: allow.includes(PLUGIN_ID) ? `plugins.allow includes ${PLUGIN_ID}.` : `plugins.allow does not include ${PLUGIN_ID}.`
 		},
 		{
 			key: "memory_slot",
-			ok: memorySlot === "memory-memx",
-			detail: memorySlot === "memory-memx" ? "plugins.slots.memory points to memory-memx." : `plugins.slots.memory points to ${memorySlot ?? "nothing"}.`
+			ok: memorySlot === PLUGIN_ID,
+			detail: memorySlot === PLUGIN_ID ? `plugins.slots.memory points to ${PLUGIN_ID}.` : `plugins.slots.memory points to ${memorySlot ?? "nothing"}.`
 		},
 		{
 			key: "entry_enabled",
 			ok: entry.enabled !== false,
-			detail: entry.enabled !== false ? "plugins.entries.memory-memx is enabled." : "plugins.entries.memory-memx is disabled."
+			detail: entry.enabled !== false ? `plugins.entries.${PLUGIN_ID} is enabled.` : `plugins.entries.${PLUGIN_ID} is disabled.`
 		},
 		{
 			key: "config_nesting",
 			ok: legacyTopLevelConfigKeys.length === 0,
-			detail: legacyTopLevelConfigKeys.length === 0 ? "plugin config keys are nested under plugins.entries.memory-memx.config." : `legacy top-level plugin keys detected: ${legacyTopLevelConfigKeys.join(", ")}.`
+			detail: legacyTopLevelConfigKeys.length === 0 ? `plugin config keys are nested under plugins.entries.${PLUGIN_ID}.config.` : `legacy top-level plugin keys detected: ${legacyTopLevelConfigKeys.join(", ")}.`
 		},
 		{
 			key: "turn_scheduler",
@@ -186,9 +190,9 @@ function buildMemxDoctorReport(params) {
 			case "memory_slot":
 			case "entry_enabled":
 			case "config_nesting":
-			case "turn_scheduler": return "Run `openclaw memx setup` to write the recommended memory-memx config.";
-			case "llm_classifier": return "Run `openclaw memx setup` or set plugins.entries.memory-memx.config.advanced.llmClassifierEnabled=true.";
-			default: return "Review memory-memx configuration.";
+			case "turn_scheduler": return "Run `openclaw memx setup` to write the recommended memX config.";
+			case "llm_classifier": return `Run \`openclaw memx setup\` or set plugins.entries.${PLUGIN_ID}.config.advanced.llmClassifierEnabled=true.`;
+			default: return "Review memX configuration.";
 		}
 	});
 	return {
@@ -199,7 +203,7 @@ function buildMemxDoctorReport(params) {
 		checks,
 		recommendedFixes: [...new Set(recommendedFixes)],
 		configSummary: {
-			allowed: allow.includes("memory-memx"),
+			allowed: allow.includes(PLUGIN_ID),
 			memorySlot,
 			pluginEnabled: entry.enabled !== false,
 			turnSchedulerEnabled: entryAdvanced.enableTurnScheduler !== false,
@@ -232,7 +236,7 @@ async function runEmbeddingProbe(config) {
 	});
 	try {
 		await backend.prewarmLocalEmbeddings();
-		const dimension = (await backend.embedTextsBatch(["memory-memx embedding probe"], "query"))[0]?.length ?? 0;
+		const dimension = (await backend.embedTextsBatch(["memx embedding probe"], "query"))[0]?.length ?? 0;
 		return {
 			enabled: true,
 			ok: dimension > 0,
@@ -268,7 +272,7 @@ function resolveAgentId(config, agent) {
 	return config.agents?.list?.find((entry) => entry.id)?.id ?? "main";
 }
 function resolveEffectivePluginConfig(appConfig, fallback) {
-	const entry = appConfig.plugins?.entries?.["memory-memx"] ?? {};
+	const entry = appConfig.plugins?.entries?.[PLUGIN_ID] ?? appConfig.plugins?.entries?.["memory-memx"] ?? {};
 	const nested = entry.config && typeof entry.config === "object" ? entry.config : {};
 	const advanced = nested.advanced && typeof nested.advanced === "object" ? nested.advanced : {};
 	const embedding = nested.embedding && typeof nested.embedding === "object" ? nested.embedding : {};
@@ -431,8 +435,8 @@ function wipeDatabase(ctx, store) {
 	};
 }
 function registerMemxCli(params) {
-	const command = params.program.command("memx").description("Manage memory-memx databases");
-	command.command("setup").description("Write the recommended memory-memx plugin config into openclaw.json").option("--config <file>", "Path to openclaw.json").option("--llm-judge", "Enable the MemOS-style LLM classifier/reasoner").option("--llm-model <provider/model>", "Optional LLM classifier model override").option("--embedding-provider <provider>", "Embedding provider: off, openai-compatible, ollama, or sentence-transformers-local").option("--embedding-model <model>", "Embedding model id").option("--embedding-python <bin>", "Python binary for sentence-transformers-local").option("--embedding-cache-dir <dir>", "Model cache dir for sentence-transformers-local").option("--embedding-device <device>", "Embedding device: auto, cpu, mps, or cuda").option("--local-embedding", "Shortcut for --embedding-provider sentence-transformers-local --embedding-model intfloat/multilingual-e5-small").action(async (options) => {
+	const command = params.program.command("memx").description("Manage memX databases");
+	command.command("setup").description("Write the recommended memX plugin config into openclaw.json").option("--config <file>", "Path to openclaw.json").option("--llm-judge", "Enable the MemOS-style LLM classifier/reasoner").option("--llm-model <provider/model>", "Optional LLM classifier model override").option("--embedding-provider <provider>", "Embedding provider: off, openai-compatible, ollama, or sentence-transformers-local").option("--embedding-model <model>", "Embedding model id").option("--embedding-python <bin>", "Python binary for sentence-transformers-local").option("--embedding-cache-dir <dir>", "Model cache dir for sentence-transformers-local").option("--embedding-device <device>", "Embedding device: auto, cpu, mps, or cuda").option("--local-embedding", "Shortcut for --embedding-provider sentence-transformers-local --embedding-model intfloat/multilingual-e5-small").action(async (options) => {
 		const requestedProvider = options.localEmbedding ? "sentence-transformers-local" : options.embeddingProvider?.trim();
 		if (requestedProvider && ![
 			"off",
@@ -461,16 +465,16 @@ function registerMemxCli(params) {
 		console.log(JSON.stringify({
 			ok: true,
 			configPath,
-			configuredPlugin: "memory-memx",
-			memorySlot: "memory-memx",
-			llmClassifierEnabled: ((next.plugins?.entries?.["memory-memx"]?.config)?.advanced)?.llmClassifierEnabled ?? false,
-			llmClassifierModel: ((next.plugins?.entries?.["memory-memx"]?.config)?.advanced)?.llmClassifierModel ?? null,
-			embeddingProvider: ((next.plugins?.entries?.["memory-memx"]?.config)?.embedding)?.provider ?? null,
-			embeddingModel: ((next.plugins?.entries?.["memory-memx"]?.config)?.embedding)?.model ?? null,
-			nextStep: "Restart OpenClaw so the updated memory config is applied."
+			configuredPlugin: PLUGIN_ID,
+			memorySlot: PLUGIN_ID,
+			llmClassifierEnabled: ((next.plugins?.entries?.[PLUGIN_ID]?.config)?.advanced)?.llmClassifierEnabled ?? false,
+			llmClassifierModel: ((next.plugins?.entries?.[PLUGIN_ID]?.config)?.advanced)?.llmClassifierModel ?? null,
+			embeddingProvider: ((next.plugins?.entries?.[PLUGIN_ID]?.config)?.embedding)?.provider ?? null,
+			embeddingModel: ((next.plugins?.entries?.[PLUGIN_ID]?.config)?.embedding)?.model ?? null,
+			nextStep: "Restart OpenClaw so the updated memX config is applied."
 		}, null, 2));
 	});
-	command.command("doctor").description("Check whether OpenClaw is configured to use memory-memx correctly").option("--config <file>", "Path to openclaw.json").option("--deep", "Run live reasoner probes and report whether LLM semantic extraction is available").action(async (options) => {
+	command.command("doctor").description("Check whether OpenClaw is configured to use memX correctly").option("--config <file>", "Path to openclaw.json").option("--deep", "Run live reasoner probes and report whether LLM semantic extraction is available").action(async (options) => {
 		const configPath = resolveConfigPath(options.config);
 		const current = await readUserConfig(configPath);
 		const report = buildMemxDoctorReport({
@@ -594,7 +598,7 @@ function registerMemxCli(params) {
 			}
 		});
 	});
-	command.command("wipe").description("Delete all memory-memx data for one agent from the current memx database").requiredOption("--yes", "Confirm the destructive wipe").option("--agent <id>", "Agent id").action(async (options) => {
+	command.command("wipe").description("Delete all memX data for one agent from the current memx database").requiredOption("--yes", "Confirm the destructive wipe").option("--agent <id>", "Agent id").action(async (options) => {
 		if (!options.yes) throw new Error("refusing to wipe memory without --yes");
 		await withStore({
 			config: params.pluginConfig,
@@ -610,7 +614,7 @@ function registerMemxCli(params) {
 			}
 		});
 	});
-	command.command("wipe-db").description("Delete all data from the current memory-memx database file while keeping the schema").requiredOption("--yes", "Confirm the destructive database wipe").option("--agent <id>", "Agent id used to resolve the target dbPath").action(async (options) => {
+	command.command("wipe-db").description("Delete all data from the current memX database file while keeping the schema").requiredOption("--yes", "Confirm the destructive database wipe").option("--agent <id>", "Agent id used to resolve the target dbPath").action(async (options) => {
 		if (!options.yes) throw new Error("refusing to wipe database without --yes");
 		await withStore({
 			config: params.pluginConfig,

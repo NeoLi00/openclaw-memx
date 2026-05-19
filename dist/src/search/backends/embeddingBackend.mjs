@@ -24,7 +24,7 @@ const DEFAULT_LOCAL_PYTHON_BIN = "python3";
 const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 12e4;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 3e5;
-const LOCAL_EMBEDDING_PREWARM_TEXT = "memory-memx local embedding warmup";
+const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(new URL("../../../sentence_transformers_embedder.py", import.meta.url));
 async function fetchJson(url, init) {
 	const response = await fetch(url, init);
@@ -78,7 +78,7 @@ var LocalSentenceTransformerWorker = class {
 	}
 	async launchServer(timeoutMs) {
 		const token = randomUUID();
-		const stateFile = join(tmpdir(), `memory-memx-embedder-${token}.json`);
+		const stateFile = join(tmpdir(), `memx-embedder-${token}.json`);
 		const args = [
 			LOCAL_WORKER_PATH,
 			"--launch-server",
@@ -235,7 +235,7 @@ var OptionalEmbeddingBackend = class {
 				});
 			}
 		}).catch((error) => {
-			this.handleEmbeddingFailure(error, `memory-memx: embeddings unavailable, using lexical retrieval only (${String(error)})`);
+			this.handleEmbeddingFailure(error, `memx: embeddings unavailable, using lexical retrieval only (${String(error)})`);
 		});
 	}
 	async flushPendingUpserts() {
@@ -263,7 +263,7 @@ var OptionalEmbeddingBackend = class {
 	async similaritySearch(params) {
 		if (this.embedding.provider === "off" || this.isEmbeddingDisabledForProcess()) return [];
 		if (this.embedding.provider === "sentence-transformers-local" && !this.localWorker?.isWarm()) {
-			this.logger.debug?.("memory-memx: local embeddings are warming; skipping prompt hot-path similarity search");
+			this.logger.debug?.("memx: local embeddings are warming; skipping prompt hot-path similarity search");
 			return [];
 		}
 		try {
@@ -293,7 +293,7 @@ var OptionalEmbeddingBackend = class {
 			}
 			return orderByScore(hits).slice(0, params.limit);
 		} catch (error) {
-			this.handleEmbeddingFailure(error, `memory-memx: similarity search failed, falling back to FTS (${String(error)})`);
+			this.handleEmbeddingFailure(error, `memx: similarity search failed, falling back to FTS (${String(error)})`);
 			return [];
 		}
 	}
@@ -307,7 +307,7 @@ var OptionalEmbeddingBackend = class {
 		try {
 			return await this.embedTexts(texts, mode, "batch");
 		} catch (error) {
-			this.handleEmbeddingFailure(error, `memory-memx: embedding batch unavailable, using lexical fallback (${String(error)})`);
+			this.handleEmbeddingFailure(error, `memx: embedding batch unavailable, using lexical fallback (${String(error)})`);
 			return [];
 		}
 	}
@@ -315,7 +315,7 @@ var OptionalEmbeddingBackend = class {
 		if (this.embedding.provider !== "sentence-transformers-local" || !this.localWorker || this.closed || this.isEmbeddingDisabledForProcess()) return;
 		if (this.localWorker.isWarm()) return;
 		this.localPrewarm ??= this.localWorker.embed([LOCAL_EMBEDDING_PREWARM_TEXT], "query").then(() => {}).catch((error) => {
-			this.handleEmbeddingFailure(error, `memory-memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`);
+			this.handleEmbeddingFailure(error, `memx: local embedding prewarm failed; using lexical retrieval until available (${String(error)})`);
 		}).finally(() => {
 			this.localPrewarm = null;
 		});
@@ -330,7 +330,7 @@ var OptionalEmbeddingBackend = class {
 		this.localUnavailableForProcess = true;
 		this.acceptingUpserts = false;
 		this.localWorker?.close().catch((error) => {
-			this.logger.debug?.(`memory-memx: failed to close unavailable local embedding worker (${String(error)})`);
+			this.logger.debug?.(`memx: failed to close unavailable local embedding worker (${String(error)})`);
 		});
 	}
 	warnOnce(message) {
@@ -350,7 +350,7 @@ var OptionalEmbeddingBackend = class {
 			return await embedTextsRemote(this.embedding, texts);
 		} finally {
 			const elapsedMs = Math.max(0, Date.now() - started);
-			this.logger.info?.(`memory-memx: TIMING embedding label=${label} mode=${mode} batch=${texts.length} provider=${this.embedding.provider} elapsed=${elapsedMs}ms`);
+			this.logger.info?.(`memx: TIMING embedding label=${label} mode=${mode} batch=${texts.length} provider=${this.embedding.provider} elapsed=${elapsedMs}ms`);
 		}
 	}
 };

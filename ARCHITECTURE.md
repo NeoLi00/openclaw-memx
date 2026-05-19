@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/memx-detailed-architecture.svg" alt="Detailed MemX architecture" width="960">
+  <img src="./assets/memx-detailed-architecture.svg" alt="Detailed memX architecture" width="960">
 </p>
 
 <p align="center">
@@ -7,41 +7,41 @@
   <a href="./ARCHITECTURE-ch.md">中文</a>
 </p>
 
-# MemX Architecture Deep Dive
+# memX Architecture Deep Dive
 
-MemX is built around one contract: every memory that can be recalled must be traceable back to a
+memX is built around one contract: every memory that can be recalled must be traceable back to a
 turn, source segment, or derived object. The write, maintenance, and recall paths therefore share
 the same lineage model instead of keeping separate summaries that cannot explain where they came
 from.
 
 ## Runtime Shape
 
-MemX is organized as a host adapter layer in front of a shared memory engine.
+memX is organized as a host adapter layer in front of a shared memory engine.
 
-For OpenClaw, MemX owns the memory slot and uses two runtime hooks:
+For OpenClaw, memX owns the memory slot and uses two runtime hooks:
 
 - `before_prompt_build` runs recall before the agent answers.
 - `agent_end` captures the completed turn after the agent answers.
 
-The legacy `memory_search` / `memory_get` compatibility tools stay disabled by default. MemX recall
+The legacy `memory_search` / `memory_get` compatibility tools stay disabled by default. memX recall
 is injected as runtime context, not as a visible user message, and the injected instructions tell the
 agent not to treat workspace `MEMORY.md` / `memory/*.md` as the active memory backend unless the
 user explicitly asks about those files.
 
-For Codex and Claude Code, MemX ships native plugin manifests and host hooks. Those hooks normalize
+For Codex and Claude Code, memX ships native plugin manifests and host hooks. Those hooks normalize
 host payloads into a `MemxTurnEnvelope` with `hostId`, `actorId`, `sessionId`, `workspaceDir`,
-`eventName`, and normalized user/assistant/tool messages, then post the envelope to the local MemX
+`eventName`, and normalized user/assistant/tool messages, then post the envelope to the local memX
 service. The service owns the DB, embedding worker, turn scheduler, and maintenance loop, so hooks
 do not start their own memory workers.
 
-For all other agents, MemX exposes the same memory engine through MCP tools. MCP-only agents can
+For all other agents, memX exposes the same memory engine through MCP tools. MCP-only agents can
 call `memx_recall`, `memx_remember`, `memx_observe`, `memx_forget`, `memx_stats`, and
 `memx_audit`. This is intentionally thinner than the OpenClaw adapter: it gives broad compatibility
 without pretending every host has a precise prompt-injection hook.
 
 ## Memory Object Design
 
-MemX stores memory in three layers.
+memX stores memory in three layers.
 
 ### 1. Evidence Layer
 
@@ -104,7 +104,7 @@ original typed storage.
 The write path starts after a turn completes.
 
 1. **Turn Capture**
-   MemX reads the explicit current-turn payload from `agent_end`. It excludes MemX injected context,
+   memX reads the explicit current-turn payload from `agent_end`. It excludes memX injected context,
    system scaffolding, stale history, and heartbeat/control turns. The result is a turn-scoped
    user/assistant/tool payload.
 
@@ -191,7 +191,7 @@ Recall runs before prompt construction.
    in the hot path.
 
 2. **Candidate Generation**
-   MemX gathers candidates from states, tasks, facts, events, chunks, graph paths, entity aliases,
+   memX gathers candidates from states, tasks, facts, events, chunks, graph paths, entity aliases,
    abstractions, beliefs, and vector search. Hybrid retrieval combines lexical/BM25, embedding, and
    structured scoring. The lexical index uses Unicode script-aware word segmentation plus bounded
    Han/kana/Hangul subword expansion, so short Chinese, Japanese, and Korean queries can still match
@@ -208,7 +208,7 @@ Recall runs before prompt construction.
    duplicate hiding, and route-aware budgets.
 
 5. **Prompt Injection**
-   The selected evidence is rendered into a compact MemX context block above the effective current
+   The selected evidence is rendered into a compact memX context block above the effective current
    query. In TUI/gateway sessions it is stored as hidden runtime context for audit instead of being
    shown as user text.
 

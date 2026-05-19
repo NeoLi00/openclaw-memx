@@ -3247,7 +3247,7 @@ export class MemxReasoner {
       const responseChars = raw.length;
       const estimatedCompletionTokens = estimateTokenCount(raw);
       this.logger.info?.(
-        `memory-memx: TIMING llm label=${label} stage=${options.stage ?? "unspecified"} elapsed=${elapsedMs.toFixed(0)}ms provider=${this.judgeModel.provider} model=${this.judgeModel.model}`,
+        `memx: TIMING llm label=${label} stage=${options.stage ?? "unspecified"} elapsed=${elapsedMs.toFixed(0)}ms provider=${this.judgeModel.provider} model=${this.judgeModel.model}`,
       );
       const parsed = parseJsonResponse<T>(raw);
       if (parsed) {
@@ -3302,7 +3302,7 @@ export class MemxReasoner {
         elapsedMs,
       });
       this.logger.info?.(
-        `memory-memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=unparsable mode=${failureMode} ${summarizeParseFailure(raw)}`,
+        `memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=unparsable mode=${failureMode} ${summarizeParseFailure(raw)}`,
       );
       return null;
     } catch (error) {
@@ -3311,11 +3311,11 @@ export class MemxReasoner {
       if (!this.warned.has(key)) {
         this.warned.add(key);
         this.logger.warn(
-          `memory-memx: ${label} degraded conservatively after LLM failure (${String(error)})`,
+          `memx: ${label} degraded conservatively after LLM failure (${String(error)})`,
         );
       }
       this.logger.info?.(
-        `memory-memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=error mode=${failureMode} err=${String(error).slice(0, 120)}`,
+        `memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=error mode=${failureMode} err=${String(error).slice(0, 120)}`,
       );
       this.recordTrace({
         label,

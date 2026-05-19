@@ -217,12 +217,12 @@ const uiHints = {
 	},
 	"advanced.llmProvider": {
 		label: "LLM Provider",
-		help: "Standalone MemX LLM provider used by non-OpenClaw hosts.",
+		help: "Standalone memX LLM provider used by non-OpenClaw hosts.",
 		advanced: true
 	},
 	"advanced.llmBaseURL": {
 		label: "LLM Base URL",
-		help: "Standalone MemX LLM endpoint base URL.",
+		help: "Standalone memX LLM endpoint base URL.",
 		advanced: true
 	},
 	"advanced.llmApiKey": {
@@ -977,7 +977,7 @@ const memxConfigSchema = {
 		const result = parseConfigInternal(input);
 		if (result.value) return result.value;
 		const message = result.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
-		throw new Error(message || "invalid memory-memx config");
+		throw new Error(message || "invalid memx config");
 	},
 	safeParse(input) {
 		const result = parseConfigInternal(input);

@@ -1,6 +1,6 @@
 <svg width="1200" height="820" viewBox="0 0 1200 820" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">MemX 细粒度架构</title>
-  <desc id="desc">MemX 写入、维护和召回链路，以及共享记忆对象和 lineage。</desc>
+  <title id="title">memX 细粒度架构</title>
+  <desc id="desc">memX 写入、维护和召回链路，以及共享记忆对象和 lineage。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="820" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FBFF"/>
@@ -47,7 +47,7 @@
   </defs>
 
   <rect width="1200" height="820" rx="28" fill="url(#bg)"/>
-  <text x="48" y="52" class="title">MemX 记忆架构</text>
+  <text x="48" y="52" class="title">memX 记忆架构</text>
   <text x="48" y="78" class="subtitle">宿主 adapter 把不同 agent 的输入归一化，再交给同一个记忆引擎完成写入、维护和召回。</text>
 
   <rect x="34" y="112" width="1132" height="155" rx="18" fill="#EEF6FF" stroke="#CADDF2"/>
@@ -62,7 +62,7 @@
   <text x="328" y="186" class="box-title">Turn Envelope</text>
   <text x="328" y="207" class="box-text">归一化宿主 payload</text>
   <text x="328" y="225" class="box-text">只保留当前 turn</text>
-  <text x="328" y="243" class="box-text">去掉 MemX 注入</text>
+  <text x="328" y="243" class="box-text">去掉 memX 注入</text>
 
   <rect x="514" y="162" width="184" height="84" rx="12" fill="url(#hot)" stroke="#A9C7E8" class="card"/>
   <text x="532" y="186" class="box-title">TurnSemanticFrame</text>

@@ -76,14 +76,11 @@ test("memx setup grants prompt injection without writing unsupported core keys",
 
   const result = JSON.parse(await readFile(configPath, "utf8"));
 
-  assert.equal(
-    result.plugins?.entries?.["memory-memx"]?.hooks?.allowPromptInjection,
-    true,
-  );
-  assert.equal(
-    "allowConversationAccess" in (result.plugins?.entries?.["memory-memx"]?.hooks ?? {}),
-    false,
-  );
-  assert.equal("timeoutMs" in (result.plugins?.entries?.["memory-memx"]?.hooks ?? {}), false);
+  assert.deepEqual(result.plugins?.allow, ["memx"]);
+  assert.equal(result.plugins?.slots?.memory, "memx");
+  assert.equal(result.plugins?.entries?.["memory-memx"], undefined);
+  assert.equal(result.plugins?.entries?.memx?.hooks?.allowPromptInjection, true);
+  assert.equal("allowConversationAccess" in (result.plugins?.entries?.memx?.hooks ?? {}), false);
+  assert.equal("timeoutMs" in (result.plugins?.entries?.memx?.hooks ?? {}), false);
   assert.equal(result.agents?.defaults?.includeMemoryBootstrap, undefined);
 });

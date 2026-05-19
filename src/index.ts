@@ -7,6 +7,7 @@ export * from "./host/standaloneQuickstart.js";
 export * from "./host/service.js";
 import { registerMemxCli } from "./cli/registerCli.js";
 import { memxConfigSchema, DEFAULT_MEMORY_CONFIG } from "./config.js";
+import { MEMX_BRAND_NAME, MEMX_PLUGIN_ID } from "./identity.js";
 import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.js";
 import { MIN_PROMPT_BUDGET } from "./pipeline/constants.js";
 import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.js";
@@ -50,7 +51,7 @@ function resolveConfig(api: OpenClawPluginApi): MemoryPluginConfig {
     const message = parsed.error?.issues
       ?.map((issue) => `${issue.path.join(".")}: ${issue.message}`)
       .join("; ");
-    api.logger.warn(`memory-memx: invalid config, using defaults (${message ?? "parse error"})`);
+    api.logger.warn(`memx: invalid config, using defaults (${message ?? "parse error"})`);
   }
   return DEFAULT_MEMORY_CONFIG;
 }
@@ -319,7 +320,7 @@ function _logPromptContext(
 ): string {
   const promptContext = formatMemxContextBlock(prompt);
   logger.info(
-    `memory-memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`,
+    `memx: PROBE prependContext [${tag}] chars=${promptContext.length}${formatProbeLogContext(probeContext)}\n--- BEGIN PREPENDCONTEXT ---\n${promptContext}\n--- END PREPENDCONTEXT ---`,
   );
   return promptContext;
 }
@@ -333,8 +334,8 @@ function buildBackgroundRecallPrompt(
 ): string {
   void query;
   const instructions = [
-    "## MemX Memory",
-    "memory-memx is the active memory backend for this run.",
+    `## ${MEMX_BRAND_NAME} Memory`,
+    `${MEMX_BRAND_NAME} is the active memory backend for this run.`,
     "Treat the following as remembered context from prior turns and use it directly when it helps answer the user.",
     "Use remembered preferences and current working context when they fit, but do not narrate memory internals unless the user explicitly asks.",
     "Auto-recall found background memory, but no final packet-qualified evidence was selected for prompt injection.",
@@ -383,8 +384,8 @@ function buildMemxImplicitRecallPrompt(
 ): string {
   void background;
   const instructions = [
-    "## MemX Memory",
-    "memory-memx is the active memory backend for this run.",
+    `## ${MEMX_BRAND_NAME} Memory`,
+    `${MEMX_BRAND_NAME} is the active memory backend for this run.`,
     "Treat the following as remembered context from prior turns and use it directly when it helps answer the user.",
     "Use remembered preferences and current working context when they fit, but do not narrate memory internals unless the user explicitly asks.",
     "Do not ask the user to restate remembered preferences or prior work context unless the current request clearly conflicts with them.",
@@ -531,8 +532,8 @@ export function extractPromptQuery(event: { prompt?: string; messages?: unknown[
 
 export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
   return {
-    id: "memory-memx",
-    name: "Memory (MemX)",
+    id: MEMX_PLUGIN_ID,
+    name: MEMX_BRAND_NAME,
     description:
       "Local-first multi-tier memory slot aligned with MemOS-style turn capture and recall",
     kind: "memory",
@@ -540,7 +541,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
     register(api) {
       const config = resolveConfig(api);
       if (!config.enabled) {
-        api.logger.info("memory-memx: disabled");
+        api.logger.info("memx: disabled");
         return;
       }
 
@@ -615,7 +616,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           runId: ctx.runId,
         });
         if (!opCtx) {
-          warnOnce("recall.no-agent", "memory-memx: skipping recall without agentId");
+          warnOnce("recall.no-agent", "memx: skipping recall without agentId");
           return;
         }
         try {
@@ -625,7 +626,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
             ...opCtx,
             readEpoch: store.client.currentMemoryEpoch(opCtx.agentId),
           };
-          api.logger.debug?.(`memory-memx: recall snapshot read_epoch=${recallCtx.readEpoch}`);
+          api.logger.debug?.(`memx: recall snapshot read_epoch=${recallCtx.readEpoch}`);
           const tStore = performance.now();
           const tFlush = performance.now();
           const rawQuery = extractPromptQuery(event);
@@ -649,7 +650,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
             fullRecall: true,
             background: backgroundBundle,
           });
-          api.logger.debug?.(`memory-memx: recall trace ${traceLine}`);
+          api.logger.debug?.(`memx: recall trace ${traceLine}`);
           const bundle = await retrieveEvidence(
             store,
             recallCtx,
@@ -669,7 +670,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           });
           const tEnd = performance.now();
           api.logger.info(
-            `memory-memx: TIMING recall total=${(tEnd - t0).toFixed(0)}ms store=${(tStore - t0).toFixed(0)}ms flush=${(tFlush - tStore).toFixed(0)}ms bg=${(tBackground - tFlush).toFixed(0)}ms compile=${(tFullRecall - tBackground).toFixed(0)}ms build=${(tEnd - tFullRecall).toFixed(0)}ms query="${rawQuery.slice(0, 60)}"`,
+            `memx: TIMING recall total=${(tEnd - t0).toFixed(0)}ms store=${(tStore - t0).toFixed(0)}ms flush=${(tFlush - tStore).toFixed(0)}ms bg=${(tBackground - tFlush).toFixed(0)}ms compile=${(tFullRecall - tBackground).toFixed(0)}ms build=${(tEnd - tFullRecall).toFixed(0)}ms query="${rawQuery.slice(0, 60)}"`,
           );
           if (!hasRecallMaterial(bundle)) {
             if (hasBackgroundRecallMaterial(backgroundBundle)) {
@@ -722,13 +723,13 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           const errorMsg = error instanceof Error ? error.message : String(error);
           const errorStack = error instanceof Error ? error.stack : undefined;
           api.logger.warn(
-            `memory-memx: recall failed: ${errorMsg}${errorStack ? `\n${errorStack}` : ""}`,
+            `memx: recall failed: ${errorMsg}${errorStack ? `\n${errorStack}` : ""}`,
           );
           // Return a degraded prompt so downstream sees the failure rather than
           // silently losing all memory context.
           return {
             prependContext: formatMemxContextBlock(
-              "[memory-memx: recall unavailable due to internal error]",
+              "[memx: recall unavailable due to internal error]",
             ),
           };
         }
@@ -750,7 +751,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           const content =
             typeof lastMsg.content === "string" ? lastMsg.content : JSON.stringify(lastMsg.content);
           api.logger.info(
-            `memory-memx: PROBE agent_end${formatProbeLogContext({
+            `memx: PROBE agent_end${formatProbeLogContext({
               agentId: ctx.agentId,
               sessionKey: ctx.sessionKey,
               runId: ctx.runId,
@@ -765,7 +766,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
           runId: ctx.runId,
         });
         if (!opCtx) {
-          warnOnce("agent_end.no-agent", "memory-memx: skipping capture without agentId");
+          warnOnce("agent_end.no-agent", "memx: skipping capture without agentId");
           return;
         }
 
@@ -809,7 +810,7 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
             }
             const tAFlush = performance.now();
             api.logger.info(
-              `memory-memx: TIMING agent_end flush total=${(tAFlush - tA0).toFixed(0)}ms store=${(tAStore - tA0).toFixed(0)}ms msgs=${newMessages.length} captured=${captured.length}`,
+              `memx: TIMING agent_end flush total=${(tAFlush - tA0).toFixed(0)}ms store=${(tAStore - tA0).toFixed(0)}ms msgs=${newMessages.length} captured=${captured.length}`,
             );
           }
 
@@ -825,14 +826,14 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
             }
           }
         } catch (error) {
-          api.logger.warn(`memory-memx: agent_end capture failed (${String(error)})`);
+          api.logger.warn(`memx: agent_end capture failed (${String(error)})`);
         }
       });
 
       api.registerService({
-        id: "memory-memx",
+        id: MEMX_PLUGIN_ID,
         start() {
-          api.logger.info("memory-memx: initialized");
+          api.logger.info("memx: initialized");
         },
         async stop() {
           await manager.closeAll();

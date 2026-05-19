@@ -88,7 +88,7 @@ def launch_server(args):
         raise RuntimeError("--token is required with --launch-server")
     state_file = args.state_file or os.path.join(
         tempfile.gettempdir(),
-        f"memory-memx-embedder-{os.getpid()}.json",
+        f"memx-embedder-{os.getpid()}.json",
     )
     command = [
         sys.executable,

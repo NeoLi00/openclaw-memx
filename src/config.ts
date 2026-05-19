@@ -171,12 +171,12 @@ const uiHints: Record<string, PluginConfigUiHint> = {
   },
   "advanced.llmProvider": {
     label: "LLM Provider",
-    help: "Standalone MemX LLM provider used by non-OpenClaw hosts.",
+    help: "Standalone memX LLM provider used by non-OpenClaw hosts.",
     advanced: true,
   },
   "advanced.llmBaseURL": {
     label: "LLM Base URL",
-    help: "Standalone MemX LLM endpoint base URL.",
+    help: "Standalone memX LLM endpoint base URL.",
     advanced: true,
   },
   "advanced.llmApiKey": {
@@ -994,7 +994,7 @@ export const memxConfigSchema: OpenClawPluginConfigSchema = {
     const message = result.issues
       .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
       .join("; ");
-    throw new Error(message || "invalid memory-memx config");
+    throw new Error(message || "invalid memx config");
   },
   safeParse(input: unknown) {
     const result = parseConfigInternal(input);

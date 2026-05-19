@@ -1,11 +1,11 @@
 {
-  "name": "memory-memx",
+  "name": "memx",
   "plugins": [
     {
-      "name": "memory-memx",
+      "name": "memx",
       "source": {
         "source": "git-subdir",
-        "url": "https://github.com/NeoLi00/openclaw-memx",
+        "url": "https://github.com/NeoLi00/memX",
         "path": "."
       },
       "policy": {

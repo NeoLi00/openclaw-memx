@@ -1,5 +1,5 @@
 <svg width="1200" height="280" viewBox="0 0 1200 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">MemX</title>
+  <title id="title">memX</title>
   <desc id="desc">AI agent 的自学习，自维护记忆</desc>
   <defs>
     <linearGradient id="bg" x1="0" x2="1200" y1="0" y2="280" gradientUnits="userSpaceOnUse">
@@ -35,7 +35,7 @@
     <circle cx="1092" cy="82" r="8"/>
   </g>
   <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-    <text x="600" y="128" text-anchor="middle" fill="#15202B" font-size="78" font-weight="760" letter-spacing="0">MemX</text>
+    <text x="600" y="128" text-anchor="middle" fill="#15202B" font-size="78" font-weight="760" letter-spacing="0">memX</text>
     <text x="600" y="177" text-anchor="middle" fill="#4A5B6B" font-size="30" font-weight="520" letter-spacing="0">AI agent 的自学习，自维护记忆</text>
   </g>
 </svg>

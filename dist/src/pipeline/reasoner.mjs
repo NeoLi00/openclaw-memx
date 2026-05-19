@@ -1783,7 +1783,7 @@ var MemxReasoner = class {
 			const elapsedMs = Math.round(_tLlm1 - _tLlm0);
 			const responseChars = raw.length;
 			const estimatedCompletionTokens = estimateTokenCount(raw);
-			this.logger.info?.(`memory-memx: TIMING llm label=${label} stage=${options.stage ?? "unspecified"} elapsed=${elapsedMs.toFixed(0)}ms provider=${this.judgeModel.provider} model=${this.judgeModel.model}`);
+			this.logger.info?.(`memx: TIMING llm label=${label} stage=${options.stage ?? "unspecified"} elapsed=${elapsedMs.toFixed(0)}ms provider=${this.judgeModel.provider} model=${this.judgeModel.model}`);
 			const parsed = parseJsonResponse(raw);
 			if (parsed) {
 				this.recordTrace({
@@ -1836,16 +1836,16 @@ var MemxReasoner = class {
 				estimatedTotalTokens: estimatedPromptTokens + estimatedCompletionTokens,
 				elapsedMs
 			});
-			this.logger.info?.(`memory-memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=unparsable mode=${failureMode} ${summarizeParseFailure(raw)}`);
+			this.logger.info?.(`memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=unparsable mode=${failureMode} ${summarizeParseFailure(raw)}`);
 			return null;
 		} catch (error) {
 			const elapsedMs = void 0;
 			const key = `${label}:${this.judgeModel.provider}:${this.judgeModel.model}`;
 			if (!this.warned.has(key)) {
 				this.warned.add(key);
-				this.logger.warn(`memory-memx: ${label} degraded conservatively after LLM failure (${String(error)})`);
+				this.logger.warn(`memx: ${label} degraded conservatively after LLM failure (${String(error)})`);
 			}
-			this.logger.info?.(`memory-memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=error mode=${failureMode} err=${String(error).slice(0, 120)}`);
+			this.logger.info?.(`memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=error mode=${failureMode} err=${String(error).slice(0, 120)}`);
 			this.recordTrace({
 				label,
 				mode: failureMode,

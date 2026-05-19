@@ -1,6 +1,6 @@
 <svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">MemX 架构图</title>
-  <desc id="desc">MemX 长期记忆能力的简洁概览。</desc>
+  <title id="title">memX 架构图</title>
+  <desc id="desc">memX 长期记忆能力的简洁概览。</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="720" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#0F172A"/>
@@ -47,12 +47,12 @@
   <circle cx="1020" cy="96" r="142" fill="#FFFFFF" opacity="0.04"/>
   <circle cx="136" cy="620" r="168" fill="#FFFFFF" opacity="0.035"/>
 
-  <text x="72" y="78" class="title">MemX Memory</text>
+  <text x="72" y="78" class="title">memX Memory</text>
   <text x="72" y="112" class="subtitle">长期记忆：记住工作，连接关系，学习习惯，自动整理，只召回有用证据。</text>
 
   <g filter="url(#shadow)">
     <rect x="405" y="202" width="390" height="270" rx="34" fill="url(#center)"/>
-    <text x="600" y="306" text-anchor="middle" class="centerTitle">MemX</text>
+    <text x="600" y="306" text-anchor="middle" class="centerTitle">memX</text>
     <text x="600" y="344" text-anchor="middle" class="centerSmall">给 agent 用的长期记忆</text>
     <rect x="464" y="382" width="272" height="42" rx="21" fill="#0F172A" opacity="0.88"/>
     <text x="600" y="408" text-anchor="middle" class="pill">回答时注入关键证据</text>

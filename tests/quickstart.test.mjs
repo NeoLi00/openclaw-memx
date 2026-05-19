@@ -26,7 +26,10 @@ test("OpenClaw quickstart config uses unified LLM flags and default local embedd
   assert.deepEqual(next.agents, existingAgents);
   assert.equal(next.models, undefined);
 
-  const memx = next.plugins.entries["memory-memx"].config;
+  assert.deepEqual(next.plugins.allow, ["memx"]);
+  assert.equal(next.plugins.slots.memory, "memx");
+
+  const memx = next.plugins.entries.memx.config;
   assert.equal(memx.advanced.llmClassifierEnabled, true);
   assert.equal(memx.advanced.llmProvider, "openai-compatible");
   assert.equal(memx.advanced.llmBaseURL, "https://llm.example.com/v1");
@@ -51,7 +54,7 @@ test("OpenClaw quickstart can store provider key as an env SecretRef", async () 
     },
   );
 
-  const advanced = next.plugins.entries["memory-memx"].config.advanced;
+  const advanced = next.plugins.entries.memx.config.advanced;
   assert.equal(advanced.llmProvider, "anthropic");
   assert.deepEqual(advanced.llmApiKey, {
     source: "env",
@@ -81,7 +84,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
         "/tmp/home/.openclaw/memx/.venv/bin/python",
         ["-m", "pip", "install", "-U", "pip", "sentence-transformers", "torch"],
       ],
-      ["openclaw", ["plugins", "install", "github:NeoLi00/openclaw-memx"]],
+      ["openclaw", ["plugins", "install", "github:NeoLi00/memX"]],
       ["openclaw", ["gateway", "restart"]],
       ["openclaw", ["memx", "doctor", "--deep"]],
     ],
@@ -120,12 +123,12 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   );
 
   assert.deepEqual(calls, [
-    { command: "openclaw", args: ["plugins", "install", "github:NeoLi00/openclaw-memx"] },
+    { command: "openclaw", args: ["plugins", "install", "github:NeoLi00/memX"] },
   ]);
   assert.equal(existsSync(configPath), true);
   const written = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(written.models, undefined);
-  assert.equal(written.plugins.entries["memory-memx"].config.advanced.llmApiKey, "sk-secret");
+  assert.equal(written.plugins.entries.memx.config.advanced.llmApiKey, "sk-secret");
   assert.doesNotMatch(JSON.stringify(result), /sk-secret/);
   assert.equal(result.ok, true);
 });
@@ -161,10 +164,46 @@ test("OpenClaw quickstart keeps legacy provider-id and memx-model aliases", asyn
 
   assert.equal(next.models, undefined);
   assert.equal(next.agents, undefined);
-  assert.equal(next.plugins.entries["memory-memx"].config.advanced.llmProvider, "openai-compatible");
-  assert.equal(next.plugins.entries["memory-memx"].config.advanced.llmBaseURL, "https://legacy.example.com/v1");
+  assert.equal(next.plugins.entries.memx.config.advanced.llmProvider, "openai-compatible");
+  assert.equal(next.plugins.entries.memx.config.advanced.llmBaseURL, "https://legacy.example.com/v1");
   assert.equal(
-    next.plugins.entries["memory-memx"].config.advanced.llmClassifierModel,
+    next.plugins.entries.memx.config.advanced.llmClassifierModel,
     "legacy-memory",
   );
+});
+
+test("OpenClaw quickstart migrates legacy memory-memx config into memx", async () => {
+  const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+
+  const next = applyOpenClawQuickstartConfig(
+    {
+      plugins: {
+        allow: ["memory-memx"],
+        slots: { memory: "memory-memx" },
+        entries: {
+          "memory-memx": {
+            enabled: true,
+            hooks: { allowPromptInjection: true },
+            config: {
+              embedding: { provider: "off" },
+              advanced: { enableTurnScheduler: false },
+            },
+          },
+        },
+      },
+    },
+    {
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-test",
+    },
+  );
+
+  assert.deepEqual(next.plugins.allow, ["memx"]);
+  assert.equal(next.plugins.slots.memory, "memx");
+  assert.equal(next.plugins.entries["memory-memx"], undefined);
+  assert.equal(next.plugins.entries.memx.enabled, true);
+  assert.equal(next.plugins.entries.memx.hooks.allowPromptInjection, true);
+  assert.equal(next.plugins.entries.memx.config.advanced.enableTurnScheduler, true);
 });

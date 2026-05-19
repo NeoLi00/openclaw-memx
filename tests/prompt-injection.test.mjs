@@ -35,10 +35,10 @@ test("memory recall registers only the prompt-build hook plus agent_end capture"
   assert.equal(hooks.filter((name) => name === "agent_end").length, 1);
 });
 
-test("MemX prepend context markers are stripped before reading the user query", () => {
+test("memX prepend context markers are stripped before reading the user query", () => {
   const prompt = [
     "<!-- MEMX_CONTEXT_START -->",
-    "## MemX Memory",
+    "## memX Memory",
     "- remembered historical fact",
     "<!-- MEMX_CONTEXT_END -->",
     "",
@@ -65,10 +65,10 @@ test("prompt query extraction keeps multi-paragraph task statements", () => {
   assert.match(query, /Give a rigorous solution/);
 });
 
-test("turn capture excludes MemX prepend context from the captured user message", () => {
+test("turn capture excludes memX prepend context from the captured user message", () => {
   const prompt = [
     "<!-- MEMX_CONTEXT_START -->",
-    "## MemX Memory",
+    "## memX Memory",
     "- previous answer evidence",
     "<!-- MEMX_CONTEXT_END -->",
     "",

@@ -88,7 +88,7 @@ export function loadJudgeModelConfig(
   const cfgPath =
     process.env.OPENCLAW_CONFIG_PATH?.trim() || path.join(homedir(), ".openclaw", "openclaw.json");
   if (!fs.existsSync(cfgPath)) {
-    logger.debug?.(`memory-memx: no config available for LLM reasoner at ${cfgPath}`);
+    logger.debug?.(`memx: no config available for LLM reasoner at ${cfgPath}`);
     return null;
   }
 
@@ -151,7 +151,7 @@ export function loadJudgeModelConfig(
       headers,
     };
   } catch (error) {
-    logger.warn(`memory-memx: failed to load LLM reasoner config (${String(error)})`);
+    logger.warn(`memx: failed to load LLM reasoner config (${String(error)})`);
     return null;
   }
 }

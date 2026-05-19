@@ -72,7 +72,7 @@ export function createMemxTools(params: {
 }): AnyAgentTool[] | null {
   const opCtx = resolveToolContext(params.toolCtx, params.config);
   if (!opCtx) {
-    params.logger.warn("memory-memx: tool factory skipped because agent context is unavailable");
+    params.logger.warn("memx: tool factory skipped because agent context is unavailable");
     return null;
   }
 
@@ -417,7 +417,7 @@ export function createMemxTools(params: {
     name: "memory_recall",
     label: "Memory Recall",
     description:
-      "Unified MemX memory search across working state, facts, episodic history, and graph relations. Use this when automatic memory recall was insufficient. Prefer a short, focused query you generate yourself.",
+      "Unified memX memory search across working state, facts, episodic history, and graph relations. Use this when automatic memory recall was insufficient. Prefer a short, focused query you generate yourself.",
     parameters: Type.Object({
       query: Type.String(),
       scope: Type.Optional(Type.String()),

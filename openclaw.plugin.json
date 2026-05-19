@@ -1,5 +1,5 @@
 {
-  "id": "memory-memx",
+  "id": "memx",
   "kind": "memory",
   "contracts": {
     "tools": [
