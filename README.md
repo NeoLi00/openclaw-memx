@@ -96,6 +96,13 @@ The recommended one-line setup configures OpenClaw, MemX's LLM, and local embedd
 npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key sk-your-deepseek-key
 ```
 
+If you need the current GitHub `main` before a new npm package is published, use the same command
+with the GitHub package spec:
+
+```bash
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key sk-your-deepseek-key
+```
+
 By default this uses DeepSeek as the OpenAI-compatible LLM provider:
 
 - OpenClaw main model: `deepseek/deepseek-v4-pro`

@@ -91,6 +91,13 @@ Python 3。
 npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key sk-your-deepseek-key
 ```
 
+如果新版本还没发布到 npm，但你要直接使用 GitHub `main` 的最新代码，把 package spec 换成
+GitHub：
+
+```bash
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key sk-your-deepseek-key
+```
+
 默认配置：
 
 - OpenClaw 主模型：`deepseek/deepseek-v4-pro`
