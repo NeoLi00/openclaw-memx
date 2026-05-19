@@ -8,7 +8,7 @@ function usage(): string {
     "  server              Start the local MemX REST service",
     "  mcp                 Start the MemX MCP stdio server",
     "  hook <host> <event>  Run a native hook bridge",
-    "  quickstart openclaw Configure OpenClaw, MemX LLM, and local embeddings",
+    "  quickstart openclaw Configure OpenClaw-only quickstart settings",
     "  connect codex       Wire Codex MCP config",
     "  connect claude-code Wire Claude Code MCP config",
   ].join("\n");

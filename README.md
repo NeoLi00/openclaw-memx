@@ -85,12 +85,17 @@ In the current internal long-running engineering-memory replay suite, MemX reach
 the expected memory evidence**. That means the expected evidence was written, retrievable, and
 available to prompt injection in the tested scenarios.
 
-## Quick install
+## OpenClaw quickstart
 
 Requirements: OpenClaw 2026.3.25+ with Node.js 22.14+ or Node 24. Python 3 is required only
 when you use local embeddings.
 
-The recommended one-line setup configures OpenClaw, MemX's LLM, and local embeddings in one pass:
+`memx quickstart openclaw` is OpenClaw-specific. It writes OpenClaw's config, installs the
+OpenClaw memory plugin, assigns `plugins.slots.memory`, restarts the Gateway, and runs the MemX
+doctor check. Codex, Claude Code, and generic MCP agents use the [multi-agent adapters](#multi-agent-adapters)
+section instead.
+
+The shortest DeepSeek example is:
 
 ```bash
 npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key sk-your-deepseek-key
@@ -103,10 +108,22 @@ with the GitHub package spec:
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key sk-your-deepseek-key
 ```
 
-By default this uses DeepSeek as the OpenAI-compatible LLM provider:
+This is only a provider example. MemX can use any OpenAI-compatible provider that OpenClaw can call.
+For a generic provider, pass the provider endpoint and choose one main agent model plus one fast,
+low-cost semantic compiler model:
 
-- OpenClaw main model: `deepseek/deepseek-v4-pro`
-- MemX semantic compiler model: `deepseek/deepseek-v4-flash`
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart openclaw \
+  --preset custom \
+  --provider-id my-provider \
+  --base-url https://llm.example.com/v1 \
+  --agent-model my-main-model \
+  --memx-model my-fast-model \
+  --api-key sk-your-provider-key
+```
+
+The embedding defaults are:
+
 - Embedding provider: `sentence-transformers-local`
 - Embedding model: `intfloat/multilingual-e5-small`
 - Local embedding Python: `~/.openclaw/memx/.venv/bin/python`
@@ -123,26 +140,12 @@ export DEEPSEEK_API_KEY="sk-your-deepseek-key"
 npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key-env DEEPSEEK_API_KEY
 ```
 
-Useful overrides:
+Useful embedding overrides:
 
 ```bash
 npx -y -p @neoli00/memory-memx memx quickstart openclaw \
   --api-key sk-your-deepseek-key \
-  --agent-model deepseek-v4-pro \
-  --memx-model deepseek-v4-flash \
   --embedding-model intfloat/multilingual-e5-small
-```
-
-For another OpenAI-compatible LLM provider:
-
-```bash
-npx -y -p @neoli00/memory-memx memx quickstart openclaw \
-  --preset custom \
-  --provider-id my-provider \
-  --base-url https://llm.example.com/v1 \
-  --agent-model my-main-model \
-  --memx-model my-fast-model \
-  --api-key sk-your-provider-key
 ```
 
 Use `--dry-run` to preview the planned config and exec-form commands without writing files or
@@ -323,5 +326,5 @@ retrieval, and local-first operation:
 
 | Layer | Recommended choice | Why |
 | --- | --- | --- |
-| LLM compiler | Any compatible OpenClaw LLM provider; DeepSeek V4 Flash is one low-cost example | Semantic planning with enough quality for memory compilation |
+| LLM compiler | Any compatible OpenClaw LLM provider; choose a fast, low-cost model for `--memx-model` | Semantic planning with enough quality for memory compilation |
 | Embedding | `intfloat/multilingual-e5-small` | Fast local multilingual retrieval with no embedding API bill |
