@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/memx-cover.svg" alt="MemX - AI agent 的自学习，自维护记忆" width="920">
+  <img src="./assets/memx-cover-en.svg" alt="MemX - self-learning, self-maintaining memory for AI agents" width="920">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
       <td><strong>94.2%</strong></td>
     </tr>
     <tr>
-      <td><strong>Chinese engineering cases</strong></td>
+      <td><strong>Engineering cases</strong></td>
       <td>30 Chinese cases, each with 20+ turns</td>
       <td><strong>100%</strong></td>
     </tr>
