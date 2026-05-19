@@ -60,7 +60,8 @@ MemX 的存储分三层。
 - `entities` / `entity_aliases`：保存实体规范名和别名。
 - `graph_edges`：用 `depends_on`、`uses`、`blocks`、`supersedes`、`resolved_by` 等关系连接实体、
   任务、状态、事实、事件和结果。
-- `vector_docs` / `vector_embeddings`：把规范对象和证据片段暴露给 FTS、embedding 和 hybrid 召回。
+- `vector_docs` / `vector_embeddings`：把规范对象和证据片段暴露给 FTS/BM25、CJK-aware lexical
+  matching、embedding 和 hybrid 召回。
 
 ### 3. 学习层
 
@@ -169,7 +170,8 @@ event、graph edge、belief 和 abstraction。
 
 2. **Candidate Generation**
    MemX 从 state、task、fact、event、chunk、graph path、entity alias、abstraction、belief 和
-   vector search 收集候选。hybrid retrieval 结合 lexical、embedding 和结构化评分。
+   vector search 收集候选。hybrid retrieval 结合 lexical/BM25、embedding 和结构化评分。lexical
+   index 会展开 CJK term，让中文短 query 在 embedding 冷启动或不可用时也能匹配更长的记忆文本。
 
 3. **Entity and Graph Matching**
    query entity hints 会匹配 canonical entities、aliases、profile vectors、cooccurrence 和 graph

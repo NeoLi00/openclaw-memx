@@ -69,8 +69,8 @@ the transcript every time.
 - `entities` and `entity_aliases` keep canonical objects and names.
 - `graph_edges` connect entities, tasks, states, facts, events, and outcomes through relations such
   as `depends_on`, `uses`, `blocks`, `supersedes`, and `resolved_by`.
-- `vector_docs` and `vector_embeddings` expose canonical objects and evidence segments to FTS,
-  embedding, and hybrid retrieval.
+- `vector_docs` and `vector_embeddings` expose canonical objects and evidence segments to FTS/BM25,
+  CJK-aware lexical matching, embedding, and hybrid retrieval.
 
 ### 3. Learning Layer
 
@@ -192,8 +192,9 @@ Recall runs before prompt construction.
 
 2. **Candidate Generation**
    MemX gathers candidates from states, tasks, facts, events, chunks, graph paths, entity aliases,
-   abstractions, beliefs, and vector search. Hybrid retrieval combines lexical, embedding, and
-   structured scoring.
+   abstractions, beliefs, and vector search. Hybrid retrieval combines lexical/BM25, embedding, and
+   structured scoring. The lexical index expands CJK terms so short Chinese queries can still match
+   longer memory text when embeddings are cold or unavailable.
 
 3. **Entity and Graph Matching**
    Query entity hints are matched against canonical entities, aliases, profile vectors, cooccurrence,

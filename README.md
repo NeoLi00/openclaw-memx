@@ -4,8 +4,7 @@
 
 <p align="center">
   <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a> ·
-  <a href="./ARCHITECTURE.md">Architecture</a> ·
-  <a href="mailto:neoliriven@gmail.com">Contact</a>
+  <a href="./ARCHITECTURE.md">Architecture</a>
 </p>
 
 ---
@@ -31,7 +30,7 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
     </tr>
     <tr>
       <td><strong>Engineering cases</strong></td>
-      <td>30 Chinese cases, each with 20+ turns</td>
+      <td>30 cases, each with 20+ turns</td>
       <td><strong>100%</strong></td>
     </tr>
   </tbody>

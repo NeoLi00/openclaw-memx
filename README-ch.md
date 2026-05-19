@@ -4,8 +4,7 @@
 
 <p align="center">
   <a href="./README.md">English</a> · <a href="./README-ch.md">中文</a> ·
-  <a href="./ARCHITECTURE-ch.md">架构深读</a> ·
-  <a href="mailto:neoliriven@gmail.com">联系</a>
+  <a href="./ARCHITECTURE-ch.md">架构深读</a>
 </p>
 
 ---
@@ -30,8 +29,8 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
       <td><strong>94.2%</strong></td>
     </tr>
     <tr>
-      <td><strong>中文工程 case</strong></td>
-      <td>30 个中文 case，每个 20+ turns</td>
+      <td><strong>工程 case</strong></td>
+      <td>30 个 case，每个 20+ turns</td>
       <td><strong>100%</strong></td>
     </tr>
   </tbody>
