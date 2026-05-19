@@ -551,6 +551,25 @@ export type TurnSemanticTaskProposal = {
   lineage?: LineageRef;
 };
 
+export type TurnSemanticReferenceContextMessage = {
+  role: TurnCaptureRole;
+  turnId: string;
+  sourceRef: string;
+  summary?: string;
+  textExcerpt?: string;
+};
+
+export type TurnSemanticReferenceContextTurn = {
+  turnId: string;
+  messages: TurnSemanticReferenceContextMessage[];
+};
+
+export type TurnSemanticReferenceContext = {
+  purpose: "deictic_reference_resolution";
+  maxTurns: number;
+  turns: TurnSemanticReferenceContextTurn[];
+};
+
 export type TurnSemanticAssertionDraft = {
   draftId: string;
   sourceRef: string;
@@ -581,6 +600,7 @@ export type TurnSemanticRelationDraft = {
 
 export type TurnSemanticFrame = {
   sourceRefs: string[];
+  referenceContext?: TurnSemanticReferenceContext;
   chunkDrafts: TurnSemanticChunkDraft[];
   taskProposal?: TurnSemanticTaskProposal;
   assertionDrafts: TurnSemanticAssertionDraft[];

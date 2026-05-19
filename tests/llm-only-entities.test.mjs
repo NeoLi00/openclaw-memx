@@ -173,6 +173,96 @@ test("turn semantic compiler input compacts long messages without losing the tai
   assert.equal(serialized.includes(content), false);
 });
 
+test("turn semantic compiler receives bounded recent reference context for deictic writes", async () => {
+  const chunk = (turnId, seq, role, content, summary = "") => ({
+    chunkId: `chunk_${turnId}_${seq}`,
+    agentId: "main",
+    scope: "agent:main",
+    sessionKey: "s1",
+    turnId,
+    seq,
+    role,
+    chunkKind: "message",
+    content,
+    summary,
+    contentHash: `hash_${turnId}_${seq}`,
+    taskId: "task_1",
+    dedupStatus: "active",
+    mergeCount: 0,
+    sourceRef: `${role}:${turnId}:${seq}`,
+    createdAt: observedAt,
+    updatedAt: observedAt,
+  });
+
+  let capturedReferenceContext;
+  const frame = await compileTurnSemantics({
+    messages: [
+      {
+        role: "user",
+        content: "那这个就不要再考虑了。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-current",
+        sourceRef: "user:turn-current",
+        observedAt,
+      },
+      {
+        role: "assistant",
+        content: "好的，后续不再把 Kafka 作为 LuoShu 的 broker 候选。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-current",
+        sourceRef: "assistant:turn-current",
+        observedAt,
+      },
+    ],
+    activeChunks: [
+      chunk("turn-old", 0, "user", "最早讨论的是 NATS，OLD_CONTEXT_SHOULD_NOT_LEAK。"),
+      chunk("turn-old", 1, "assistant", "NATS 是很早之前的候选。"),
+      chunk("turn-prev-1", 0, "user", "broker 方案有哪些？"),
+      chunk("turn-prev-1", 1, "assistant", "可以比较 RabbitMQ、Kafka、NATS。"),
+      chunk("turn-prev-2", 0, "user", "Kafka 的维护成本是不是太高？"),
+      chunk("turn-prev-2", 1, "assistant", "Kafka 对 LuoShu broker 来说维护成本偏高。"),
+    ],
+    ctx: minimalCtx(),
+    reasoner: {
+      isEnabled: () => true,
+      compileTurnSemantics: async (_messages, fallback) => {
+        capturedReferenceContext = fallback.referenceContext;
+        return {};
+      },
+    },
+  });
+
+  assert.ok(capturedReferenceContext);
+  assert.equal(capturedReferenceContext.purpose, "deictic_reference_resolution");
+  assert.deepEqual(
+    capturedReferenceContext.turns.map((turn) => turn.turnId),
+    ["turn-prev-1", "turn-prev-2"],
+  );
+  const serializedContext = JSON.stringify(capturedReferenceContext);
+  assert.ok(serializedContext.includes("Kafka"));
+  assert.equal(serializedContext.includes("OLD_CONTEXT_SHOULD_NOT_LEAK"), false);
+  assert.ok(serializedContext.length < 2400);
+
+  const input = buildTurnSemanticCompilerInput(
+    [
+      {
+        role: "user",
+        content: "那这个就不要再考虑了。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-current",
+        sourceRef: "user:turn-current",
+        observedAt,
+      },
+    ],
+    capturedReferenceContext,
+  );
+  assert.deepEqual(input.recentReferenceContext, capturedReferenceContext);
+  assert.deepEqual(frame.referenceContext, capturedReferenceContext);
+});
+
 test("long turn semantic scan is deferred out of the hot path", async () => {
   const middleMarker = "MEMORY_MEMX_WRITE_MIDDLE_ENTITY_ANCHOR";
   const content = `${"alpha ".repeat(500)}\n${middleMarker}\n${"omega ".repeat(500)}`;

@@ -573,7 +573,7 @@ function buildQueryCompilePrompt(query, fallback) {
 	};
 }
 function buildTurnSemanticCompilePrompt(messages, fallback) {
-	const compilerInput = buildTurnSemanticCompilerInput(messages);
+	const compilerInput = buildTurnSemanticCompilerInput(messages, fallback.referenceContext);
 	const compactFallback = summarizeTurnSemanticFallback(fallback);
 	return {
 		system: [
@@ -587,6 +587,9 @@ function buildTurnSemanticCompilePrompt(messages, fallback) {
 			"这只是 semantic draft，不是最终写库动作。",
 			"输入里的 turnMessageEnvelope 是当前轮消息的机械窗口视图；rawHash 只用于审计，omittedChars 表示没有展示给你的原文。",
 			"不要根据 omitted 内容臆测事实；如果可见窗口不足以证明高价值语义信号，就不要输出对应 semantic 字段。",
+			"输入里的 recentReferenceContext 是只读的最近对话焦点，只能用于解析“这个/那个/它/that/it”等当前轮指代；它不是可写事实来源。",
+			"所有 sourceRefs、supportSpans、resourceAssertions.sourceRef、adviceSignals.sourceRefs 和 relationDrafts.sourceRef 都只能引用当前 turnMessageEnvelope.messages 里的 sourceRef，不能引用 recentReferenceContext 里的 sourceRef。",
+			"如果用户当前轮用“这个/那个/它”表达保留、排除、纠偏、停止考虑等意图，你可以用当前 assistant 或 recentReferenceContext 解析所指实体，但必须把可写 signal 归因到表达该意图的当前 user/tool sourceRef。",
 			"你不能输出 final action、classification、owner、supersede、slotReplacement。",
 			"你不能直接决定 durable state/fact/event/graph relation，也不能改写 canonical truth。",
 			"sourceRefs 必须是数组，且只能引用输入里已有的 sourceRef，不能发明新的 sourceRef。",

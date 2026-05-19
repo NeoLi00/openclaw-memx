@@ -15,6 +15,8 @@ import type {
   TurnSemanticCorrectionDraft,
   TurnSemanticRelationDraft,
   TurnSemanticFrame,
+  TurnSemanticReferenceContext,
+  TurnSemanticReferenceContextMessage,
 } from "../types.js";
 import { recordMemoryLlmBudgetCall } from "./llmBudgetAudit.js";
 
@@ -22,6 +24,10 @@ const TURN_MESSAGE_ENVELOPE_LONG_THRESHOLD_CHARS = 1800;
 const TURN_MESSAGE_ENVELOPE_HEAD_CHARS = 650;
 const TURN_MESSAGE_ENVELOPE_TAIL_CHARS = 950;
 const TURN_MESSAGE_ENVELOPE_LATEST_INSTRUCTION_CHARS = 900;
+const RECENT_REFERENCE_CONTEXT_MAX_TURNS = 2;
+const RECENT_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN = 4;
+const RECENT_REFERENCE_CONTEXT_SUMMARY_CHARS = 160;
+const RECENT_REFERENCE_CONTEXT_TEXT_CHARS = 360;
 const LONG_TURN_SCAN_MAX_SEGMENTS_PER_MESSAGE = 8;
 const LONG_TURN_SCAN_SEGMENT_PROMPT_CHARS = 1800;
 
@@ -48,6 +54,7 @@ export type TurnSemanticCompilerMessageInput = {
 
 export type TurnSemanticCompilerInput = {
   messages: TurnSemanticCompilerMessageInput[];
+  recentReferenceContext?: TurnSemanticReferenceContext;
 };
 
 export type LongTurnSemanticScanSegment = {
@@ -234,9 +241,103 @@ function buildMessageEnvelope(message: TurnCaptureMessage): TurnSemanticCompiler
 
 export function buildTurnSemanticCompilerInput(
   messages: TurnCaptureMessage[],
+  referenceContext?: TurnSemanticReferenceContext,
 ): TurnSemanticCompilerInput {
   return {
     messages: messages.map((message) => buildMessageEnvelope(message)),
+    ...(referenceContext ? { recentReferenceContext: referenceContext } : {}),
+  };
+}
+
+function compactReferenceText(value: string, limit: number): string | undefined {
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact ? truncateText(compact, limit) : undefined;
+}
+
+function chunkTimestamp(chunk: ConversationChunk): number {
+  const updated = Date.parse(chunk.updatedAt);
+  if (Number.isFinite(updated)) {
+    return updated;
+  }
+  const created = Date.parse(chunk.createdAt);
+  return Number.isFinite(created) ? created : 0;
+}
+
+function referenceMessageForChunk(
+  chunk: ConversationChunk,
+): TurnSemanticReferenceContextMessage | null {
+  const summary = compactReferenceText(chunk.summary, RECENT_REFERENCE_CONTEXT_SUMMARY_CHARS);
+  const textExcerpt = compactReferenceText(chunk.content, RECENT_REFERENCE_CONTEXT_TEXT_CHARS);
+  if (!summary && !textExcerpt) {
+    return null;
+  }
+  return {
+    role: chunk.role,
+    turnId: chunk.turnId,
+    sourceRef: chunk.sourceRef || `${chunk.role}:${chunk.turnId}:${chunk.seq}`,
+    ...(summary ? { summary } : {}),
+    ...(textExcerpt ? { textExcerpt } : {}),
+  };
+}
+
+function buildRecentReferenceContext(
+  params: CompileTurnSemanticsParams,
+): TurnSemanticReferenceContext | undefined {
+  const currentTurnIds = new Set(params.messages.map((message) => message.turnId));
+  const seenChunks = new Set<string>();
+  const chunks = [
+    ...(params.activeChunks ?? []),
+    ...Object.values(params.recentChunksByTask ?? {}).flat(),
+  ]
+    .filter((chunk) => {
+      if (!chunk.turnId || currentTurnIds.has(chunk.turnId)) {
+        return false;
+      }
+      const key = chunk.chunkId || chunk.sourceRef || `${chunk.turnId}:${chunk.seq}:${chunk.role}`;
+      if (seenChunks.has(key)) {
+        return false;
+      }
+      seenChunks.add(key);
+      return chunk.dedupStatus === "active";
+    })
+    .sort((left, right) => {
+      const timeDelta = chunkTimestamp(left) - chunkTimestamp(right);
+      return timeDelta !== 0 ? timeDelta : left.seq - right.seq;
+    });
+  const byTurn = new Map<string, ConversationChunk[]>();
+  const turnTimestamps = new Map<string, number>();
+  for (const chunk of chunks) {
+    const group = byTurn.get(chunk.turnId) ?? [];
+    group.push(chunk);
+    byTurn.set(chunk.turnId, group);
+    turnTimestamps.set(
+      chunk.turnId,
+      Math.max(turnTimestamps.get(chunk.turnId) ?? 0, chunkTimestamp(chunk)),
+    );
+  }
+  const selectedTurns = [...byTurn.entries()]
+    .sort(
+      ([leftTurnId], [rightTurnId]) =>
+        (turnTimestamps.get(leftTurnId) ?? 0) - (turnTimestamps.get(rightTurnId) ?? 0),
+    )
+    .slice(-RECENT_REFERENCE_CONTEXT_MAX_TURNS);
+  const turns = selectedTurns
+    .map(([turnId, turnChunks]) => ({
+      turnId,
+      messages: turnChunks
+        .sort((left, right) => left.seq - right.seq)
+        .slice(0, RECENT_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN)
+        .map((chunk) => referenceMessageForChunk(chunk))
+        .filter((entry): entry is TurnSemanticReferenceContextMessage => Boolean(entry)),
+    }))
+    .filter((turn) => turn.messages.length > 0);
+  if (turns.length === 0) {
+    return undefined;
+  }
+  return {
+    purpose: "deictic_reference_resolution",
+    maxTurns: RECENT_REFERENCE_CONTEXT_MAX_TURNS,
+    turns,
   };
 }
 
@@ -313,6 +414,7 @@ function scaffoldTurnSemantics(params: CompileTurnSemanticsParams): TurnSemantic
 
   return {
     sourceRefs,
+    referenceContext: buildRecentReferenceContext(params),
     chunkDrafts: [],
     assertionDrafts: [],
     correctionDrafts: [],
