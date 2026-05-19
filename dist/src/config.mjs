@@ -1,4 +1,4 @@
-import { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES } from "./types.mjs";
+import { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_LLM_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES } from "./types.mjs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 //#region src/config.ts
@@ -213,6 +213,21 @@ const uiHints = {
 	"advanced.llmClassifierModel": {
 		label: "LLM Classifier Model",
 		help: "Optional provider/model override in provider/model form. Falls back to the default OpenClaw agent model when omitted.",
+		advanced: true
+	},
+	"advanced.llmProvider": {
+		label: "LLM Provider",
+		help: "Standalone MemX LLM provider used by non-OpenClaw hosts.",
+		advanced: true
+	},
+	"advanced.llmBaseURL": {
+		label: "LLM Base URL",
+		help: "Standalone MemX LLM endpoint base URL.",
+		advanced: true
+	},
+	"advanced.llmApiKey": {
+		label: "LLM API Key",
+		sensitive: true,
 		advanced: true
 	},
 	"advanced.enableMaintenanceJobs": {
@@ -494,6 +509,16 @@ const jsonSchema = {
 			properties: {
 				llmClassifierEnabled: { type: "boolean" },
 				llmClassifierModel: { type: "string" },
+				llmProvider: {
+					type: "string",
+					enum: [...MEMORY_LLM_PROVIDERS]
+				},
+				llmBaseURL: { type: "string" },
+				llmApiKey: { type: "string" },
+				llmHeaders: {
+					type: "object",
+					additionalProperties: { type: "string" }
+				},
 				enableMaintenanceJobs: { type: "boolean" },
 				maintenanceTriggerMode: {
 					type: "string",
@@ -758,6 +783,10 @@ function parseConfigInternal(input) {
 	const advanced = {
 		llmClassifierEnabled: asBoolean(rawAdvanced.llmClassifierEnabled, DEFAULT_MEMORY_CONFIG.advanced.llmClassifierEnabled),
 		llmClassifierModel: typeof rawAdvanced.llmClassifierModel === "string" ? rawAdvanced.llmClassifierModel.trim() : void 0,
+		llmProvider: rawAdvanced.llmProvider === "openai-compatible" || rawAdvanced.llmProvider === "anthropic" || rawAdvanced.llmProvider === "google" || rawAdvanced.llmProvider === "ollama" ? rawAdvanced.llmProvider : void 0,
+		llmBaseURL: typeof rawAdvanced.llmBaseURL === "string" ? rawAdvanced.llmBaseURL.trim() : void 0,
+		llmApiKey: typeof rawAdvanced.llmApiKey === "string" ? rawAdvanced.llmApiKey.trim() : void 0,
+		llmHeaders: isRecord(rawAdvanced.llmHeaders) ? Object.fromEntries(Object.entries(rawAdvanced.llmHeaders).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])) : void 0,
 		enableMaintenanceJobs: asBoolean(rawAdvanced.enableMaintenanceJobs, DEFAULT_MEMORY_CONFIG.advanced.enableMaintenanceJobs),
 		enableGraphPromotion: asBoolean(rawAdvanced.enableGraphPromotion, DEFAULT_MEMORY_CONFIG.advanced.enableGraphPromotion),
 		enableFactPromotion: asBoolean(rawAdvanced.enableFactPromotion, DEFAULT_MEMORY_CONFIG.advanced.enableFactPromotion),

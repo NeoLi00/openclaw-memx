@@ -155,6 +155,12 @@ export const MEMORY_EMBEDDING_PROVIDERS = [
   "ollama",
   "sentence-transformers-local",
 ] as const;
+export const MEMORY_LLM_PROVIDERS = [
+  "openai-compatible",
+  "anthropic",
+  "google",
+  "ollama",
+] as const;
 
 export type MemoryRouteType = (typeof MEMORY_ROUTE_TYPES)[number];
 export type MemoryCorrectionTimeframe = (typeof MEMORY_CORRECTION_TIMEFRAMES)[number];
@@ -184,6 +190,7 @@ export type MemorySourceKind = (typeof MEMORY_SOURCE_KINDS)[number];
 export type MemoryPiiMode = (typeof MEMORY_PII_MODES)[number];
 export type MemoryConsentMode = (typeof MEMORY_CONSENT_MODES)[number];
 export type MemoryEmbeddingProvider = (typeof MEMORY_EMBEDDING_PROVIDERS)[number];
+export type MemoryLlmProvider = (typeof MEMORY_LLM_PROVIDERS)[number];
 export type MemoryPrimaryRouteType = Exclude<MemoryRouteType, "mixed" | "unknown">;
 export type MemoryWorkflowStateKind = "session" | "durable";
 export const MEMX_STATE_LIFECYCLE_KINDS = [
@@ -237,6 +244,10 @@ export type EmbeddingConfig = {
 export type AdvancedMemoryConfig = {
   llmClassifierEnabled: boolean;
   llmClassifierModel?: string;
+  llmProvider?: MemoryLlmProvider;
+  llmBaseURL?: string;
+  llmApiKey?: string;
+  llmHeaders?: Record<string, string>;
   enableMaintenanceJobs: boolean;
   maintenanceTriggerMode: "batched" | "per_turn";
   maintenanceBatchTurns: number;

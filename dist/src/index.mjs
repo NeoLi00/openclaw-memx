@@ -4,6 +4,7 @@ import "./host/hookPayload.mjs";
 import "./host/mcpProtocol.mjs";
 import { DEFAULT_MEMORY_CONFIG, memxConfigSchema } from "./config.mjs";
 import "./host/quickstart.mjs";
+import "./host/standaloneQuickstart.mjs";
 import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { semanticTextSimilarity } from "./pipeline/semantic/textSimilarity.mjs";
 import "./pipeline/constants.mjs";

@@ -3,6 +3,7 @@ import { MemxHostId, MemxHostMessage, MemxTurnEnvelope, normalizeHookPayload, no
 import { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, defaultMemxProxy, handleMcpRequest } from "./host/mcpProtocol.mjs";
 import { EvidenceBundle } from "./types.mjs";
 import { OpenClawQuickstartOptions, QuickstartCommandResult, QuickstartCommandStep, QuickstartDeps, applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, runOpenClawQuickstart } from "./host/quickstart.mjs";
+import { StandaloneMemxQuickstartOptions, StandaloneQuickstartCommandResult, StandaloneQuickstartCommandStep, StandaloneQuickstartDeps, StandaloneQuickstartTarget, applyStandaloneMemxQuickstartConfig, buildStandaloneMemxQuickstartSteps, runStandaloneMemxQuickstart } from "./host/standaloneQuickstart.mjs";
 import { MemxHostService, MemxRecallRequest, MemxServiceOptions, createServiceConfigFromEnv, stableHostTurnId } from "./host/service.mjs";
 import { OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
 

@@ -20,15 +20,18 @@ export type GenericMcpConfig = {
   };
 };
 
-export function buildGenericMcpConfig(): GenericMcpConfig {
+export function buildGenericMcpConfig(
+  url = "${MEMX_URL}",
+  secret = "${MEMX_SECRET}",
+): GenericMcpConfig {
   return {
     mcpServers: {
       memx: {
         command: "npx",
         args: ["-y", "-p", PACKAGE_NAME, "memx-mcp"],
         env: {
-          MEMX_URL: "${MEMX_URL}",
-          MEMX_SECRET: "${MEMX_SECRET}",
+          MEMX_URL: url,
+          MEMX_SECRET: secret,
         },
       },
     },
@@ -58,7 +61,7 @@ function stripCodexMemxBlock(toml: string): string {
   return out.join("\n").replace(/\n{3,}$/u, "\n\n").trimEnd();
 }
 
-export function applyCodexTomlConnect(toml: string, url = DEFAULT_URL): string {
+export function applyCodexTomlConnect(toml: string, url = DEFAULT_URL, secret = "${MEMX_SECRET}"): string {
   const cleaned = stripCodexMemxBlock(toml);
   const block = [
     CODEX_SECTION,
@@ -67,13 +70,17 @@ export function applyCodexTomlConnect(toml: string, url = DEFAULT_URL): string {
     "",
     CODEX_ENV_SECTION,
     `MEMX_URL = "${url}"`,
-    'MEMX_SECRET = "${MEMX_SECRET}"',
+    `MEMX_SECRET = "${secret}"`,
     "",
   ].join("\n");
   return `${cleaned}${cleaned ? "\n\n" : ""}${block}`;
 }
 
-export function applyClaudeJsonConnect(input: unknown): Record<string, unknown> {
+export function applyClaudeJsonConnect(
+  input: unknown,
+  url = "${MEMX_URL}",
+  secret = "${MEMX_SECRET}",
+): Record<string, unknown> {
   const base =
     input && typeof input === "object" && !Array.isArray(input)
       ? { ...(input as Record<string, unknown>) }
@@ -86,7 +93,7 @@ export function applyClaudeJsonConnect(input: unknown): Record<string, unknown> 
     ...base,
     mcpServers: {
       ...currentServers,
-      memx: buildGenericMcpConfig().mcpServers.memx,
+      memx: buildGenericMcpConfig(url, secret).mcpServers.memx,
     },
   };
 }
@@ -98,16 +105,24 @@ function writeAtomic(path: string, text: string): void {
   renameSync(tmp, path);
 }
 
-export function connectCodexConfig(configPath = join(homedir(), ".codex", "config.toml")): string {
+export function connectCodexConfig(
+  configPath = join(homedir(), ".codex", "config.toml"),
+  url = DEFAULT_URL,
+  secret = "${MEMX_SECRET}",
+): string {
   const current = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
-  const next = applyCodexTomlConnect(current);
+  const next = applyCodexTomlConnect(current, url, secret);
   writeAtomic(configPath, next);
   return configPath;
 }
 
-export function connectClaudeCodeConfig(configPath = join(homedir(), ".claude.json")): string {
+export function connectClaudeCodeConfig(
+  configPath = join(homedir(), ".claude.json"),
+  url = "${MEMX_URL}",
+  secret = "${MEMX_SECRET}",
+): string {
   const current = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
-  const next = applyClaudeJsonConnect(current);
+  const next = applyClaudeJsonConnect(current, url, secret);
   writeAtomic(configPath, `${JSON.stringify(next, null, 2)}\n`);
   return configPath;
 }

@@ -20,5 +20,11 @@ const MEMORY_EMBEDDING_PROVIDERS = [
 	"ollama",
 	"sentence-transformers-local"
 ];
+const MEMORY_LLM_PROVIDERS = [
+	"openai-compatible",
+	"anthropic",
+	"google",
+	"ollama"
+];
 //#endregion
-export { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES };
+export { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_LLM_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES };

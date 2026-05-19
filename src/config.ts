@@ -4,6 +4,7 @@ import type { OpenClawPluginConfigSchema, PluginConfigUiHint } from "openclaw/pl
 import {
   MEMORY_CONSENT_MODES,
   MEMORY_EMBEDDING_PROVIDERS,
+  MEMORY_LLM_PROVIDERS,
   MEMORY_PII_MODES,
   MEMORY_SCOPE_TEMPLATES,
   type AdvancedMemoryConfig,
@@ -166,6 +167,21 @@ const uiHints: Record<string, PluginConfigUiHint> = {
   "advanced.llmClassifierModel": {
     label: "LLM Classifier Model",
     help: "Optional provider/model override in provider/model form. Falls back to the default OpenClaw agent model when omitted.",
+    advanced: true,
+  },
+  "advanced.llmProvider": {
+    label: "LLM Provider",
+    help: "Standalone MemX LLM provider used by non-OpenClaw hosts.",
+    advanced: true,
+  },
+  "advanced.llmBaseURL": {
+    label: "LLM Base URL",
+    help: "Standalone MemX LLM endpoint base URL.",
+    advanced: true,
+  },
+  "advanced.llmApiKey": {
+    label: "LLM API Key",
+    sensitive: true,
     advanced: true,
   },
   "advanced.enableMaintenanceJobs": { label: "Maintenance Jobs", advanced: true },
@@ -339,6 +355,13 @@ const jsonSchema = {
       properties: {
         llmClassifierEnabled: { type: "boolean" },
         llmClassifierModel: { type: "string" },
+        llmProvider: { type: "string", enum: [...MEMORY_LLM_PROVIDERS] },
+        llmBaseURL: { type: "string" },
+        llmApiKey: { type: "string" },
+        llmHeaders: {
+          type: "object",
+          additionalProperties: { type: "string" },
+        },
         enableMaintenanceJobs: { type: "boolean" },
         maintenanceTriggerMode: { type: "string", enum: ["batched", "per_turn"] },
         maintenanceBatchTurns: { type: "number", minimum: 1, maximum: 32 },
@@ -575,6 +598,24 @@ function parseConfigInternal(input: unknown): {
       typeof rawAdvanced.llmClassifierModel === "string"
         ? rawAdvanced.llmClassifierModel.trim()
         : undefined,
+    llmProvider:
+      rawAdvanced.llmProvider === "openai-compatible" ||
+      rawAdvanced.llmProvider === "anthropic" ||
+      rawAdvanced.llmProvider === "google" ||
+      rawAdvanced.llmProvider === "ollama"
+        ? rawAdvanced.llmProvider
+        : undefined,
+    llmBaseURL:
+      typeof rawAdvanced.llmBaseURL === "string" ? rawAdvanced.llmBaseURL.trim() : undefined,
+    llmApiKey:
+      typeof rawAdvanced.llmApiKey === "string" ? rawAdvanced.llmApiKey.trim() : undefined,
+    llmHeaders: isRecord(rawAdvanced.llmHeaders)
+      ? Object.fromEntries(
+          Object.entries(rawAdvanced.llmHeaders)
+            .filter(([, value]) => typeof value === "string")
+            .map(([key, value]) => [key, String(value)]),
+        )
+      : undefined,
     enableMaintenanceJobs: asBoolean(
       rawAdvanced.enableMaintenanceJobs,
       DEFAULT_MEMORY_CONFIG.advanced.enableMaintenanceJobs,

@@ -21,6 +21,19 @@ function guessProvider(baseUrl, api, providerKey) {
 }
 function loadJudgeModelConfig(config, logger) {
 	if (!config.advanced.llmClassifierEnabled) return null;
+	const directBaseUrl = config.advanced.llmBaseURL?.trim();
+	const directModel = config.advanced.llmClassifierModel?.trim();
+	if (directBaseUrl && directModel) {
+		const model = directModel.includes("/") ? directModel.split("/").at(-1) || directModel : directModel;
+		return {
+			configPath: process.env.MEMX_CONFIG_PATH?.trim() || "memx-config",
+			provider: config.advanced.llmProvider ?? guessProvider(directBaseUrl, void 0, config.advanced.llmProvider),
+			baseUrl: directBaseUrl,
+			model,
+			apiKey: resolveSecretLikeString(config.advanced.llmApiKey),
+			headers: config.advanced.llmHeaders
+		};
+	}
 	const cfgPath = process.env.OPENCLAW_CONFIG_PATH?.trim() || path.join(homedir(), ".openclaw", "openclaw.json");
 	if (!fs.existsSync(cfgPath)) {
 		logger.debug?.(`memory-memx: no config available for LLM reasoner at ${cfgPath}`);

@@ -27,6 +27,7 @@ declare const MEMORY_SCOPE_TEMPLATES: readonly ["global", "agent:{agentId}", "se
 declare const MEMORY_PII_MODES: readonly ["off", "redact", "allow"];
 declare const MEMORY_CONSENT_MODES: readonly ["explicit", "implicit", "off"];
 declare const MEMORY_EMBEDDING_PROVIDERS: readonly ["off", "openai-compatible", "ollama", "sentence-transformers-local"];
+declare const MEMORY_LLM_PROVIDERS: readonly ["openai-compatible", "anthropic", "google", "ollama"];
 type MemoryRouteType = (typeof MEMORY_ROUTE_TYPES)[number];
 type MemoryCorrectionTimeframe = (typeof MEMORY_CORRECTION_TIMEFRAMES)[number];
 type MemoryCorrectionTargetKind = (typeof MEMORY_CORRECTION_TARGET_KINDS)[number];
@@ -55,6 +56,7 @@ type MemorySourceKind = (typeof MEMORY_SOURCE_KINDS)[number];
 type MemoryPiiMode = (typeof MEMORY_PII_MODES)[number];
 type MemoryConsentMode = (typeof MEMORY_CONSENT_MODES)[number];
 type MemoryEmbeddingProvider = (typeof MEMORY_EMBEDDING_PROVIDERS)[number];
+type MemoryLlmProvider = (typeof MEMORY_LLM_PROVIDERS)[number];
 type MemoryPrimaryRouteType = Exclude<MemoryRouteType, "mixed" | "unknown">;
 type MemoryWorkflowStateKind = "session" | "durable";
 declare const MEMX_STATE_LIFECYCLE_KINDS: readonly ["durable_profile", "session_working", "transient_blocker", "transient_next_step", "derived_maintenance", "task_checkpoint"];
@@ -97,6 +99,10 @@ type EmbeddingConfig = {
 type AdvancedMemoryConfig = {
   llmClassifierEnabled: boolean;
   llmClassifierModel?: string;
+  llmProvider?: MemoryLlmProvider;
+  llmBaseURL?: string;
+  llmApiKey?: string;
+  llmHeaders?: Record<string, string>;
   enableMaintenanceJobs: boolean;
   maintenanceTriggerMode: "batched" | "per_turn";
   maintenanceBatchTurns: number;
@@ -1752,4 +1758,4 @@ type MemxLogger = {
   error?: (message: string) => void;
 };
 //#endregion
-export { EvidenceBundle, MemoryPluginConfig, MemxLogger };
+export { EvidenceBundle, MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig, MemxLogger };

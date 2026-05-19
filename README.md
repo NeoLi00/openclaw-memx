@@ -175,47 +175,57 @@ MemX now ships three integration surfaces:
   `.claude-plugin/plugin.json` register the same MemX MCP server plus host lifecycle hooks.
 - **Generic MCP**: any MCP-capable agent can use the `memx` MCP server without native hooks.
 
-For Codex or Claude Code native hook capture, start the local MemX service first:
+For Codex, Claude Code, or a generic MCP client, use the standalone quickstart. It writes MemX's
+own config at `~/.memx/config.json`; OpenClaw config is not required.
+
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart codex \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
+```
+
+For Claude Code, change only the target:
+
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart claude-code \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
+```
+
+For an MCP-only client, generate the MemX config and print a generic MCP block:
+
+```bash
+npx -y -p @neoli00/memory-memx memx quickstart mcp \
+  --llm-provider openai-compatible \
+  --llm-base-url https://llm.example.com/v1 \
+  --llm-model fast-memory-model \
+  --llm-api-key sk-your-provider-key
+```
+
+All standalone quickstarts default to local embeddings:
+
+- Embedding provider: `sentence-transformers-local`
+- Embedding model: `intfloat/multilingual-e5-small`
+- Python venv: `~/.memx/.venv/bin/python`
+
+Use `--llm-api-key-env PROVIDER_API_KEY` instead of `--llm-api-key` if you want the config file to
+reference an environment variable. Use `--embedding-provider`, `--embedding-model`,
+`--embedding-base-url`, and `--embedding-api-key` when you want remote embeddings instead of the
+local default.
+
+Start the local service after configuration:
 
 ```bash
 npx -y -p @neoli00/memory-memx memx-server
 ```
 
-Then install the native plugin from this repository according to the host's plugin workflow. The
-native plugin runs `dist/src/bin/memx-hook.mjs` for lifecycle events and
-`dist/src/bin/memx-mcp.mjs` for MCP tools. Hook capture is best-effort and posts to
-`MEMX_URL` (`http://localhost:3878` by default), so a slow memory write does not block the host's
-agent loop. The bundled hook definitions use exec-form `command` plus `args`, not shell command
+Codex and Claude Code native plugin hook capture still uses `MEMX_URL` (`http://localhost:3878` by
+default). The bundled hook definitions use exec-form `command` plus `args`, not shell command
 strings, so plugin installers do not need to evaluate shell tokenization.
-
-For MCP-only agents, merge this block into the agent's MCP config:
-
-```json
-{
-  "mcpServers": {
-    "memx": {
-      "command": "npx",
-      "args": ["-y", "-p", "@neoli00/memory-memx", "memx-mcp"],
-      "env": {
-        "MEMX_URL": "${MEMX_URL}",
-        "MEMX_SECRET": "${MEMX_SECRET}"
-      }
-    }
-  }
-}
-```
-
-Codex can also be wired with:
-
-```bash
-npx -y -p @neoli00/memory-memx memx connect codex
-```
-
-Claude Code can be wired with:
-
-```bash
-npx -y -p @neoli00/memory-memx memx connect claude-code
-```
 
 OpenClaw users should prefer `memx quickstart openclaw` for first-time setup. Source checkouts can
 still use `openclaw plugins install --link .` plus `openclaw memx setup` for local development.
@@ -246,6 +256,25 @@ the user explicitly asks about those files. If you have old curated notes in `ME
 them deliberately instead of relying on both memory systems at the same time.
 
 ## Model and embedding setup
+
+### Standalone hosts
+
+Codex, Claude Code, and generic MCP use MemX's standalone config, not `openclaw.json`.
+
+The quickstart fields map directly into `~/.memx/config.json`:
+
+- `--llm-provider`: `openai-compatible`, `anthropic`, `google`, or `ollama`
+- `--llm-base-url`: provider endpoint base URL
+- `--llm-model`: model used by MemX semantic compilers
+- `--llm-api-key` or `--llm-api-key-env`: provider API key
+- `--embedding-provider`: `sentence-transformers-local`, `openai-compatible`, `ollama`, or `off`
+- `--embedding-model`: embedding model; default is `intfloat/multilingual-e5-small`
+
+`memx-server` also accepts `MEMX_CONFIG_PATH`, `MEMX_LLM_PROVIDER`, `MEMX_LLM_BASE_URL`,
+`MEMX_LLM_MODEL`, `MEMX_LLM_API_KEY`, `MEMX_EMBEDDING_PROVIDER`, `MEMX_EMBEDDING_MODEL`,
+`MEMX_EMBEDDING_BASE_URL`, `MEMX_EMBEDDING_API_KEY`, `MEMX_EMBEDDING_OLLAMA_BASE_URL`,
+`MEMX_EMBEDDING_PYTHON`, `MEMX_EMBEDDING_CACHE_DIR`, and `MEMX_EMBEDDING_DEVICE` as runtime
+overrides.
 
 ### Reuse an existing OpenClaw provider
 

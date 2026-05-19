@@ -1,6 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_MEMORY_CONFIG } from "../config.js";
+import { DEFAULT_MEMORY_CONFIG, memxConfigSchema } from "../config.js";
 import { compileQuery } from "../pipeline/queryCompiler.js";
 import { retrieveEvidence } from "../pipeline/retrieve.js";
 import { captureAgentEndTurn } from "../pipeline/turnCapture.js";
@@ -11,6 +12,7 @@ import type { EvidenceBundle, MemoryOperationContext, MemoryPluginConfig, MemxLo
 import { normalizeObservePayload, type MemxTurnEnvelope } from "./hookPayload.js";
 
 const DEFAULT_SERVER_DB_PATH = join(homedir(), ".memx", "{agentId}", "memx.sqlite");
+const DEFAULT_SERVICE_CONFIG_PATH = join(homedir(), ".memx", "config.json");
 
 export type MemxServiceOptions = {
   config?: MemoryPluginConfig;
@@ -27,6 +29,97 @@ export type MemxRecallRequest = {
   project?: string;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function deepMerge<T>(base: T, override: unknown): T {
+  if (!isRecord(base) || !isRecord(override)) {
+    return (override === undefined ? base : override) as T;
+  }
+  const output: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    output[key] = key in output ? deepMerge(output[key], value) : value;
+  }
+  return output as T;
+}
+
+function serviceDefaultConfig(): MemoryPluginConfig {
+  const config = structuredClone(DEFAULT_MEMORY_CONFIG);
+  config.dbPath = DEFAULT_SERVER_DB_PATH;
+  config.defaultScope = "agent:{agentId}";
+  config.allowedScopes = ["global", "agent:{agentId}", "session:{sessionKey}", "project:{project}"];
+  return config;
+}
+
+function readServiceConfigFile(path: string): Record<string, unknown> {
+  if (!existsSync(path)) {
+    return {};
+  }
+  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+}
+
+function applyServiceEnvOverrides(config: MemoryPluginConfig, env: NodeJS.ProcessEnv): MemoryPluginConfig {
+  const next = structuredClone(config);
+  next.dbPath = env["MEMX_DB_PATH"]?.trim() || next.dbPath;
+  next.defaultScope = env["MEMX_DEFAULT_SCOPE"]?.trim() || next.defaultScope;
+  if (
+    env["MEMX_LLM_PROVIDER"] === "openai-compatible" ||
+    env["MEMX_LLM_PROVIDER"] === "anthropic" ||
+    env["MEMX_LLM_PROVIDER"] === "google" ||
+    env["MEMX_LLM_PROVIDER"] === "ollama"
+  ) {
+    next.advanced.llmProvider = env["MEMX_LLM_PROVIDER"];
+  }
+  if (env["MEMX_LLM_BASE_URL"]) {
+    next.advanced.llmBaseURL = env["MEMX_LLM_BASE_URL"];
+  }
+  if (env["MEMX_LLM_API_KEY"]) {
+    next.advanced.llmApiKey = env["MEMX_LLM_API_KEY"];
+  }
+  if (env["MEMX_LLM_MODEL"]) {
+    next.advanced.llmClassifierModel = env["MEMX_LLM_MODEL"];
+  }
+  if (env["MEMX_EMBEDDING_PROVIDER"]) {
+    const provider = env["MEMX_EMBEDDING_PROVIDER"];
+    if (
+      provider === "off" ||
+      provider === "openai-compatible" ||
+      provider === "ollama" ||
+      provider === "sentence-transformers-local"
+    ) {
+      next.embedding.provider = provider;
+    }
+  }
+  if (env["MEMX_EMBEDDING_MODEL"]) {
+    next.embedding.model = env["MEMX_EMBEDDING_MODEL"];
+  }
+  if (env["MEMX_EMBEDDING_BASE_URL"]) {
+    next.embedding.baseURL = env["MEMX_EMBEDDING_BASE_URL"];
+  }
+  if (env["MEMX_EMBEDDING_API_KEY"]) {
+    next.embedding.apiKey = env["MEMX_EMBEDDING_API_KEY"];
+  }
+  if (env["MEMX_EMBEDDING_OLLAMA_BASE_URL"]) {
+    next.embedding.ollamaBaseURL = env["MEMX_EMBEDDING_OLLAMA_BASE_URL"];
+  }
+  if (env["MEMX_EMBEDDING_PYTHON"]) {
+    next.embedding.localPythonBin = env["MEMX_EMBEDDING_PYTHON"];
+  }
+  if (env["MEMX_EMBEDDING_CACHE_DIR"]) {
+    next.embedding.localCacheDir = env["MEMX_EMBEDDING_CACHE_DIR"];
+  }
+  if (
+    env["MEMX_EMBEDDING_DEVICE"] === "auto" ||
+    env["MEMX_EMBEDDING_DEVICE"] === "cpu" ||
+    env["MEMX_EMBEDDING_DEVICE"] === "mps" ||
+    env["MEMX_EMBEDDING_DEVICE"] === "cuda"
+  ) {
+    next.embedding.localDevice = env["MEMX_EMBEDDING_DEVICE"];
+  }
+  return memxConfigSchema.parse(next);
+}
+
 function loggerOrConsole(logger?: MemxLogger): MemxLogger {
   return (
     logger ?? {
@@ -39,28 +132,9 @@ function loggerOrConsole(logger?: MemxLogger): MemxLogger {
 }
 
 export function createServiceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MemoryPluginConfig {
-  const config = structuredClone(DEFAULT_MEMORY_CONFIG);
-  config.dbPath = env["MEMX_DB_PATH"]?.trim() || DEFAULT_SERVER_DB_PATH;
-  config.defaultScope = env["MEMX_DEFAULT_SCOPE"]?.trim() || "agent:{agentId}";
-  config.allowedScopes = ["global", "agent:{agentId}", "session:{sessionKey}", "project:{project}"];
-  if (env["MEMX_EMBEDDING_PROVIDER"]) {
-    const provider = env["MEMX_EMBEDDING_PROVIDER"];
-    if (
-      provider === "off" ||
-      provider === "openai-compatible" ||
-      provider === "ollama" ||
-      provider === "sentence-transformers-local"
-    ) {
-      config.embedding.provider = provider;
-    }
-  }
-  if (env["MEMX_EMBEDDING_MODEL"]) {
-    config.embedding.model = env["MEMX_EMBEDDING_MODEL"];
-  }
-  if (env["MEMX_LLM_MODEL"]) {
-    config.advanced.llmClassifierModel = env["MEMX_LLM_MODEL"];
-  }
-  return config;
+  const configPath = env["MEMX_CONFIG_PATH"]?.trim() || DEFAULT_SERVICE_CONFIG_PATH;
+  const raw = deepMerge(serviceDefaultConfig(), readServiceConfigFile(configPath));
+  return applyServiceEnvOverrides(memxConfigSchema.parse(raw), env);
 }
 
 function hostSessionKey(envelope: Pick<MemxTurnEnvelope, "hostId" | "sessionId">): string {
