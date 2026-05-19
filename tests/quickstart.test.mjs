@@ -6,37 +6,32 @@ import test from "node:test";
 
 test("OpenClaw quickstart config uses unified LLM flags and default local embedding", async () => {
   const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+  const existingAgents = {
+    defaults: {
+      model: { primary: "existing/main-model", fallbacks: ["existing/fallback"] },
+      models: { "existing/main-model": { alias: "Existing Main" } },
+    },
+  };
 
   const next = applyOpenClawQuickstartConfig(
-    { agents: { defaults: { models: { "openai/gpt-5.4": { alias: "GPT" } } } } },
+    { agents: existingAgents },
     {
       llmProvider: "openai-compatible",
       llmBaseUrl: "https://llm.example.com/v1",
-      agentModel: "main-agent-model",
       llmModel: "fast-memory-model",
       llmApiKey: "sk-test",
     },
   );
 
-  assert.equal(next.models.providers["openai-compatible"].api, "openai-completions");
-  assert.equal(next.models.providers["openai-compatible"].baseUrl, "https://llm.example.com/v1");
-  assert.equal(next.models.providers["openai-compatible"].apiKey, "sk-test");
-  assert.equal(next.agents.defaults.model.primary, "openai-compatible/main-agent-model");
-  assert.equal(
-    next.agents.defaults.models["openai-compatible/main-agent-model"].alias,
-    "Main Agent Model",
-  );
-  assert.equal(
-    next.agents.defaults.models["openai-compatible/fast-memory-model"].alias,
-    "Fast Memory Model",
-  );
+  assert.deepEqual(next.agents, existingAgents);
+  assert.equal(next.models, undefined);
 
   const memx = next.plugins.entries["memory-memx"].config;
   assert.equal(memx.advanced.llmClassifierEnabled, true);
   assert.equal(memx.advanced.llmProvider, "openai-compatible");
   assert.equal(memx.advanced.llmBaseURL, "https://llm.example.com/v1");
   assert.equal(memx.advanced.llmApiKey, "sk-test");
-  assert.equal(memx.advanced.llmClassifierModel, "openai-compatible/fast-memory-model");
+  assert.equal(memx.advanced.llmClassifierModel, "fast-memory-model");
   assert.equal(memx.advanced.enableCompatibilityMemoryTools, false);
   assert.equal(memx.embedding.provider, "sentence-transformers-local");
   assert.equal(memx.embedding.model, "intfloat/multilingual-e5-small");
@@ -51,22 +46,19 @@ test("OpenClaw quickstart can store provider key as an env SecretRef", async () 
     {
       llmProvider: "anthropic",
       llmBaseUrl: "https://api.anthropic.com/v1",
-      agentModel: "claude-main",
       llmModel: "claude-fast",
       llmApiKeyEnv: "ANTHROPIC_API_KEY",
     },
   );
 
-  assert.equal(next.models.providers.anthropic.api, "anthropic-messages");
-  assert.deepEqual(next.models.providers.anthropic.apiKey, {
+  const advanced = next.plugins.entries["memory-memx"].config.advanced;
+  assert.equal(advanced.llmProvider, "anthropic");
+  assert.deepEqual(advanced.llmApiKey, {
     source: "env",
     provider: "default",
     id: "ANTHROPIC_API_KEY",
   });
-  assert.equal(
-    next.plugins.entries["memory-memx"].config.advanced.llmClassifierModel,
-    "anthropic/claude-fast",
-  );
+  assert.equal(advanced.llmClassifierModel, "claude-fast");
 });
 
 test("OpenClaw quickstart command plan is exec-form only", async () => {
@@ -75,7 +67,6 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
   const steps = buildOpenClawQuickstartSteps({
     llmProvider: "openai-compatible",
     llmBaseUrl: "https://llm.example.com/v1",
-    agentModel: "main-agent-model",
     llmModel: "fast-memory-model",
     llmApiKey: "sk-test",
     homeDir: "/tmp/home",
@@ -112,7 +103,6 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
     {
       llmProvider: "openai-compatible",
       llmBaseUrl: "https://llm.example.com/v1",
-      agentModel: "main-agent-model",
       llmModel: "fast-memory-model",
       llmApiKey: "sk-secret",
       configPath,
@@ -134,7 +124,8 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   ]);
   assert.equal(existsSync(configPath), true);
   const written = JSON.parse(readFileSync(configPath, "utf8"));
-  assert.equal(written.models.providers["openai-compatible"].apiKey, "sk-secret");
+  assert.equal(written.models, undefined);
+  assert.equal(written.plugins.entries["memory-memx"].config.advanced.llmApiKey, "sk-secret");
   assert.doesNotMatch(JSON.stringify(result), /sk-secret/);
   assert.equal(result.ok, true);
 });
@@ -145,7 +136,6 @@ test("OpenClaw quickstart dry run reports that no changes were applied", async (
   const result = await runOpenClawQuickstart({
     llmProvider: "ollama",
     llmBaseUrl: "http://127.0.0.1:11434",
-    agentModel: "qwen2.5:14b",
     llmModel: "qwen2.5:7b",
     skipEmbeddingDeps: true,
     dryRun: true,
@@ -169,11 +159,12 @@ test("OpenClaw quickstart keeps legacy provider-id and memx-model aliases", asyn
     },
   );
 
-  assert.equal(next.models.providers["legacy-provider"].api, "openai-completions");
-  assert.equal(next.models.providers["legacy-provider"].baseUrl, "https://legacy.example.com/v1");
-  assert.equal(next.agents.defaults.model.primary, "legacy-provider/legacy-main");
+  assert.equal(next.models, undefined);
+  assert.equal(next.agents, undefined);
+  assert.equal(next.plugins.entries["memory-memx"].config.advanced.llmProvider, "openai-compatible");
+  assert.equal(next.plugins.entries["memory-memx"].config.advanced.llmBaseURL, "https://legacy.example.com/v1");
   assert.equal(
     next.plugins.entries["memory-memx"].config.advanced.llmClassifierModel,
-    "legacy-provider/legacy-memory",
+    "legacy-memory",
   );
 });

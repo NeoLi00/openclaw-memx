@@ -13,39 +13,9 @@ const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
 type SecretRef = { source: "env"; provider: "default"; id: string };
 
-type OpenClawModelEntry = {
-  id: string;
-  name?: string;
-  api?: string;
-  reasoning?: boolean;
-  input?: string[];
-  cost?: Record<string, number>;
-  contextWindow?: number;
-  maxTokens?: number;
-};
-
 type OpenClawConfigLike = {
-  agents?: {
-    defaults?: {
-      model?: string | { primary?: string; fallbacks?: string[]; [key: string]: unknown };
-      models?: Record<string, Record<string, unknown>>;
-      [key: string]: unknown;
-    };
-    [key: string]: unknown;
-  };
-  models?: {
-    providers?: Record<
-      string,
-      {
-        api?: string;
-        baseUrl?: string;
-        apiKey?: string | SecretRef;
-        models?: OpenClawModelEntry[];
-        [key: string]: unknown;
-      }
-    >;
-    [key: string]: unknown;
-  };
+  agents?: Record<string, unknown>;
+  models?: Record<string, unknown>;
   plugins?: {
     allow?: string[];
     slots?: Record<string, string>;
@@ -54,8 +24,6 @@ type OpenClawConfigLike = {
   };
   [key: string]: unknown;
 };
-
-type OpenClawAgentDefaults = NonNullable<OpenClawConfigLike["agents"]>["defaults"];
 
 export type OpenClawQuickstartOptions = {
   llmProvider?: MemoryLlmProvider;
@@ -71,6 +39,7 @@ export type OpenClawQuickstartOptions = {
   apiKey?: string;
   /** @deprecated Use llmApiKeyEnv. */
   apiKeyEnv?: string;
+  /** @deprecated Ignored. OpenClaw quickstart no longer changes the agent's primary model. */
   agentModel?: string;
   /** @deprecated Use llmModel. */
   memxModel?: string;
@@ -94,9 +63,7 @@ type NormalizedOpenClawQuickstartOptions = Required<
   Pick<
     OpenClawQuickstartOptions,
     | "llmProvider"
-    | "providerId"
     | "llmBaseUrl"
-    | "agentModel"
     | "llmModel"
     | "embeddingModel"
     | "configPath"
@@ -108,9 +75,7 @@ type NormalizedOpenClawQuickstartOptions = Required<
   Omit<
     OpenClawQuickstartOptions,
     | "llmProvider"
-    | "providerId"
     | "llmBaseUrl"
-    | "agentModel"
     | "llmModel"
     | "embeddingModel"
     | "configPath"
@@ -198,14 +163,9 @@ function normalizeOptions(
       "quickstart requires --llm-provider (openai-compatible, anthropic, google, or ollama)",
     );
   }
-  const providerId = trimOrUndefined(options.providerId) ?? llmProvider;
   const llmBaseUrl = trimOrUndefined(options.llmBaseUrl) ?? trimOrUndefined(options.baseUrl);
   if (!llmBaseUrl) {
     throw new Error("quickstart requires --llm-base-url");
-  }
-  const agentModel = trimOrUndefined(options.agentModel);
-  if (!agentModel) {
-    throw new Error("quickstart requires --agent-model");
   }
   const llmModel = trimOrUndefined(options.llmModel) ?? trimOrUndefined(options.memxModel);
   if (!llmModel) {
@@ -224,11 +184,9 @@ function normalizeOptions(
   return {
     ...options,
     llmProvider,
-    providerId,
     llmBaseUrl,
     llmApiKey,
     llmApiKeyEnv,
-    agentModel,
     llmModel,
     embeddingProvider,
     embeddingModel: trimOrUndefined(options.embeddingModel) ?? DEFAULT_EMBEDDING_MODEL,
@@ -248,86 +206,6 @@ function apiKeyValue(options: NormalizedOpenClawQuickstartOptions): string | Sec
     return { source: "env", provider: "default", id: envName };
   }
   return trimOrUndefined(options.llmApiKey);
-}
-
-function apiForProvider(provider: MemoryLlmProvider): string {
-  switch (provider) {
-    case "anthropic":
-      return "anthropic-messages";
-    case "google":
-      return "google-generative-ai";
-    case "ollama":
-      return "ollama";
-    case "openai-compatible":
-      return "openai-completions";
-  }
-}
-
-function displayName(model: string): string {
-  return model
-    .split(/[-_:./]+/u)
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function modelEntry(model: string, provider: MemoryLlmProvider): OpenClawModelEntry {
-  return {
-    id: model,
-    name: displayName(model),
-    api: apiForProvider(provider),
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 64000,
-    maxTokens: 8192,
-  };
-}
-
-function mergeModels(
-  existing: OpenClawModelEntry[] | undefined,
-  models: string[],
-  provider: MemoryLlmProvider,
-): OpenClawModelEntry[] {
-  const byId = new Map<string, OpenClawModelEntry>();
-  for (const entry of existing ?? []) {
-    if (entry?.id) {
-      byId.set(entry.id, entry);
-    }
-  }
-  for (const model of models) {
-    byId.set(model, { ...modelEntry(model, provider), ...(byId.get(model) ?? {}) });
-  }
-  return [...byId.values()];
-}
-
-function modelRef(providerId: string, model: string): string {
-  return `${providerId}/${model}`;
-}
-
-function withPrimaryModel(current: OpenClawAgentDefaults, primary: string): Record<string, unknown> {
-  const defaults = current && typeof current === "object" ? (current as Record<string, unknown>) : {};
-  const currentModel = defaults.model;
-  const model =
-    currentModel && typeof currentModel === "object" && !Array.isArray(currentModel)
-      ? { ...(currentModel as Record<string, unknown>), primary }
-      : { primary };
-  return { ...defaults, model };
-}
-
-function withAllowlistModels(
-  defaults: Record<string, unknown>,
-  refs: Array<{ ref: string; alias: string }>,
-): Record<string, unknown> {
-  const existing = defaults.models;
-  if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
-    return defaults;
-  }
-  const models = { ...(existing as Record<string, Record<string, unknown>>) };
-  for (const item of refs) {
-    models[item.ref] = { ...(models[item.ref] ?? {}), alias: item.alias };
-  }
-  return { ...defaults, models };
 }
 
 function memxEntry(
@@ -382,7 +260,7 @@ function memxEntry(
         llmProvider: options.llmProvider,
         llmBaseURL: options.llmBaseUrl,
         llmApiKey: apiKeyValue(options),
-        llmClassifierModel: modelRef(options.providerId, options.llmModel),
+        llmClassifierModel: options.llmModel,
       },
     },
   };
@@ -394,40 +272,11 @@ export function applyOpenClawQuickstartConfig(
 ): OpenClawConfigLike {
   const options = normalizeOptions(rawOptions);
   const next = asConfig(input);
-  const agentRef = modelRef(options.providerId, options.agentModel);
-  const memxRef = modelRef(options.providerId, options.llmModel);
-  const apiKey = apiKeyValue(options);
-  const providers = { ...(next.models?.providers ?? {}) };
-  const existingProvider = providers[options.providerId] ?? {};
-  providers[options.providerId] = {
-    ...existingProvider,
-    api: apiForProvider(options.llmProvider),
-    baseUrl: options.llmBaseUrl,
-    apiKey,
-    models: mergeModels(
-      existingProvider.models,
-      [options.agentModel, options.llmModel],
-      options.llmProvider,
-    ),
-  };
-
-  const defaults = withAllowlistModels(withPrimaryModel(next.agents?.defaults, agentRef), [
-    { ref: agentRef, alias: displayName(options.agentModel) },
-    { ref: memxRef, alias: displayName(options.llmModel) },
-  ]);
   const allow = new Set(next.plugins?.allow ?? []);
   allow.add(PLUGIN_ID);
 
   return {
     ...next,
-    agents: {
-      ...(next.agents ?? {}),
-      defaults,
-    },
-    models: {
-      ...(next.models ?? {}),
-      providers,
-    },
     plugins: {
       ...(next.plugins ?? {}),
       allow: [...allow],
@@ -512,10 +361,8 @@ async function defaultRunCommand(
 function publicSummary(options: NormalizedOpenClawQuickstartOptions, steps: QuickstartCommandStep[]) {
   return {
     llmProvider: options.llmProvider,
-    providerId: options.providerId,
     llmBaseUrl: options.llmBaseUrl,
-    agentModel: modelRef(options.providerId, options.agentModel),
-    llmModel: modelRef(options.providerId, options.llmModel),
+    llmModel: options.llmModel,
     llmApiKey: options.llmApiKeyEnv
       ? { source: "env", id: options.llmApiKeyEnv }
       : options.llmApiKey

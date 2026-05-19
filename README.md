@@ -69,8 +69,6 @@ Fill in these values before running a command:
 - `--llm-api-key`: the API key for the provider. Use `--llm-api-key-env PROVIDER_API_KEY` if you
   want the config to reference an environment variable instead of storing plaintext. For local
   Ollama, omit the key.
-- `--agent-model`: OpenClaw only. This is the main model OpenClaw uses to answer the user; MemX
-  still uses `--llm-model` for memory work.
 
 The default embedding setup is local `sentence-transformers-local` with
 `intfloat/multilingual-e5-small`. Add `--embedding-provider` and `--embedding-model` only when you
@@ -103,7 +101,6 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
-  --agent-model my-main-model \
   --llm-model fast-memory-model \
   --llm-api-key sk-your-provider-key
 ```
@@ -126,7 +123,8 @@ npx -y -p github:NeoLi00/openclaw-memx memx-server
 
 OpenClaw uses the same LLM flags as the standalone hosts. The quickstart path has no
 provider-specific preset; use `--llm-provider openai-compatible` plus your provider's base URL for
-OpenAI-compatible gateways and similar services.
+OpenAI-compatible gateways and similar services. It configures MemX only and does not change
+OpenClaw's primary agent model.
 
 ## What MemX can do
 
@@ -164,7 +162,8 @@ openclaw memx doctor --deep
 ## What `memx setup` changes
 
 `memx quickstart openclaw` writes the same MemX plugin settings as `openclaw memx setup`, and also
-writes the selected OpenClaw LLM provider plus `agents.defaults.model.primary`.
+writes MemX's own LLM compiler provider settings. It does not write
+`agents.defaults.model.primary`.
 
 `openclaw memx setup` is the normal configuration step after the plugin is installed. It writes the
 recommended OpenClaw config for MemX:

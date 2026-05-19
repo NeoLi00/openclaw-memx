@@ -68,8 +68,6 @@ README 命令默认使用 GitHub package spec。每次全新执行都会拉取 G
   稳定的模型。
 - `--llm-api-key`：provider API key。如果不想写明文，用
   `--llm-api-key-env PROVIDER_API_KEY`，配置里会保存环境变量引用。本地 Ollama 可以不传 key。
-- `--agent-model`：只用于 OpenClaw。它是 OpenClaw 回答用户的主模型；MemX 仍然用
-  `--llm-model` 做记忆工作。
 
 默认 embedding 是本地 `sentence-transformers-local`，模型 `intfloat/multilingual-e5-small`。
 只有想覆盖默认值时才需要额外传 `--embedding-provider` 和 `--embedding-model`。使用 `--dry-run`
@@ -101,7 +99,6 @@ npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
-  --agent-model my-main-model \
   --llm-model fast-memory-model \
   --llm-api-key sk-your-provider-key
 ```
@@ -124,7 +121,7 @@ npx -y -p github:NeoLi00/openclaw-memx memx-server
 
 OpenClaw 现在和 standalone hosts 使用同一组 LLM 参数。quickstart 不再提供任何 provider 专用
 preset；如果使用 OpenAI-compatible gateway 或类似服务，使用 `--llm-provider openai-compatible`
-并填入对应的 base URL。
+并填入对应的 base URL。它只配置 MemX，不会改 OpenClaw 的主模型。
 
 ## MemX 能做什么
 
@@ -159,7 +156,7 @@ openclaw memx doctor --deep
 ## `memx setup` 会改什么
 
 `memx quickstart openclaw` 会写入和 `openclaw memx setup` 相同的 MemX 插件设置，并额外写入
-所选 OpenClaw LLM provider 和 `agents.defaults.model.primary`。
+MemX 自己使用的 LLM compiler provider 设置。它不会写入 `agents.defaults.model.primary`。
 
 `openclaw memx setup` 是插件安装后的正常配置步骤。它会写入推荐的 OpenClaw 配置：
 

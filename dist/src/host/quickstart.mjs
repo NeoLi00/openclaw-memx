@@ -37,11 +37,8 @@ function normalizeOptions(options) {
 	if (rawLlmProvider && !parsedLlmProvider) throw new Error("unsupported --llm-provider. Expected openai-compatible, anthropic, google, or ollama");
 	const llmProvider = parsedLlmProvider ?? (options.providerId ? "openai-compatible" : void 0);
 	if (!llmProvider) throw new Error("quickstart requires --llm-provider (openai-compatible, anthropic, google, or ollama)");
-	const providerId = trimOrUndefined(options.providerId) ?? llmProvider;
 	const llmBaseUrl = trimOrUndefined(options.llmBaseUrl) ?? trimOrUndefined(options.baseUrl);
 	if (!llmBaseUrl) throw new Error("quickstart requires --llm-base-url");
-	const agentModel = trimOrUndefined(options.agentModel);
-	if (!agentModel) throw new Error("quickstart requires --agent-model");
 	const llmModel = trimOrUndefined(options.llmModel) ?? trimOrUndefined(options.memxModel);
 	if (!llmModel) throw new Error("quickstart requires --llm-model");
 	const llmApiKey = trimOrUndefined(options.llmApiKey) ?? trimOrUndefined(options.apiKey);
@@ -53,11 +50,9 @@ function normalizeOptions(options) {
 	return {
 		...options,
 		llmProvider,
-		providerId,
 		llmBaseUrl,
 		llmApiKey,
 		llmApiKeyEnv,
-		agentModel,
 		llmModel,
 		embeddingProvider,
 		embeddingModel: trimOrUndefined(options.embeddingModel) ?? DEFAULT_EMBEDDING_MODEL,
@@ -76,71 +71,6 @@ function apiKeyValue(options) {
 		id: envName
 	};
 	return trimOrUndefined(options.llmApiKey);
-}
-function apiForProvider(provider) {
-	switch (provider) {
-		case "anthropic": return "anthropic-messages";
-		case "google": return "google-generative-ai";
-		case "ollama": return "ollama";
-		case "openai-compatible": return "openai-completions";
-	}
-}
-function displayName(model) {
-	return model.split(/[-_:./]+/u).filter(Boolean).map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`).join(" ");
-}
-function modelEntry(model, provider) {
-	return {
-		id: model,
-		name: displayName(model),
-		api: apiForProvider(provider),
-		reasoning: false,
-		input: ["text"],
-		cost: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0
-		},
-		contextWindow: 64e3,
-		maxTokens: 8192
-	};
-}
-function mergeModels(existing, models, provider) {
-	const byId = /* @__PURE__ */ new Map();
-	for (const entry of existing ?? []) if (entry?.id) byId.set(entry.id, entry);
-	for (const model of models) byId.set(model, {
-		...modelEntry(model, provider),
-		...byId.get(model) ?? {}
-	});
-	return [...byId.values()];
-}
-function modelRef(providerId, model) {
-	return `${providerId}/${model}`;
-}
-function withPrimaryModel(current, primary) {
-	const defaults = current && typeof current === "object" ? current : {};
-	const currentModel = defaults.model;
-	const model = currentModel && typeof currentModel === "object" && !Array.isArray(currentModel) ? {
-		...currentModel,
-		primary
-	} : { primary };
-	return {
-		...defaults,
-		model
-	};
-}
-function withAllowlistModels(defaults, refs) {
-	const existing = defaults.models;
-	if (!existing || typeof existing !== "object" || Array.isArray(existing)) return defaults;
-	const models = { ...existing };
-	for (const item of refs) models[item.ref] = {
-		...models[item.ref] ?? {},
-		alias: item.alias
-	};
-	return {
-		...defaults,
-		models
-	};
 }
 function memxEntry(currentEntry, options) {
 	const base = structuredClone(DEFAULT_MEMORY_CONFIG);
@@ -178,7 +108,7 @@ function memxEntry(currentEntry, options) {
 				llmProvider: options.llmProvider,
 				llmBaseURL: options.llmBaseUrl,
 				llmApiKey: apiKeyValue(options),
-				llmClassifierModel: modelRef(options.providerId, options.llmModel)
+				llmClassifierModel: options.llmModel
 			}
 		}
 	};
@@ -186,37 +116,10 @@ function memxEntry(currentEntry, options) {
 function applyOpenClawQuickstartConfig(input, rawOptions) {
 	const options = normalizeOptions(rawOptions);
 	const next = asConfig(input);
-	const agentRef = modelRef(options.providerId, options.agentModel);
-	const memxRef = modelRef(options.providerId, options.llmModel);
-	const apiKey = apiKeyValue(options);
-	const providers = { ...next.models?.providers ?? {} };
-	const existingProvider = providers[options.providerId] ?? {};
-	providers[options.providerId] = {
-		...existingProvider,
-		api: apiForProvider(options.llmProvider),
-		baseUrl: options.llmBaseUrl,
-		apiKey,
-		models: mergeModels(existingProvider.models, [options.agentModel, options.llmModel], options.llmProvider)
-	};
-	const defaults = withAllowlistModels(withPrimaryModel(next.agents?.defaults, agentRef), [{
-		ref: agentRef,
-		alias: displayName(options.agentModel)
-	}, {
-		ref: memxRef,
-		alias: displayName(options.llmModel)
-	}]);
 	const allow = new Set(next.plugins?.allow ?? []);
 	allow.add(PLUGIN_ID);
 	return {
 		...next,
-		agents: {
-			...next.agents ?? {},
-			defaults
-		},
-		models: {
-			...next.models ?? {},
-			providers
-		},
 		plugins: {
 			...next.plugins ?? {},
 			allow: [...allow],
@@ -306,10 +209,8 @@ async function defaultRunCommand(command, args) {
 function publicSummary(options, steps) {
 	return {
 		llmProvider: options.llmProvider,
-		providerId: options.providerId,
 		llmBaseUrl: options.llmBaseUrl,
-		agentModel: modelRef(options.providerId, options.agentModel),
-		llmModel: modelRef(options.providerId, options.llmModel),
+		llmModel: options.llmModel,
 		llmApiKey: options.llmApiKeyEnv ? {
 			source: "env",
 			id: options.llmApiKeyEnv
