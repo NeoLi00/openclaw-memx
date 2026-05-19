@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
 import type { MemoryPluginConfig } from "../types.js";
 
-const PACKAGE_NAME = "@neoli00/memory-memx";
+const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
 const PLUGIN_ID = "memory-memx";
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
@@ -406,7 +406,7 @@ export function buildOpenClawQuickstartSteps(
     steps.push({
       key: "plugin-install",
       command: options.openclawBin,
-      args: ["plugins", "install", PACKAGE_NAME],
+      args: ["plugins", "install", PACKAGE_SPEC],
     });
   }
   if (!options.skipRestart) {

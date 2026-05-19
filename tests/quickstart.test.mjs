@@ -56,7 +56,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
         "/tmp/home/.openclaw/memx/.venv/bin/python",
         ["-m", "pip", "install", "-U", "pip", "sentence-transformers", "torch"],
       ],
-      ["openclaw", ["plugins", "install", "@neoli00/memory-memx"]],
+      ["openclaw", ["plugins", "install", "github:NeoLi00/openclaw-memx"]],
       ["openclaw", ["gateway", "restart"]],
       ["openclaw", ["memx", "doctor", "--deep"]],
     ],
@@ -92,7 +92,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   );
 
   assert.deepEqual(calls, [
-    { command: "openclaw", args: ["plugins", "install", "@neoli00/memory-memx"] },
+    { command: "openclaw", args: ["plugins", "install", "github:NeoLi00/openclaw-memx"] },
   ]);
   assert.equal(existsSync(configPath), true);
   const written = JSON.parse(readFileSync(configPath, "utf8"));

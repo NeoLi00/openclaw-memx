@@ -193,14 +193,14 @@ test("connect helpers generate Codex TOML and generic MCP JSON without duplicati
   const second = applyCodexTomlConnect(first);
   assert.equal(hasCodexMemxBlock(second), true);
   assert.equal((second.match(/\[mcp_servers\.memx\]/g) ?? []).length, 1);
-  assert.match(second, /@neoli00\/memory-memx/);
+  assert.match(second, /github:NeoLi00\/openclaw-memx/);
 
   const generic = buildGenericMcpConfig();
   assert.equal(generic.mcpServers.memx.command, "npx");
   assert.deepEqual(generic.mcpServers.memx.args, [
     "-y",
     "-p",
-    "@neoli00/memory-memx",
+    "github:NeoLi00/openclaw-memx",
     "memx-mcp",
   ]);
 });

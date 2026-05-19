@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 //#region src/host/quickstart.ts
-const PACKAGE_NAME = "@neoli00/memory-memx";
+const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
 const PLUGIN_ID = "memory-memx";
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
@@ -243,7 +243,7 @@ function buildOpenClawQuickstartSteps(rawOptions) {
 		args: [
 			"plugins",
 			"install",
-			PACKAGE_NAME
+			PACKAGE_SPEC
 		]
 	});
 	if (!options.skipRestart) steps.push({

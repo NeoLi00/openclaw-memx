@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 //#region src/host/connect.ts
-const PACKAGE_NAME = "@neoli00/memory-memx";
+const PACKAGE_SPEC = "github:NeoLi00/openclaw-memx";
 const DEFAULT_URL = "http://localhost:3878";
 const CODEX_SECTION = "[mcp_servers.memx]";
 const CODEX_ENV_SECTION = "[mcp_servers.memx.env]";
@@ -12,7 +12,7 @@ function buildGenericMcpConfig(url = "${MEMX_URL}", secret = "${MEMX_SECRET}") {
 		args: [
 			"-y",
 			"-p",
-			PACKAGE_NAME,
+			PACKAGE_SPEC,
 			"memx-mcp"
 		],
 		env: {
@@ -43,7 +43,7 @@ function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}
 	const block = [
 		CODEX_SECTION,
 		"command = \"npx\"",
-		`args = ["-y", "-p", "${PACKAGE_NAME}", "memx-mcp"]`,
+		`args = ["-y", "-p", "${PACKAGE_SPEC}", "memx-mcp"]`,
 		"",
 		CODEX_ENV_SECTION,
 		`MEMX_URL = "${url}"`,

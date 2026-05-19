@@ -98,22 +98,20 @@ section instead.
 The shortest DeepSeek example is:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key sk-your-deepseek-key
-```
-
-If you need the current GitHub `main` before a new npm package is published, use the same command
-with the GitHub package spec:
-
-```bash
 npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key sk-your-deepseek-key
 ```
+
+The quickstart commands use the GitHub package spec by default. A fresh run pulls the current
+GitHub code, so README installs do not wait for an npm publish. If you intentionally want the npm
+release channel after a package is published, replace `github:NeoLi00/openclaw-memx` with
+`@neoli00/memory-memx`.
 
 This is only a provider example. MemX can use any OpenAI-compatible provider that OpenClaw can call.
 For a generic provider, pass the provider endpoint and choose one main agent model plus one fast,
 low-cost semantic compiler model:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart openclaw \
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
   --preset custom \
   --provider-id my-provider \
   --base-url https://llm.example.com/v1 \
@@ -129,7 +127,7 @@ The embedding defaults are:
 - Local embedding Python: `~/.openclaw/memx/.venv/bin/python`
 
 The quickstart creates the local embedding venv, installs `sentence-transformers` and `torch`,
-installs the MemX plugin with `openclaw plugins install @neoli00/memory-memx`, writes the MemX
+installs the MemX plugin with `openclaw plugins install github:NeoLi00/openclaw-memx`, writes the MemX
 config, restarts the Gateway, and runs `openclaw memx doctor --deep`.
 
 To avoid putting the API key directly in `~/.openclaw/openclaw.json`, store an env SecretRef
@@ -137,13 +135,13 @@ instead:
 
 ```bash
 export DEEPSEEK_API_KEY="sk-your-deepseek-key"
-npx -y -p @neoli00/memory-memx memx quickstart openclaw --api-key-env DEEPSEEK_API_KEY
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw --api-key-env DEEPSEEK_API_KEY
 ```
 
 Useful embedding overrides:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart openclaw \
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart openclaw \
   --api-key sk-your-deepseek-key \
   --embedding-model intfloat/multilingual-e5-small
 ```
@@ -179,7 +177,7 @@ For Codex, Claude Code, or a generic MCP client, use the standalone quickstart. 
 own config at `~/.memx/config.json`; OpenClaw config is not required.
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart codex \
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart codex \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -189,7 +187,7 @@ npx -y -p @neoli00/memory-memx memx quickstart codex \
 For Claude Code, change only the target:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart claude-code \
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart claude-code \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -199,7 +197,7 @@ npx -y -p @neoli00/memory-memx memx quickstart claude-code \
 For an MCP-only client, generate the MemX config and print a generic MCP block:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx quickstart mcp \
+npx -y -p github:NeoLi00/openclaw-memx memx quickstart mcp \
   --llm-provider openai-compatible \
   --llm-base-url https://llm.example.com/v1 \
   --llm-model fast-memory-model \
@@ -220,7 +218,7 @@ local default.
 Start the local service after configuration:
 
 ```bash
-npx -y -p @neoli00/memory-memx memx-server
+npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
 Codex and Claude Code native plugin hook capture still uses `MEMX_URL` (`http://localhost:3878` by
