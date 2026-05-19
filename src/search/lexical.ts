@@ -1,4 +1,5 @@
 import { normalizeText, normalizedTerms } from "../support.js";
+import { hasCjkFamilyScript } from "../multilingualLexicon.js";
 
 const SEARCH_STOPWORDS = new Set([
   "a",
@@ -16,8 +17,6 @@ const SEARCH_STOPWORDS = new Set([
   "what",
 ]);
 
-const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
-
 export function lexicalSearchTerms(text: string, maxTerms = 64): string[] {
   return normalizedTerms(text, {
     stopwords: SEARCH_STOPWORDS,
@@ -26,7 +25,7 @@ export function lexicalSearchTerms(text: string, maxTerms = 64): string[] {
 }
 
 export function hasCjkLexicalTerms(text: string): boolean {
-  return lexicalSearchTerms(text).some((term) => CJK_RE.test(term));
+  return lexicalSearchTerms(text).some((term) => hasCjkFamilyScript(term));
 }
 
 export function buildLexicalSearchText(text: string): string {

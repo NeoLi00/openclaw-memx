@@ -1,3 +1,4 @@
+import { hasCjkFamilyScript } from "../multilingualLexicon.mjs";
 import { normalizeText, normalizedTerms } from "../support.mjs";
 //#region src/search/lexical.ts
 const SEARCH_STOPWORDS = new Set([
@@ -15,7 +16,6 @@ const SEARCH_STOPWORDS = new Set([
 	"was",
 	"what"
 ]);
-const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 function lexicalSearchTerms(text, maxTerms = 64) {
 	return normalizedTerms(text, {
 		stopwords: SEARCH_STOPWORDS,
@@ -23,7 +23,7 @@ function lexicalSearchTerms(text, maxTerms = 64) {
 	}).slice(0, Math.max(1, maxTerms));
 }
 function hasCjkLexicalTerms(text) {
-	return lexicalSearchTerms(text).some((term) => CJK_RE.test(term));
+	return lexicalSearchTerms(text).some((term) => hasCjkFamilyScript(term));
 }
 function buildLexicalSearchText(text) {
 	return [normalizeText(text), ...lexicalSearchTerms(text, 512)].filter(Boolean).join(" ");

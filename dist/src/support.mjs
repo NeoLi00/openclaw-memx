@@ -1,3 +1,4 @@
+import { expandCjkFamilySubwords, wordLikeSegments } from "./multilingualLexicon.mjs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -22,8 +23,6 @@ const UNICODE_DASH_RE = /[‐‑‒–—―]/gu;
 const OPEN_QUOTE_RE = /[“”„‟«»]/gu;
 const APOSTROPHE_RE = /[‘’‚‛`´]/gu;
 const TOKEN_EDGE_RE = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
-const CJK_SEGMENT_RE = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+$/u;
-const WORD_SEGMENTER = typeof Intl !== "undefined" && "Segmenter" in Intl ? new Intl.Segmenter(void 0, { granularity: "word" }) : null;
 function normalizeText(text) {
 	return text.normalize("NFKC").replace(ZERO_WIDTH_CHARS_RE, "").replace(UNICODE_DASH_RE, "-").replace(OPEN_QUOTE_RE, "\"").replace(APOSTROPHE_RE, "'").toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -31,10 +30,7 @@ function trimTokenEdges(value) {
 	return value.replace(TOKEN_EDGE_RE, "").trim();
 }
 function cjkSubwordTerms(token) {
-	if (!CJK_SEGMENT_RE.test(token) || token.length <= 2) return [token];
-	const windows = new Set([token]);
-	for (let size = 2; size <= Math.min(3, token.length); size += 1) for (let index = 0; index <= token.length - size; index += 1) windows.add(token.slice(index, index + size));
-	return [...windows];
+	return expandCjkFamilySubwords(token);
 }
 function normalizedTerms(text, params = {}) {
 	const normalized = normalizeText(text);
@@ -47,18 +43,9 @@ function normalizedTerms(text, params = {}) {
 		if (!token || token.length < minLength || stopwords.has(token)) return;
 		terms.add(token);
 	};
-	if (WORD_SEGMENTER) {
-		for (const segment of WORD_SEGMENTER.segment(normalized)) {
-			if (!segment.isWordLike) continue;
-			const token = trimTokenEdges(segment.segment);
-			if (!token) continue;
-			const expanded = params.includeCjkSubwords === false ? [token] : cjkSubwordTerms(token);
-			for (const entry of expanded) pushTerm(entry);
-		}
-		return [...terms];
-	}
-	const fallback = normalized.match(/[\p{L}\p{N}_.:+#\/-]+/gu) ?? [];
-	for (const token of fallback) {
+	for (const segment of wordLikeSegments(normalized)) {
+		const token = trimTokenEdges(segment);
+		if (!token) continue;
 		const expanded = params.includeCjkSubwords === false ? [token] : cjkSubwordTerms(token);
 		for (const entry of expanded) pushTerm(entry);
 	}
