@@ -1,6 +1,6 @@
 import { clamp01, normalizeName, normalizeText, stableHash, truncateText } from "../support.mjs";
-import { refreshEntityProfileDocs } from "./entityProfile.mjs";
 import { projectAliasVariants, projectIdentityKey } from "./projectIdentity.mjs";
+import { refreshEntityProfileDocs } from "./entityProfile.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 //#region src/pipeline/entityResolver.ts
 function typedEntityId(normalizedText, proposedType) {

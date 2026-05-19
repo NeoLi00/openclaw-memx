@@ -18,6 +18,6 @@
       "openclaw/plugin-sdk/core": ["./types/openclaw-plugin-sdk-core.d.ts"]
     }
   },
-  "include": ["index.ts", "src/**/*.ts", "types/**/*.d.ts"],
+  "include": ["index.ts", "src/**/*.ts", "types/**/*.d.ts", "src/bin/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

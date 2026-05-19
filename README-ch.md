@@ -108,6 +108,60 @@ openclaw memx doctor --deep
 openclaw plugins install --link .
 ```
 
+## 多 agent 适配
+
+MemX 现在提供三类接入面：
+
+- **OpenClaw 原生 memory plugin**：现有 `memory-memx` 插件接管 `plugins.slots.memory`，
+  通过 `before_prompt_build` 注入召回结果，通过 `agent_end` 捕获完成后的 turn。
+- **Codex 和 Claude Code 原生插件资产**：`.codex-plugin/plugin.json` 与
+  `.claude-plugin/plugin.json` 会注册同一个 MemX MCP server 和宿主生命周期 hooks。
+- **通用 MCP**：其它支持 MCP 的 agent 可以只接入 `memx` MCP server。
+
+Codex 或 Claude Code 使用原生 hook 捕获时，先启动本地 MemX 服务：
+
+```bash
+npx -y -p @neoli00/memory-memx memx-server
+```
+
+然后按宿主自己的插件流程安装这个仓库里的原生插件。原生插件会用
+`dist/src/bin/memx-hook.mjs` 处理生命周期事件，用 `dist/src/bin/memx-mcp.mjs` 暴露 MCP 工具。
+hook 捕获是 best-effort，会发到 `MEMX_URL`（默认 `http://localhost:3878`），因此慢速记忆写入不会
+阻塞宿主 agent loop。内置 hook 使用 `command` 加 `args` 的 exec-form，而不是 shell 命令字符串，
+因此插件安装器不需要做 shell tokenization。
+
+其它 MCP-only agent 可以把下面配置合并进自己的 MCP 配置：
+
+```json
+{
+  "mcpServers": {
+    "memx": {
+      "command": "npx",
+      "args": ["-y", "-p", "@neoli00/memory-memx", "memx-mcp"],
+      "env": {
+        "MEMX_URL": "${MEMX_URL}",
+        "MEMX_SECRET": "${MEMX_SECRET}"
+      }
+    }
+  }
+}
+```
+
+Codex 也可以用命令自动写入 MCP 配置：
+
+```bash
+npx -y -p @neoli00/memory-memx memx connect codex
+```
+
+Claude Code 也可以用命令自动写入 MCP 配置：
+
+```bash
+npx -y -p @neoli00/memory-memx memx connect claude-code
+```
+
+OpenClaw 用户仍然应该使用正常 OpenClaw 流程（`openclaw plugins install .` 后运行
+`openclaw memx setup`），因为这条路径可以把 MemX 召回精确注入到当前 effective query 上方。
+
 ## `memx setup` 会改什么
 
 `openclaw memx setup` 是插件安装后的正常配置步骤。它会写入推荐的 OpenClaw 配置：

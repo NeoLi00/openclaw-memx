@@ -1,6 +1,6 @@
 import { nowIso, objectRecord, stableHash } from "../support.mjs";
-import { refreshEntityProfileDocs } from "./entityProfile.mjs";
 import { normalizeGraphRelationType } from "./semantic/heuristics.mjs";
+import { refreshEntityProfileDocs } from "./entityProfile.mjs";
 import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
 import { buildMaintenanceContractMetadata, summarizeMaintenanceContractDiagnostics } from "./maintenanceContract.mjs";
 import "./semantics.mjs";

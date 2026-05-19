@@ -1,8 +1,8 @@
 import { clamp01, normalizeText, stableHash, truncateText } from "../support.mjs";
 import { looksLikeBareMemoryUseInstruction } from "./semantic/heuristics.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
-import { stateCurrentnessFromVectorMetadata } from "./stateLifecycle.mjs";
 import { normalizeSourceRefs, promptLineRole } from "./sourceRefs.mjs";
+import { stateCurrentnessFromVectorMetadata } from "./stateLifecycle.mjs";
 //#region src/pipeline/evidenceAssembler.ts
 const HIGH_LEVEL_LAYERS = new Set([
 	"control",

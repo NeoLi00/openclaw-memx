@@ -16,7 +16,9 @@ from.
 
 ## Runtime Shape
 
-MemX owns the OpenClaw memory slot and uses two runtime hooks:
+MemX has a shared memory engine plus host adapters.
+
+For OpenClaw, MemX owns the memory slot and uses two runtime hooks:
 
 - `before_prompt_build` runs recall before the agent answers.
 - `agent_end` captures the completed turn after the agent answers.
@@ -25,6 +27,17 @@ The legacy `memory_search` / `memory_get` compatibility tools stay disabled by d
 is injected as runtime context, not as a visible user message, and the injected instructions tell the
 agent not to treat workspace `MEMORY.md` / `memory/*.md` as the active memory backend unless the
 user explicitly asks about those files.
+
+For Codex and Claude Code, MemX ships native plugin manifests and host hooks. Those hooks normalize
+host payloads into a `MemxTurnEnvelope` with `hostId`, `actorId`, `sessionId`, `workspaceDir`,
+`eventName`, and normalized user/assistant/tool messages, then post the envelope to the local MemX
+service. The service owns the DB, embedding worker, turn scheduler, and maintenance loop, so hooks
+do not start their own memory workers.
+
+For all other agents, MemX exposes the same memory engine through MCP tools. MCP-only agents can
+call `memx_recall`, `memx_remember`, `memx_observe`, `memx_forget`, `memx_stats`, and
+`memx_audit`. This is intentionally thinner than the OpenClaw adapter: it gives broad compatibility
+without pretending every host has a precise prompt-injection hook.
 
 ## Memory Object Design
 

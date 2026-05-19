@@ -1,6 +1,5 @@
 import { nowIso, randomId, resolveUserPath } from "./support.mjs";
 import { createMemoryLlmBudgetAudit } from "./pipeline/llmBudgetAudit.mjs";
-import { MemxReasoner } from "./pipeline/reasoner.mjs";
 import { MemxDbClient } from "./db/client.mjs";
 import { AbstractionRepo } from "./db/repositories/abstractionRepo.mjs";
 import { AuditRepo } from "./db/repositories/auditRepo.mjs";
@@ -16,6 +15,7 @@ import { StrategyRepo } from "./db/repositories/strategyRepo.mjs";
 import { TaskRepo } from "./db/repositories/taskRepo.mjs";
 import { VectorRepo } from "./db/repositories/vectorRepo.mjs";
 import { runAutomaticMaintenanceBatch } from "./pipeline/maintenanceBatch.mjs";
+import { MemxReasoner } from "./pipeline/reasoner.mjs";
 import { MemxTurnScheduler } from "./pipeline/turnScheduler.mjs";
 import { OptionalEmbeddingBackend } from "./search/backends/embeddingBackend.mjs";
 import { defaultRetrievalScopes, renderTemplate } from "./security/scopes.mjs";

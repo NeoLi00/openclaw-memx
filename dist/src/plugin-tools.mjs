@@ -1,11 +1,11 @@
 import { normalizeName, normalizeText, nowIso, stableHash } from "./support.mjs";
+import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { expandStateKeyAliases } from "./pipeline/semantic/heuristics.mjs";
 import "./pipeline/semantics.mjs";
+import { retrieveEvidence } from "./pipeline/retrieve.mjs";
 import { buildStoredFactObjectValueJson } from "./pipeline/normalize.mjs";
-import { compileQuery } from "./pipeline/queryCompiler.mjs";
 import { isScopeAllowed, resolveDefaultScope } from "./security/scopes.mjs";
 import { buildOperationContext } from "./runtime.mjs";
-import { retrieveEvidence } from "./pipeline/retrieve.mjs";
 import { Type, jsonToolResult, readBoolean, readNumber, readString, stringEnum } from "./tooling.mjs";
 //#region src/plugin-tools.ts
 const FORGET_KINDS = [

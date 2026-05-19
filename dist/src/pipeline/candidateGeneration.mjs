@@ -1,14 +1,14 @@
 import { clamp01, normalizeName, normalizeText, stableHash } from "../support.mjs";
 import { queryAnchorSupport } from "./semantic/heuristics.mjs";
+import { isSnapshotFactualStateKey } from "./authority.mjs";
 import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
+import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceCoverage.mjs";
 import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
 import "./semantics.mjs";
 import { describeStateValue, formatFactLine, lineageFromMetadata } from "./memoryObjectsHelpers.mjs";
-import { isSnapshotFactualStateKey } from "./authority.mjs";
-import { stateCurrentnessFromVectorMetadata, stateCurrentnessToMetadata, stateCurrentnessVectorMetadata } from "./stateLifecycle.mjs";
-import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceCoverage.mjs";
 import { normalizeSourceRefs } from "./sourceRefs.mjs";
+import { stateCurrentnessFromVectorMetadata, stateCurrentnessToMetadata, stateCurrentnessVectorMetadata } from "./stateLifecycle.mjs";
 //#region src/pipeline/candidateGeneration.ts
 const CANDIDATE_GENERATION_CUTOVER_CRITERIA = {
 	invariantRegressionMustBeZero: true,

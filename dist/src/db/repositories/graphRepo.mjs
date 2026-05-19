@@ -1,6 +1,6 @@
 import { normalizeName, randomId, safeJsonParse, stableHash } from "../../support.mjs";
-import { projectAliasVariants, projectIdentityKey } from "../../pipeline/projectIdentity.mjs";
 import { normalizeGraphRelationType } from "../../pipeline/semantic/heuristics.mjs";
+import { projectAliasVariants, projectIdentityKey } from "../../pipeline/projectIdentity.mjs";
 import { buildGraphPathCandidates } from "../../pipeline/graphPathEngine.mjs";
 //#region src/db/repositories/graphRepo.ts
 function mergeStringArrays(...values) {

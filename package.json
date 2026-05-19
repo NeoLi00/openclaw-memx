@@ -5,8 +5,20 @@
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
+  "bin": {
+    "memory-memx": "./dist/src/bin/memx.mjs",
+    "memx": "./dist/src/bin/memx.mjs",
+    "memx-server": "./dist/src/bin/memx-server.mjs",
+    "memx-mcp": "./dist/src/bin/memx-mcp.mjs",
+    "memx-hook": "./dist/src/bin/memx-hook.mjs"
+  },
   "files": [
     "dist",
+    ".codex-plugin",
+    ".claude-plugin",
+    ".mcp.json",
+    "hooks",
+    "skills",
     "openclaw.plugin.json",
     "README.md",
     "README-ch.md",
@@ -15,7 +27,7 @@
     "assets"
   ],
   "scripts": {
-    "build": "tsdown index.ts --no-config --clean --unbundle --root . --out-dir dist --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --deps.never-bundle openclaw/plugin-sdk/process-runtime --dts --copy src/search/backends/sentence_transformers_embedder.py",
+    "build": "tsdown index.ts src/bin/memx.ts src/bin/memx-server.ts src/bin/memx-mcp.ts src/bin/memx-hook.ts --no-config --clean --unbundle --root . --out-dir dist --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --deps.never-bundle openclaw/plugin-sdk/process-runtime --dts --copy src/search/backends/sentence_transformers_embedder.py",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {

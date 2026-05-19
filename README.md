@@ -115,6 +115,63 @@ OpenClaw's managed plugin directory:
 openclaw plugins install --link .
 ```
 
+## Multi-agent adapters
+
+MemX now ships three integration surfaces:
+
+- **OpenClaw native memory plugin**: the existing `memory-memx` plugin owns
+  `plugins.slots.memory`, injects recall through `before_prompt_build`, and captures completed
+  turns through `agent_end`.
+- **Codex and Claude Code native plugin assets**: `.codex-plugin/plugin.json` and
+  `.claude-plugin/plugin.json` register the same MemX MCP server plus host lifecycle hooks.
+- **Generic MCP**: any MCP-capable agent can use the `memx` MCP server without native hooks.
+
+For Codex or Claude Code native hook capture, start the local MemX service first:
+
+```bash
+npx -y -p @neoli00/memory-memx memx-server
+```
+
+Then install the native plugin from this repository according to the host's plugin workflow. The
+native plugin runs `dist/src/bin/memx-hook.mjs` for lifecycle events and
+`dist/src/bin/memx-mcp.mjs` for MCP tools. Hook capture is best-effort and posts to
+`MEMX_URL` (`http://localhost:3878` by default), so a slow memory write does not block the host's
+agent loop. The bundled hook definitions use exec-form `command` plus `args`, not shell command
+strings, so plugin installers do not need to evaluate shell tokenization.
+
+For MCP-only agents, merge this block into the agent's MCP config:
+
+```json
+{
+  "mcpServers": {
+    "memx": {
+      "command": "npx",
+      "args": ["-y", "-p", "@neoli00/memory-memx", "memx-mcp"],
+      "env": {
+        "MEMX_URL": "${MEMX_URL}",
+        "MEMX_SECRET": "${MEMX_SECRET}"
+      }
+    }
+  }
+}
+```
+
+Codex can also be wired with:
+
+```bash
+npx -y -p @neoli00/memory-memx memx connect codex
+```
+
+Claude Code can be wired with:
+
+```bash
+npx -y -p @neoli00/memory-memx memx connect claude-code
+```
+
+OpenClaw users should still use the normal OpenClaw flow (`openclaw plugins install .` then
+`openclaw memx setup`) because that path gives MemX the precise prompt-injection point above the
+current effective query.
+
 ## What `memx setup` changes
 
 `openclaw memx setup` is the normal configuration step after the plugin is installed. It writes the

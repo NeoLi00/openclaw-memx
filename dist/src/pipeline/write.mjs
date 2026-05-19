@@ -1,12 +1,12 @@
 import { normalizeName, objectRecord, stableHash } from "../support.mjs";
-import { refreshEntityProfileDocs } from "./entityProfile.mjs";
-import { isProjectProfileStateKey, projectAliasVariants, projectCodeFromStateKey, resolveProjectReference } from "./projectIdentity.mjs";
-import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
 import { snapshotMemoryLlmBudgetAudit } from "./llmBudgetAudit.mjs";
+import { isProjectProfileStateKey, projectAliasVariants, projectCodeFromStateKey, resolveProjectReference } from "./projectIdentity.mjs";
 import { shouldDeriveProjectProfileArtifacts } from "./authority.mjs";
+import { refreshEntityProfileDocs } from "./entityProfile.mjs";
+import { buildEntityMention, resolveEntityMention } from "./entityResolver.mjs";
+import { emitWriteMaterializationSignals } from "./signalLedger.mjs";
 import { buildVectorDocMetadata } from "./vectorDocMetadata.mjs";
 import { normalizeCandidate } from "./normalize.mjs";
-import { emitWriteMaterializationSignals } from "./signalLedger.mjs";
 //#region src/pipeline/write.ts
 function dedupWindowStart(observedAt, days) {
 	const date = new Date(observedAt);

@@ -1,0 +1,14 @@
+{
+  "name": "memory-memx",
+  "version": "2026.3.14",
+  "description": "Local-first semantic memory for coding agents. Native Claude Code hooks, MCP tools, and OpenClaw memory integration.",
+  "author": {
+    "name": "Neo Li"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/NeoLi00/openclaw-memx",
+  "repository": "https://github.com/NeoLi00/openclaw-memx",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json"
+}

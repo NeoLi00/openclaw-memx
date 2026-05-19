@@ -1752,4 +1752,4 @@ type MemxLogger = {
   error?: (message: string) => void;
 };
 //#endregion
-export { EvidenceBundle };
+export { EvidenceBundle, MemoryPluginConfig, MemxLogger };

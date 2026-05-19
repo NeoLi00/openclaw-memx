@@ -1,24 +1,24 @@
 import { clamp01, normalizeText, randomId, stableHash, truncateText } from "../support.mjs";
-import { projectNamesMatch } from "./projectIdentity.mjs";
-import { isQuestionLike, queryAnchorSupport } from "./semantic/heuristics.mjs";
-import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 import { snapshotMemoryLlmBudgetAudit } from "./llmBudgetAudit.mjs";
-import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
+import { compileQuery, compileQueryWithoutSemanticFallback } from "./queryCompiler.mjs";
+import { isQuestionLike, queryAnchorSupport } from "./semantic/heuristics.mjs";
+import { projectNamesMatch } from "./projectIdentity.mjs";
+import { isSnapshotFactualStateKey } from "./authority.mjs";
 import { filterBootstrapRows } from "./bootstrapFilter.mjs";
+import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
+import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceCoverage.mjs";
+import { sourceRefsFromMaintenanceMetadata, uniqueMaintenanceRefs } from "./maintenanceContract.mjs";
 import "./semantics.mjs";
 import { dedupeEvidenceRows, formatFactLine, lineageFromMetadata, normalizeSearchText, rowsFromSearchHits, shouldSuppressRecallText, splitLabelValue, toEvidenceRow } from "./memoryObjectsHelpers.mjs";
-import { isSnapshotFactualStateKey } from "./authority.mjs";
-import { emitContradictionSignals, emitFullRetrievalSignals } from "./signalLedger.mjs";
-import { semanticTaskSummaryText } from "./taskSummary.mjs";
-import { compileQuery, compileQueryWithoutSemanticFallback } from "./queryCompiler.mjs";
-import "./sourceSegments.mjs";
-import { capScoreByEvidenceCoverage, evidenceCoverageForText } from "./evidenceCoverage.mjs";
 import { isAnswerPromptLineRole, normalizeSourceRefs, promptLineRole } from "./sourceRefs.mjs";
 import { candidateGenerationAuditPayload, generateCandidates } from "./candidateGeneration.mjs";
 import { assembleEvidencePackets } from "./evidenceAssembler.mjs";
 import { createMemorySelectionObjective, projectScheduledMemoryObjects } from "./memoryObjectsProjection.mjs";
+import { semanticTaskSummaryText } from "./taskSummary.mjs";
 import { buildBackgroundRecallBundle as buildBackgroundRecallBundle$1, collectAndScheduleMemoryObjectsWithBudget, collectBehavioralGuidance, collectMemoryObjects, queryMemoryFacts, scheduleMemoryObjects, toRouteEvidenceCandidatesFromObjects } from "./memoryObjects.mjs";
 import { buildRecallAuditPayload, compareEvidenceRowsChronologically, sanitizeFocusedRecallQuery } from "./retrieveTracing.mjs";
+import { emitContradictionSignals, emitFullRetrievalSignals } from "./signalLedger.mjs";
+import "./sourceSegments.mjs";
 //#region src/pipeline/retrieve.ts
 const PRIMARY_ROUTE_TYPES = [
 	"workflow",

@@ -1,24 +1,24 @@
 import { clamp01, normalizeText, objectRecord, randomId, stableHash, truncateText } from "../support.mjs";
-import { eligibleForLlmRefinement } from "./abstractionRefinement.mjs";
-import { isProjectProfileStateKey, projectCodeFromStateKey, projectIdentityKey, projectNamesMatch, resolveProjectReference } from "./projectIdentity.mjs";
-import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
 import { inferWriteLlmStage, recordMemoryLlmBudgetCall, snapshotMemoryLlmBudgetAudit } from "./llmBudgetAudit.mjs";
-import { containsLikelySecret, looksLikePromptInjection } from "../security/injection.mjs";
-import { assessAssistantChunk, assistantVectorSummary, assistantVectorText } from "./sourceWeighting.mjs";
-import { buildOutcomeHypothesisCandidate, isAuthoritativeOutcomeResolutionMetadata } from "./outcomeHypotheses.mjs";
+import { isProjectProfileStateKey, projectCodeFromStateKey, projectIdentityKey, projectNamesMatch, resolveProjectReference } from "./projectIdentity.mjs";
 import { sanitizeTaskMetadata } from "./authority.mjs";
-import { containsSensitiveValue, sensitivityScore } from "../security/pii.mjs";
-import { buildVectorDocMetadata } from "./vectorDocMetadata.mjs";
-import { computeConfidence } from "./normalize.mjs";
-import { emitAssistantOutcomeLearningSignals, emitOutcomeFeedbackSignal } from "./signalLedger.mjs";
-import { writeCandidate } from "./write.mjs";
+import { semanticTextSimilarity } from "./semantic/textSimilarity.mjs";
+import { containsLikelySecret, looksLikePromptInjection } from "../security/injection.mjs";
 import { CHUNK_VECTOR_CONFIDENCE, SCHEDULER_DEDUP_PROBE_FLOOR, SCHEDULER_DEDUP_PROBE_SCALE, SCHEDULER_SUMMARY_SCORE_BOOST, TASK_VECTOR_CONFIDENCE } from "./constants.mjs";
 import { resolveWorkingTaskSummary, semanticTaskSummaryText } from "./taskSummary.mjs";
-import { compileTurnSemantics, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
+import { emitAssistantOutcomeLearningSignals, emitOutcomeFeedbackSignal } from "./signalLedger.mjs";
+import { buildVectorDocMetadata } from "./vectorDocMetadata.mjs";
+import { buildSourceSegmentVectorDocs, buildSourceSegmentsForChunk } from "./sourceSegments.mjs";
+import { eligibleForLlmRefinement } from "./abstractionRefinement.mjs";
+import { assessAssistantChunk, assistantVectorSummary, assistantVectorText } from "./sourceWeighting.mjs";
+import { buildOutcomeHypothesisCandidate, isAuthoritativeOutcomeResolutionMetadata } from "./outcomeHypotheses.mjs";
+import { containsSensitiveValue, sensitivityScore } from "../security/pii.mjs";
+import { computeConfidence } from "./normalize.mjs";
+import { writeCandidate } from "./write.mjs";
 import { classifyAction } from "./classify.mjs";
 import { evaluatePolicy } from "./policy.mjs";
+import { compileTurnSemantics, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
 import { buildCandidate } from "./extract.mjs";
-import { buildSourceSegmentVectorDocs, buildSourceSegmentsForChunk } from "./sourceSegments.mjs";
 import { decideTaskAssignment } from "./taskJudge.mjs";
 //#region src/pipeline/turnScheduler.ts
 function buildOutcomeKey(taskId, proposal) {

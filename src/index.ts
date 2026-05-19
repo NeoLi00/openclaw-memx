@@ -1,4 +1,8 @@
 import type { OpenClawPluginApi, OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
+export * from "./host/connect.js";
+export * from "./host/hookPayload.js";
+export * from "./host/mcpProtocol.js";
+export * from "./host/service.js";
 import { registerMemxCli } from "./cli/registerCli.js";
 import { memxConfigSchema, DEFAULT_MEMORY_CONFIG } from "./config.js";
 import { selectAgentEndMessagesForCapture } from "./pipeline/agentEndMessages.js";

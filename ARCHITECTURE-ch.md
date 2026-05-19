@@ -14,7 +14,9 @@ MemX 的核心契约是：每一条可召回记忆都必须能回溯到 turn、s
 
 ## 运行时形态
 
-MemX 接管 OpenClaw 的 memory slot，并只依赖两个运行时 hook：
+MemX 现在由共享记忆引擎和宿主 adapter 组成。
+
+对 OpenClaw，MemX 接管 memory slot，并只依赖两个运行时 hook：
 
 - `before_prompt_build`：agent 回答前执行召回。
 - `agent_end`：agent 回答后捕获本轮 turn。
@@ -22,6 +24,15 @@ MemX 接管 OpenClaw 的 memory slot，并只依赖两个运行时 hook：
 旧的 `memory_search` / `memory_get` 兼容工具默认关闭。MemX 召回结果会作为 runtime context
 注入，而不是显示成用户消息。注入指令也会告诉 agent：除非用户明确询问这些文件，否则不要把工作区
 `MEMORY.md` / `memory/*.md` 当作当前活动记忆后端。
+
+对 Codex 和 Claude Code，MemX 提供原生 plugin manifest 和宿主 hook。这些 hook 会把宿主 payload
+归一化成 `MemxTurnEnvelope`：包含 `hostId`、`actorId`、`sessionId`、`workspaceDir`、`eventName`
+以及规范化后的 user/assistant/tool 消息，然后发给本地 MemX service。service 统一持有 DB、
+embedding worker、turn scheduler 和 maintenance loop，因此 hook 自身不会启动独立记忆 worker。
+
+对其它 agent，MemX 通过 MCP 工具暴露同一套记忆引擎。MCP-only agent 可以调用 `memx_recall`、
+`memx_remember`、`memx_observe`、`memx_forget`、`memx_stats` 和 `memx_audit`。这条路径有意比
+OpenClaw adapter 更薄：它优先保证广泛兼容，而不是假设每个宿主都有精确的 prompt 注入 hook。
 
 ## 记忆对象设计
 

@@ -1,5 +1,5 @@
-import { isProjectProfileStateKey, looksLikeProjectDescriptor, resolveProjectReference } from "./projectIdentity.mjs";
 import { canonicalStateKey } from "./semantic/heuristics.mjs";
+import { isProjectProfileStateKey, looksLikeProjectDescriptor, resolveProjectReference } from "./projectIdentity.mjs";
 //#region src/pipeline/authority.ts
 const TASK_METADATA_WORKFLOW_SNAPSHOT_DESCRIPTORS = [{
 	metadataKey: "currentTask",

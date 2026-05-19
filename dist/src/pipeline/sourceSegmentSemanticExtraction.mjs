@@ -1,9 +1,9 @@
 import { normalizeText, randomId, truncateText } from "../support.mjs";
 import { computeConfidence } from "./normalize.mjs";
 import { writeCandidate } from "./write.mjs";
-import { buildLongTurnSemanticScanInputFromSegments, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
 import { classifyAction } from "./classify.mjs";
 import { evaluatePolicy } from "./policy.mjs";
+import { buildLongTurnSemanticScanInputFromSegments, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
 //#region src/pipeline/sourceSegmentSemanticExtraction.ts
 function emptyStats() {
 	return {

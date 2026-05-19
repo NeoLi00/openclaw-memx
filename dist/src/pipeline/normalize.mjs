@@ -1,12 +1,12 @@
 import { clamp01, isValidEntityName, normalizeName, normalizeText, normalizedTerms, objectRecord, stableHash, truncateText } from "../support.mjs";
-import { isProjectProfileStateKey, projectAliasVariants, projectCodeFromStateKey, projectNamesMatch, resolveProjectReference } from "./projectIdentity.mjs";
 import { canonicalStateKey } from "./semantic/heuristics.mjs";
+import { isProjectProfileStateKey, projectAliasVariants, projectCodeFromStateKey, projectNamesMatch, resolveProjectReference } from "./projectIdentity.mjs";
+import { sanitizeWorkflowHint, shouldDeriveRelationFact, shouldMaterializePreferenceFact } from "./authority.mjs";
 import { canonicalizePreferenceHint } from "./semantics.mjs";
 import { describeStateValue } from "./memoryObjectsHelpers.mjs";
-import { sanitizeWorkflowHint, shouldDeriveRelationFact, shouldMaterializePreferenceFact } from "./authority.mjs";
-import { redactSensitiveText } from "../security/pii.mjs";
 import { stateCurrentnessVectorMetadata } from "./stateLifecycle.mjs";
 import { buildVectorDocMetadata } from "./vectorDocMetadata.mjs";
+import { redactSensitiveText } from "../security/pii.mjs";
 //#region src/pipeline/normalize.ts
 function subjectUser() {
 	return "user";
