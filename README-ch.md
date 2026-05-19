@@ -119,10 +119,6 @@ Claude Code、Codex 和通用 MCP client 配置完成后，需要启动共享本
 npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
-OpenClaw 现在和 standalone hosts 使用同一组 LLM 参数。quickstart 不再提供任何 provider 专用
-preset；如果使用 OpenAI-compatible gateway 或类似服务，使用 `--llm-provider openai-compatible`
-并填入对应的 base URL。它只配置 MemX，不会改 OpenClaw 的主模型。
-
 ## MemX 能做什么
 
 - **长期记住工作上下文**：项目决策、用户偏好、任务状态、长 source segments 和原始证据都能

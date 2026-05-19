@@ -121,11 +121,6 @@ For Claude Code, Codex, and generic MCP clients, start the shared local service 
 npx -y -p github:NeoLi00/openclaw-memx memx-server
 ```
 
-OpenClaw uses the same LLM flags as the standalone hosts. The quickstart path has no
-provider-specific preset; use `--llm-provider openai-compatible` plus your provider's base URL for
-OpenAI-compatible gateways and similar services. It configures MemX only and does not change
-OpenClaw's primary agent model.
-
 ## What MemX can do
 
 - **Remember work over time**: project decisions, user preferences, task status, long source
