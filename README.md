@@ -29,7 +29,7 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
       <td><strong>94.2%</strong></td>
     </tr>
     <tr>
-      <td><strong>Engineering cases</strong></td>
+      <td><strong>Real engineering cases</strong></td>
       <td>30 cases, each with 20+ turns</td>
       <td><strong>100%</strong></td>
     </tr>

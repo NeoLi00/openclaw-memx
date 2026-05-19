@@ -29,7 +29,7 @@ MemX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
       <td><strong>94.2%</strong></td>
     </tr>
     <tr>
-      <td><strong>工程 case</strong></td>
+      <td><strong>真实工程 case</strong></td>
       <td>30 个 case，每个 20+ turns</td>
       <td><strong>100%</strong></td>
     </tr>
