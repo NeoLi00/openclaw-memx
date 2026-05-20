@@ -6,13 +6,13 @@ import { dirname, join } from "node:path";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
 import {
   LEGACY_MEMX_PLUGIN_ID,
-  MEMX_NPM_PACKAGE,
   MEMX_PLUGIN_ID,
+  MEMX_REPOSITORY_SPEC,
   withoutLegacyPluginIds,
 } from "../identity.js";
 import type { MemoryLlmProvider, MemoryPluginConfig } from "../types.js";
 
-const PACKAGE_SPEC = MEMX_NPM_PACKAGE;
+const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
 const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";

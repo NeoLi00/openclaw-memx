@@ -1,4 +1,4 @@
-import { LEGACY_MEMX_PLUGIN_ID, MEMX_NPM_PACKAGE, MEMX_PLUGIN_ID, withoutLegacyPluginIds } from "../identity.mjs";
+import { LEGACY_MEMX_PLUGIN_ID, MEMX_PLUGIN_ID, MEMX_REPOSITORY_SPEC, withoutLegacyPluginIds } from "../identity.mjs";
 import { DEFAULT_MEMORY_CONFIG } from "../config.mjs";
 import { existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 //#region src/host/quickstart.ts
-const PACKAGE_SPEC = MEMX_NPM_PACKAGE;
+const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
 const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
