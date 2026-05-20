@@ -62,6 +62,10 @@ function stripCodexMemxBlock(toml: string): string {
   return out.join("\n").replace(/\n{3,}$/u, "\n\n").trimEnd();
 }
 
+export function applyCodexTomlDisconnect(toml: string): string {
+  return stripCodexMemxBlock(toml);
+}
+
 export function applyCodexTomlConnect(toml: string, url = DEFAULT_URL, secret = "${MEMX_SECRET}"): string {
   const cleaned = stripCodexMemxBlock(toml);
   const block = [
@@ -96,6 +100,22 @@ export function applyClaudeJsonConnect(
       ...currentServers,
       memx: buildGenericMcpConfig(url, secret).mcpServers.memx,
     },
+  };
+}
+
+export function applyClaudeJsonDisconnect(input: unknown): Record<string, unknown> {
+  const base =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? { ...(input as Record<string, unknown>) }
+      : {};
+  const currentServers =
+    base.mcpServers && typeof base.mcpServers === "object" && !Array.isArray(base.mcpServers)
+      ? { ...(base.mcpServers as Record<string, unknown>) }
+      : {};
+  delete currentServers.memx;
+  return {
+    ...base,
+    mcpServers: currentServers,
   };
 }
 

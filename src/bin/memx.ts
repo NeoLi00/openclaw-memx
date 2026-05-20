@@ -12,6 +12,9 @@ function usage(): string {
     "  quickstart codex    Configure standalone memX for Codex",
     "  quickstart claude-code Configure standalone memX for Claude Code",
     "  quickstart mcp      Configure standalone memX and print generic MCP JSON",
+    "  uninstall openclaw  Cleanly remove memX from OpenClaw config and plugin install",
+    "  uninstall codex     Cleanly remove memX from Codex MCP config",
+    "  uninstall claude-code Cleanly remove memX from Claude Code MCP config",
     "  connect codex       Wire Codex MCP config",
     "  connect claude-code Wire Claude Code MCP config",
   ].join("\n");
@@ -128,6 +131,22 @@ function parseStandaloneQuickstartOptions(
   };
 }
 
+function parseUninstallOptions(target: "openclaw" | "codex" | "claude-code", argv: string[]) {
+  return {
+    target,
+    configPath:
+      readOption(argv, "--config") ??
+      (target === "codex"
+        ? readOption(argv, "--codex-config")
+        : target === "claude-code"
+          ? readOption(argv, "--claude-config")
+          : undefined),
+    openclawBin: readOption(argv, "--openclaw-bin"),
+    skipPluginUninstall: hasFlag(argv, "--skip-plugin-uninstall"),
+    dryRun: hasFlag(argv, "--dry-run"),
+  };
+}
+
 async function main(argv = process.argv.slice(2)): Promise<void> {
   const command = argv[0];
   if (!command || command === "--help" || command === "-h") {
@@ -166,6 +185,32 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       return;
     }
     throw new Error(`unknown quickstart target: ${target ?? ""}`);
+  }
+  if (command === "uninstall") {
+    const target = argv[1];
+    const {
+      runClaudeCodeUninstall,
+      runCodexUninstall,
+      runOpenClawUninstall,
+    } = await import("../host/uninstall.js");
+    if (target === "openclaw") {
+      const result = await runOpenClawUninstall(parseUninstallOptions(target, argv.slice(2)));
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (target === "codex") {
+      const result = await runCodexUninstall(parseUninstallOptions(target, argv.slice(2)));
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (target === "claude-code" || target === "claude") {
+      const result = await runClaudeCodeUninstall(
+        parseUninstallOptions("claude-code", argv.slice(2)),
+      );
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    throw new Error(`unknown uninstall target: ${target ?? ""}`);
   }
   if (command === "connect") {
     const { connectClaudeCodeConfig, connectCodexConfig } = await import("../host/connect.js");

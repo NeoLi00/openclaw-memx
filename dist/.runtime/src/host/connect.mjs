@@ -39,6 +39,9 @@ function stripCodexMemxBlock(toml) {
 	}
 	return out.join("\n").replace(/\n{3,}$/u, "\n\n").trimEnd();
 }
+function applyCodexTomlDisconnect(toml) {
+	return stripCodexMemxBlock(toml);
+}
 function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}") {
 	const cleaned = stripCodexMemxBlock(toml);
 	const block = [
@@ -64,6 +67,15 @@ function applyClaudeJsonConnect(input, url = "${MEMX_URL}", secret = "${MEMX_SEC
 		}
 	};
 }
+function applyClaudeJsonDisconnect(input) {
+	const base = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
+	const currentServers = base.mcpServers && typeof base.mcpServers === "object" && !Array.isArray(base.mcpServers) ? { ...base.mcpServers } : {};
+	delete currentServers.memx;
+	return {
+		...base,
+		mcpServers: currentServers
+	};
+}
 function writeAtomic(path, text) {
 	mkdirSync(dirname(path), { recursive: true });
 	const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
@@ -80,4 +92,4 @@ function connectClaudeCodeConfig(configPath = join(homedir(), ".claude.json"), u
 	return configPath;
 }
 //#endregion
-export { applyClaudeJsonConnect, applyCodexTomlConnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock };
+export { applyClaudeJsonConnect, applyClaudeJsonDisconnect, applyCodexTomlConnect, applyCodexTomlDisconnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock };

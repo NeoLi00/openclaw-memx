@@ -13,9 +13,11 @@ type GenericMcpConfig = {
 };
 declare function buildGenericMcpConfig(url?: string, secret?: string): GenericMcpConfig;
 declare function hasCodexMemxBlock(toml: string): boolean;
+declare function applyCodexTomlDisconnect(toml: string): string;
 declare function applyCodexTomlConnect(toml: string, url?: string, secret?: string): string;
 declare function applyClaudeJsonConnect(input: unknown, url?: string, secret?: string): Record<string, unknown>;
+declare function applyClaudeJsonDisconnect(input: unknown): Record<string, unknown>;
 declare function connectCodexConfig(configPath?: string, url?: string, secret?: string): string;
 declare function connectClaudeCodeConfig(configPath?: string, url?: string, secret?: string): string;
 //#endregion
-export { GenericMcpConfig, applyClaudeJsonConnect, applyCodexTomlConnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock };
+export { GenericMcpConfig, applyClaudeJsonConnect, applyClaudeJsonDisconnect, applyCodexTomlConnect, applyCodexTomlDisconnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock };

@@ -1,0 +1,114 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+test("OpenClaw uninstall removes memx slot, entries, and allow items", async () => {
+  const { applyOpenClawUninstallConfig } = await import(
+    "../dist/.runtime/src/host/uninstall.mjs"
+  );
+
+  const next = applyOpenClawUninstallConfig({
+    plugins: {
+      slots: { memory: "memx", other: "kept" },
+      allow: ["memx", "memory-memx", "other"],
+      entries: {
+        memx: { enabled: true },
+        "memory-memx": { enabled: true },
+        other: { enabled: true },
+      },
+    },
+  });
+
+  assert.deepEqual(next.plugins.slots, { other: "kept" });
+  assert.deepEqual(next.plugins.allow, ["other"]);
+  assert.deepEqual(next.plugins.entries, { other: { enabled: true } });
+});
+
+test("Codex uninstall removes only memx MCP TOML sections", async () => {
+  const { applyCodexTomlDisconnect, hasCodexMemxBlock } = await import(
+    "../dist/.runtime/src/host/connect.mjs"
+  );
+
+  const before = [
+    '[mcp_servers.other]',
+    'command = "node"',
+    "",
+    "[mcp_servers.memx]",
+    'command = "npx"',
+    'args = ["-y", "-p", "@neoli00/memx", "memx-mcp"]',
+    "",
+    "[mcp_servers.memx.env]",
+    'MEMX_URL = "http://localhost:3878"',
+    "",
+    "[tools]",
+    'enabled = true',
+  ].join("\n");
+
+  const next = applyCodexTomlDisconnect(before);
+  assert.equal(hasCodexMemxBlock(next), false);
+  assert.match(next, /\[mcp_servers\.other\]/);
+  assert.match(next, /\[tools\]/);
+});
+
+test("Claude Code uninstall removes memx MCP server only", async () => {
+  const { applyClaudeJsonDisconnect } = await import(
+    "../dist/.runtime/src/host/connect.mjs"
+  );
+
+  const next = applyClaudeJsonDisconnect({
+    theme: "dark",
+    mcpServers: {
+      memx: { command: "npx" },
+      other: { command: "node" },
+    },
+  });
+
+  assert.deepEqual(next, {
+    theme: "dark",
+    mcpServers: {
+      other: { command: "node" },
+    },
+  });
+});
+
+test("OpenClaw uninstall backs up config and treats plugin uninstall as best effort", async () => {
+  const { runOpenClawUninstall } = await import("../dist/.runtime/src/host/uninstall.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-uninstall-"));
+  const configPath = join(dir, "openclaw.json");
+  await import("node:fs/promises").then(({ writeFile }) =>
+    writeFile(
+      configPath,
+      JSON.stringify({
+        plugins: {
+          slots: { memory: "memx" },
+          allow: ["memx"],
+          entries: { memx: { enabled: true } },
+        },
+      }),
+    ),
+  );
+  const calls = [];
+
+  const result = await runOpenClawUninstall(
+    { configPath },
+    {
+      now: () => 123,
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { code: 1, stderr: "not installed" };
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.backupPath, `${configPath}.bak.123`);
+  assert.equal(existsSync(`${configPath}.bak.123`), true);
+  assert.deepEqual(calls, [
+    { command: "openclaw", args: ["plugins", "uninstall", "memx", "--force"] },
+  ]);
+  const written = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(written.plugins.slots.memory, undefined);
+  assert.deepEqual(result.warnings, ["plugin uninstall exited 1: not installed"]);
+});

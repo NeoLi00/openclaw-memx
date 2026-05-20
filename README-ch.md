@@ -138,6 +138,20 @@ Claude Code、Codex 和通用 MCP client 配置完成后，需要启动共享本
 npx -y -p github:NeoLi00/memX memx-server
 ```
 
+## 干净卸载
+
+每个卸载命令都会先备份目标配置文件，然后只删除 memX 自己写入的条目。OpenClaw 清理会额外删掉
+残留的 `memx` / `memory-memx` slot、allow 和 entry 引用，并在 OpenClaw 仍能识别插件时
+best-effort 删除插件文件。
+
+```bash
+npx -y -p github:NeoLi00/memX memx uninstall openclaw
+npx -y -p github:NeoLi00/memX memx uninstall codex
+npx -y -p github:NeoLi00/memX memx uninstall claude-code
+```
+
+加 `--dry-run` 可以预览；如果使用非默认配置路径，加 `--config /path/to/config`。
+
 ## memX 能做什么
 
 - **长期记住工作上下文**：项目决策、用户偏好、任务状态、长 source segments 和原始证据都能

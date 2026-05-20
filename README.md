@@ -140,6 +140,20 @@ For Claude Code, Codex, and generic MCP clients, start the shared local service 
 npx -y -p github:NeoLi00/memX memx-server
 ```
 
+## Clean uninstall
+
+Each uninstall command backs up the target config first, then removes only memX-owned entries.
+OpenClaw cleanup also removes stale `memx` / `memory-memx` slot, allow, and entry references, then
+best-effort uninstalls the plugin files if OpenClaw can still see them.
+
+```bash
+npx -y -p github:NeoLi00/memX memx uninstall openclaw
+npx -y -p github:NeoLi00/memX memx uninstall codex
+npx -y -p github:NeoLi00/memX memx uninstall claude-code
+```
+
+Add `--dry-run` to preview, or `--config /path/to/config` when using a non-default config path.
+
 ## What memX can do
 
 - **Remember work over time**: project decisions, user preferences, task status, long source
