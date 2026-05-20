@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { MEMX_NPM_PACKAGE } from "../identity.js";
+import { MEMX_INSTALL_SPEC } from "../identity.js";
 
-const PACKAGE_SPEC = MEMX_NPM_PACKAGE;
-const DEFAULT_URL = "http://localhost:3878";
+const PACKAGE_SPEC = MEMX_INSTALL_SPEC;
+const DEFAULT_URL = "http://127.0.0.1:3878";
 const CODEX_SECTION = "[mcp_servers.memx]";
 const CODEX_ENV_SECTION = "[mcp_servers.memx.env]";
 

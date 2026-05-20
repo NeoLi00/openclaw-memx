@@ -1,4 +1,4 @@
-const DEFAULT_URL = "http://localhost:3878";
+const DEFAULT_URL = "http://127.0.0.1:3878";
 
 type JsonRpcRequest = {
   jsonrpc?: string;

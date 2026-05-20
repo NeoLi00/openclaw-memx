@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -22,6 +23,22 @@ function collectCommandHooks(hooksConfig) {
     }
   }
   return commandHooks;
+}
+
+function encodeMcpFrame(payload) {
+  const json = JSON.stringify(payload);
+  return `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`;
+}
+
+function decodeMcpFrame(output) {
+  const marker = "\r\n\r\n";
+  const headerEnd = output.indexOf(marker);
+  assert.notEqual(headerEnd, -1);
+  const header = output.slice(0, headerEnd);
+  const length = Number(header.match(/content-length:\s*(\d+)/i)?.[1]);
+  assert.ok(Number.isInteger(length));
+  const body = output.slice(headerEnd + marker.length, headerEnd + marker.length + length);
+  return JSON.parse(body);
 }
 
 test("package ships standalone bins and native plugin assets", () => {
@@ -203,6 +220,62 @@ test("MCP handler exposes memX tools and proxies calls to REST", async () => {
   assert.equal(initialized, null);
 });
 
+test("MCP stdio accepts standard Content-Length framed requests", async () => {
+  const child = spawn(process.execPath, [join(rootPath, "dist/.runtime/src/bin/memx-mcp.mjs")], {
+    env: {
+      ...process.env,
+      MEMX_URL: "http://127.0.0.1:9",
+      MEMX_SECRET: "",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  child.stdin.end(
+    encodeMcpFrame({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "node-test", version: "0" },
+      },
+    }),
+  );
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("memx-mcp framed stdio test timed out"));
+    }, 5000);
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(stderr, "");
+  const response = decodeMcpFrame(stdout);
+  assert.equal(response.id, 1);
+  assert.equal(response.result.serverInfo.name, "memx");
+  assert.equal(response.result.capabilities.tools instanceof Object, true);
+});
+
 test("connect helpers generate Codex TOML and generic MCP JSON without duplicating blocks", async () => {
   const {
     applyCodexTomlConnect,
@@ -214,14 +287,14 @@ test("connect helpers generate Codex TOML and generic MCP JSON without duplicati
   const second = applyCodexTomlConnect(first);
   assert.equal(hasCodexMemxBlock(second), true);
   assert.equal((second.match(/\[mcp_servers\.memx\]/g) ?? []).length, 1);
-  assert.match(second, /@neoli00\/memx/);
+  assert.match(second, /github:NeoLi00\/memX/);
 
   const generic = buildGenericMcpConfig();
   assert.equal(generic.mcpServers.memx.command, "npx");
   assert.deepEqual(generic.mcpServers.memx.args, [
     "-y",
     "-p",
-    "@neoli00/memx",
+    "github:NeoLi00/memX",
     "memx-mcp",
   ]);
 });

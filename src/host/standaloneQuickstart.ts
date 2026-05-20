@@ -13,7 +13,7 @@ import {
 
 const DEFAULT_CONFIG_PATH = join(homedir(), ".memx", "config.json");
 const DEFAULT_DB_PATH = join(homedir(), ".memx", "{agentId}", "memx.sqlite");
-const DEFAULT_MEMX_URL = "http://localhost:3878";
+const DEFAULT_MEMX_URL = "http://127.0.0.1:3878";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
 export type StandaloneQuickstartTarget = "codex" | "claude-code" | "mcp";
