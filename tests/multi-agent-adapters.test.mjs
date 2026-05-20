@@ -115,7 +115,11 @@ test("Claude Code native plugin manifest keeps Claude-only hooks separate", () =
   assert.equal(manifest.homepage, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.repository, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.mcpServers, "./.mcp.json");
-  assert.equal(manifest.hooks, "./hooks/hooks.json");
+  assert.equal(
+    "hooks" in manifest,
+    false,
+    "Claude Code auto-loads hooks/hooks.json; declaring it in the manifest duplicates the hook file",
+  );
 
   const hooks = readJson("hooks/hooks.json").hooks;
   for (const event of [

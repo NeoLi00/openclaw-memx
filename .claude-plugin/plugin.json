@@ -9,6 +9,5 @@
   "homepage": "https://github.com/NeoLi00/memX",
   "repository": "https://github.com/NeoLi00/memX",
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "mcpServers": "./.mcp.json"
 }
