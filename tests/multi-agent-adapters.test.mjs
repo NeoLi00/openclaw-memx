@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -173,6 +174,90 @@ test("host protocol normalizes Codex and Claude hooks into the same turn envelop
   assert.equal(claude.messages[0].role, "tool");
   assert.equal(claude.messages[0].toolName, "Write");
   assert.match(claude.messages[0].content, /validator\.py/);
+});
+
+test("Codex UserPromptSubmit hook injects recalled context and still observes the turn", async () => {
+  const calls = [];
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    calls.push({
+      path: req.url,
+      body: bodyText ? JSON.parse(bodyText) : {},
+    });
+    res.writeHead(200, { "content-type": "application/json" });
+    if (req.url === "/v1/context") {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          prependContext: "## memX Memory\n- notebook validator prefers pytest fixtures",
+        }),
+      );
+      return;
+    }
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const child = spawn(process.execPath, [join(rootPath, "dist/.runtime/src/bin/memx-hook.mjs"), "codex", "UserPromptSubmit"], {
+    env: {
+      ...process.env,
+      MEMX_URL: `http://127.0.0.1:${address.port}`,
+      MEMX_HOOK_TIMEOUT_MS: "2000",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  child.stdin.end(
+    JSON.stringify({
+      session_id: "codex-session",
+      cwd: "/tmp/project",
+      prompt: "继续 notebook validator 任务",
+    }),
+  );
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("memx-hook UserPromptSubmit test timed out"));
+    }, 5000);
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+  await new Promise((resolve) => server.close(resolve));
+
+  assert.equal(exitCode, 0, stderr);
+  assert.deepEqual(
+    calls.map((call) => call.path).sort(),
+    ["/v1/context", "/v1/observe"],
+  );
+  assert.equal(calls.find((call) => call.path === "/v1/context").body.query, "继续 notebook validator 任务");
+  const output = JSON.parse(stdout);
+  assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
+  assert.equal(
+    output.hookSpecificOutput.additionalContext,
+    "## memX Memory\n- notebook validator prefers pytest fixtures",
+  );
 });
 
 test("MCP handler exposes memX tools and proxies calls to REST", async () => {

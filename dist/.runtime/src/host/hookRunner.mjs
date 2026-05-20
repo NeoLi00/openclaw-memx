@@ -1,6 +1,12 @@
 import { normalizeHookPayload } from "./hookPayload.mjs";
 //#region src/host/hookRunner.ts
 const DEFAULT_URL = "http://127.0.0.1:3878";
+const CONTEXT_INJECTION_EVENTS = new Set([
+	"SessionStart",
+	"UserPromptSubmit",
+	"PostToolUse",
+	"Stop"
+]);
 async function readStdinJson() {
 	let input = "";
 	for await (const chunk of process.stdin) input += chunk;
@@ -26,13 +32,59 @@ async function post(path, body, timeoutMs) {
 	const text = await response.text();
 	return text ? JSON.parse(text) : null;
 }
+function isRecord(value) {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function hookCanInjectContext(host, eventName) {
+	return (host === "codex" || host === "claude-code") && CONTEXT_INJECTION_EVENTS.has(eventName);
+}
+function userQueryFromEnvelope(envelope) {
+	return envelope.messages.find((message) => message.role === "user" && message.content.trim())?.content.trim() || null;
+}
+function contextRequestFromEnvelope(envelope) {
+	const query = userQueryFromEnvelope(envelope);
+	if (!query) return null;
+	return {
+		query,
+		hostId: envelope.hostId,
+		actorId: envelope.actorId,
+		sessionId: envelope.sessionId,
+		workspaceDir: envelope.workspaceDir,
+		project: envelope.project,
+		limit: 6
+	};
+}
+function recalledContext(response) {
+	if (!isRecord(response)) return null;
+	const value = response.prependContext ?? response.context;
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function writeAdditionalContext(eventName, additionalContext) {
+	process.stdout.write(`${JSON.stringify({ hookSpecificOutput: {
+		hookEventName: eventName,
+		additionalContext
+	} })}\n`);
+}
 async function runMemxHook(argv = process.argv.slice(2)) {
 	const host = argv[0] || process.env["MEMX_HOOK_HOST"] || "generic";
 	const eventName = argv[1] || process.env["MEMX_HOOK_EVENT"] || "observe";
 	const payload = await readStdinJson();
 	const timeoutMs = Number(process.env["MEMX_HOOK_TIMEOUT_MS"] || 3e3);
 	try {
-		await post("/v1/observe", normalizeHookPayload(host, eventName, payload), Number.isFinite(timeoutMs) ? timeoutMs : 3e3);
+		const envelope = normalizeHookPayload(host, eventName, payload);
+		const requestTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : 3e3;
+		const contextRequest = hookCanInjectContext(envelope.hostId, eventName) ? contextRequestFromEnvelope(envelope) : null;
+		const observe = post("/v1/observe", envelope, requestTimeoutMs);
+		if (!contextRequest) {
+			await observe;
+			return;
+		}
+		const [observeResult, contextResult] = await Promise.allSettled([observe, post("/v1/context", contextRequest, requestTimeoutMs)]);
+		if (observeResult.status === "rejected" && process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook observe failed: ${observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)}`);
+		if (contextResult.status === "fulfilled") {
+			const context = recalledContext(contextResult.value);
+			if (context) writeAdditionalContext(eventName, context);
+		} else if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook recall failed: ${contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)}`);
 	} catch (error) {
 		if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook failed: ${error instanceof Error ? error.message : String(error)}`);
 	}

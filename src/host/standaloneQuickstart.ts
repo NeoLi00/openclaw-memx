@@ -332,7 +332,7 @@ function codexHooksConfig(commandConfig: McpCommandConfig): Record<string, unkno
         hookEntry(commandConfig, "codex", "SessionStart", "memx: opening memory session"),
       ],
       UserPromptSubmit: [
-        hookEntry(commandConfig, "codex", "UserPromptSubmit", "memx: capturing user turn"),
+        hookEntry(commandConfig, "codex", "UserPromptSubmit", "memx: recalling memory"),
       ],
       PreToolUse: [
         {

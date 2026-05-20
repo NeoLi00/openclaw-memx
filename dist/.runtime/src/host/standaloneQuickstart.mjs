@@ -199,7 +199,7 @@ function hookEntry(commandConfig, host, eventName, statusMessage) {
 function codexHooksConfig(commandConfig) {
 	return { hooks: {
 		SessionStart: [hookEntry(commandConfig, "codex", "SessionStart", "memx: opening memory session")],
-		UserPromptSubmit: [hookEntry(commandConfig, "codex", "UserPromptSubmit", "memx: capturing user turn")],
+		UserPromptSubmit: [hookEntry(commandConfig, "codex", "UserPromptSubmit", "memx: recalling memory")],
 		PreToolUse: [{
 			matcher: "Edit|Write|Read|Glob|Grep|apply_patch|exec_command",
 			...hookEntry(commandConfig, "codex", "PreToolUse")

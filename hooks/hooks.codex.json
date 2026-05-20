@@ -19,7 +19,7 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex UserPromptSubmit",
             "timeout": 5,
-            "statusMessage": "memx: capturing user turn"
+            "statusMessage": "memx: recalling memory"
           }
         ]
       }
