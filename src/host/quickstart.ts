@@ -1,18 +1,17 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { homedir, platform } from "node:os";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { homedir, platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
 import {
   LEGACY_MEMX_PLUGIN_ID,
   MEMX_PLUGIN_ID,
-  MEMX_REPOSITORY_SPEC,
   withoutLegacyPluginIds,
 } from "../identity.js";
 import type { MemoryLlmProvider, MemoryPluginConfig } from "../types.js";
 
-const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
 const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
@@ -58,6 +57,7 @@ export type OpenClawQuickstartOptions = {
   homeDir?: string;
   openclawBin?: string;
   pythonBin?: string;
+  pluginInstallSource?: string;
   skipEmbeddingDeps?: boolean;
   skipPluginInstall?: boolean;
   skipRestart?: boolean;
@@ -76,6 +76,7 @@ type NormalizedOpenClawQuickstartOptions = Required<
     | "homeDir"
     | "openclawBin"
     | "pythonBin"
+    | "pluginInstallSource"
   >
 > &
   Omit<
@@ -88,6 +89,7 @@ type NormalizedOpenClawQuickstartOptions = Required<
     | "homeDir"
     | "openclawBin"
     | "pythonBin"
+    | "pluginInstallSource"
   > & {
     embeddingProvider: MemoryPluginConfig["embedding"]["provider"];
     embeddingPythonBin: string;
@@ -129,6 +131,32 @@ function localVenvDir(homeDir: string): string {
 function localVenvPython(homeDir: string): string {
   const venv = localVenvDir(homeDir);
   return platform() === "win32" ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
+}
+
+export function resolveCurrentPackageRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+}
+
+async function prepareOpenClawInstallPackage(packageRoot: string): Promise<string> {
+  const targetDir = await mkdtemp(join(tmpdir(), "memx-openclaw-plugin-"));
+  const packageJsonPath = join(packageRoot, "package.json");
+  const rawPackage = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+    files?: unknown;
+  };
+  const entries = [
+    "package.json",
+    ...(Array.isArray(rawPackage.files)
+      ? rawPackage.files.filter((entry): entry is string => typeof entry === "string")
+      : []),
+  ];
+  for (const entry of new Set(entries)) {
+    const source = join(packageRoot, entry);
+    if (!existsSync(source)) {
+      continue;
+    }
+    await cp(source, join(targetDir, entry), { recursive: true });
+  }
+  return targetDir;
 }
 
 function normalizeEmbeddingProvider(
@@ -203,6 +231,7 @@ function normalizeOptions(
     homeDir,
     openclawBin: trimOrUndefined(options.openclawBin) ?? "openclaw",
     pythonBin: trimOrUndefined(options.pythonBin) ?? "python3",
+    pluginInstallSource: trimOrUndefined(options.pluginInstallSource) ?? resolveCurrentPackageRoot(),
   };
 }
 
@@ -328,7 +357,7 @@ export function buildOpenClawQuickstartSteps(
     steps.push({
       key: "plugin-install",
       command: options.openclawBin,
-      args: ["plugins", "install", PACKAGE_SPEC],
+      args: ["plugins", "install", options.pluginInstallSource],
     });
   }
   if (!options.skipRestart) {
@@ -413,15 +442,31 @@ export async function runOpenClawQuickstart(
   const options = normalizeOptions(rawOptions);
   const current = await readConfig(options.configPath);
   const next = applyOpenClawQuickstartConfig(current, options);
-  const steps = buildOpenClawQuickstartSteps(options);
+  let preparedInstallSource: string | undefined;
+  const runtimeOptions =
+    !options.dryRun && !options.skipPluginInstall && !rawOptions.pluginInstallSource
+      ? {
+          ...options,
+          pluginInstallSource: (preparedInstallSource = await prepareOpenClawInstallPackage(
+            options.pluginInstallSource,
+          )),
+        }
+      : options;
+  const steps = buildOpenClawQuickstartSteps(runtimeOptions);
   if (!options.dryRun) {
-    const runCommand = deps.runCommand ?? defaultRunCommand;
-    for (const step of steps.filter(isPreConfigStep)) {
-      await runQuickstartStep(step, runCommand);
-    }
-    await writeAtomicJson(options.configPath, next);
-    for (const step of steps.filter((step) => !isPreConfigStep(step))) {
-      await runQuickstartStep(step, runCommand);
+    try {
+      const runCommand = deps.runCommand ?? defaultRunCommand;
+      for (const step of steps.filter(isPreConfigStep)) {
+        await runQuickstartStep(step, runCommand);
+      }
+      await writeAtomicJson(options.configPath, next);
+      for (const step of steps.filter((step) => !isPreConfigStep(step))) {
+        await runQuickstartStep(step, runCommand);
+      }
+    } finally {
+      if (preparedInstallSource) {
+        await rm(preparedInstallSource, { recursive: true, force: true });
+      }
     }
   }
   return {

@@ -71,6 +71,7 @@ function parseOpenClawQuickstartOptions(argv: string[]) {
     configPath: readOption(argv, "--config"),
     openclawBin: readOption(argv, "--openclaw-bin"),
     pythonBin: readOption(argv, "--python"),
+    pluginInstallSource: readOption(argv, "--plugin-install-source"),
     skipEmbeddingDeps:
       hasFlag(argv, "--skip-embedding-deps") || hasFlag(argv, "--no-install-embedding-deps"),
     skipPluginInstall: hasFlag(argv, "--skip-plugin-install"),

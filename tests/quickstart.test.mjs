@@ -83,6 +83,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
     llmApiKey: "sk-test",
     homeDir: "/tmp/home",
     configPath: "/tmp/openclaw.json",
+    pluginInstallSource: "/tmp/current-memx-package",
   });
 
   assert.deepEqual(
@@ -93,7 +94,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
         "/tmp/home/.openclaw/memx/.venv/bin/python",
         ["-m", "pip", "install", "-U", "pip", "sentence-transformers", "torch"],
       ],
-      ["openclaw", ["plugins", "install", "github:NeoLi00/memX"]],
+      ["openclaw", ["plugins", "install", "/tmp/current-memx-package"]],
       ["openclaw", ["gateway", "restart"]],
       ["openclaw", ["memx", "doctor", "--deep"]],
     ],
@@ -119,6 +120,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
       llmApiKey: "sk-secret",
       configPath,
       homeDir: dir,
+      pluginInstallSource: "/tmp/current-memx-package",
       skipEmbeddingDeps: true,
       skipRestart: true,
       skipDoctor: true,
@@ -133,7 +135,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   );
 
   assert.deepEqual(calls, [
-    { command: "openclaw", args: ["plugins", "install", "github:NeoLi00/memX"] },
+    { command: "openclaw", args: ["plugins", "install", "/tmp/current-memx-package"] },
   ]);
   assert.equal(existsSync(configPath), true);
   const written = JSON.parse(readFileSync(configPath, "utf8"));
@@ -141,6 +143,42 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   assert.equal(written.plugins.entries.memx.config.advanced.llmApiKey, "sk-secret");
   assert.doesNotMatch(JSON.stringify(result), /sk-secret/);
   assert.equal(result.ok, true);
+});
+
+test("OpenClaw quickstart installs a sanitized package snapshot by default", async () => {
+  const { runOpenClawQuickstart, resolveCurrentPackageRoot } = await import(
+    "../dist/.runtime/src/host/quickstart.mjs"
+  );
+  const dir = mkdtempSync(join(tmpdir(), "memx-quickstart-snapshot-"));
+  const configPath = join(dir, "openclaw.json");
+  const packageRoot = resolveCurrentPackageRoot();
+  let installSource = "";
+
+  await runOpenClawQuickstart(
+    {
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-secret",
+      configPath,
+      homeDir: dir,
+      skipEmbeddingDeps: true,
+      skipRestart: true,
+      skipDoctor: true,
+    },
+    {
+      runCommand: async (_command, args) => {
+        installSource = args[2];
+        assert.notEqual(installSource, packageRoot);
+        assert.equal(existsSync(join(installSource, "package.json")), true);
+        assert.equal(existsSync(join(installSource, "dist", "index.mjs")), true);
+        assert.equal(existsSync(join(installSource, "src")), false);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    },
+  );
+
+  assert.equal(existsSync(installSource), false);
 });
 
 test("OpenClaw quickstart dry run reports that no changes were applied", async () => {

@@ -1,12 +1,12 @@
-import { LEGACY_MEMX_PLUGIN_ID, MEMX_PLUGIN_ID, MEMX_REPOSITORY_SPEC, withoutLegacyPluginIds } from "../identity.mjs";
+import { LEGACY_MEMX_PLUGIN_ID, MEMX_PLUGIN_ID, withoutLegacyPluginIds } from "../identity.mjs";
 import { DEFAULT_MEMORY_CONFIG } from "../config.mjs";
 import { existsSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir, platform, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 //#region src/host/quickstart.ts
-const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
 const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
@@ -23,6 +23,21 @@ function localVenvDir(homeDir) {
 function localVenvPython(homeDir) {
 	const venv = localVenvDir(homeDir);
 	return platform() === "win32" ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
+}
+function resolveCurrentPackageRoot() {
+	return join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
+}
+async function prepareOpenClawInstallPackage(packageRoot) {
+	const targetDir = await mkdtemp(join(tmpdir(), "memx-openclaw-plugin-"));
+	const packageJsonPath = join(packageRoot, "package.json");
+	const rawPackage = JSON.parse(await readFile(packageJsonPath, "utf8"));
+	const entries = ["package.json", ...Array.isArray(rawPackage.files) ? rawPackage.files.filter((entry) => typeof entry === "string") : []];
+	for (const entry of new Set(entries)) {
+		const source = join(packageRoot, entry);
+		if (!existsSync(source)) continue;
+		await cp(source, join(targetDir, entry), { recursive: true });
+	}
+	return targetDir;
 }
 function normalizeEmbeddingProvider(provider) {
 	if (!provider || provider === "local") return "sentence-transformers-local";
@@ -61,7 +76,8 @@ function normalizeOptions(options) {
 		configPath: trimOrUndefined(options.configPath) ?? DEFAULT_CONFIG_PATH,
 		homeDir,
 		openclawBin: trimOrUndefined(options.openclawBin) ?? "openclaw",
-		pythonBin: trimOrUndefined(options.pythonBin) ?? "python3"
+		pythonBin: trimOrUndefined(options.pythonBin) ?? "python3",
+		pluginInstallSource: trimOrUndefined(options.pluginInstallSource) ?? resolveCurrentPackageRoot()
 	};
 }
 function apiKeyValue(options) {
@@ -174,7 +190,7 @@ function buildOpenClawQuickstartSteps(rawOptions) {
 		args: [
 			"plugins",
 			"install",
-			PACKAGE_SPEC
+			options.pluginInstallSource
 		]
 	});
 	if (!options.skipRestart) steps.push({
@@ -238,12 +254,21 @@ async function runQuickstartStep(step, runCommand) {
 async function runOpenClawQuickstart(rawOptions, deps = {}) {
 	const options = normalizeOptions(rawOptions);
 	const next = applyOpenClawQuickstartConfig(await readConfig(options.configPath), options);
-	const steps = buildOpenClawQuickstartSteps(options);
-	if (!options.dryRun) {
+	let preparedInstallSource;
+	const steps = buildOpenClawQuickstartSteps(!options.dryRun && !options.skipPluginInstall && !rawOptions.pluginInstallSource ? {
+		...options,
+		pluginInstallSource: preparedInstallSource = await prepareOpenClawInstallPackage(options.pluginInstallSource)
+	} : options);
+	if (!options.dryRun) try {
 		const runCommand = deps.runCommand ?? defaultRunCommand;
 		for (const step of steps.filter(isPreConfigStep)) await runQuickstartStep(step, runCommand);
 		await writeAtomicJson(options.configPath, next);
 		for (const step of steps.filter((step) => !isPreConfigStep(step))) await runQuickstartStep(step, runCommand);
+	} finally {
+		if (preparedInstallSource) await rm(preparedInstallSource, {
+			recursive: true,
+			force: true
+		});
 	}
 	return {
 		ok: true,
@@ -254,4 +279,4 @@ async function runOpenClawQuickstart(rawOptions, deps = {}) {
 	};
 }
 //#endregion
-export { applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, runOpenClawQuickstart };
+export { applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, resolveCurrentPackageRoot, runOpenClawQuickstart };

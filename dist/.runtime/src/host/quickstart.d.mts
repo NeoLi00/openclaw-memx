@@ -33,6 +33,7 @@ type OpenClawQuickstartOptions = {
   homeDir?: string;
   openclawBin?: string;
   pythonBin?: string;
+  pluginInstallSource?: string;
   skipEmbeddingDeps?: boolean;
   skipPluginInstall?: boolean;
   skipRestart?: boolean;
@@ -52,8 +53,9 @@ type QuickstartCommandResult = {
 type QuickstartDeps = {
   runCommand?: (command: string, args: string[]) => Promise<QuickstartCommandResult>;
 };
+declare function resolveCurrentPackageRoot(): string;
 declare function applyOpenClawQuickstartConfig(input: unknown, rawOptions: OpenClawQuickstartOptions): OpenClawConfigLike;
 declare function buildOpenClawQuickstartSteps(rawOptions: OpenClawQuickstartOptions): QuickstartCommandStep[];
 declare function runOpenClawQuickstart(rawOptions: OpenClawQuickstartOptions, deps?: QuickstartDeps): Promise<Record<string, unknown>>;
 //#endregion
-export { OpenClawQuickstartOptions, QuickstartCommandResult, QuickstartCommandStep, QuickstartDeps, applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, runOpenClawQuickstart };
+export { OpenClawQuickstartOptions, QuickstartCommandResult, QuickstartCommandStep, QuickstartDeps, applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, resolveCurrentPackageRoot, runOpenClawQuickstart };
