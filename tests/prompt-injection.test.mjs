@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import plugin from "../dist/index.mjs";
-import { extractPromptQuery } from "../dist/src/index.mjs";
-import { captureAgentEndTurn } from "../dist/src/pipeline/turnCapture.mjs";
-import { stripInjectedHistoricalBlock } from "../dist/src/security/escaping.mjs";
+import { extractPromptQuery } from "../dist/.runtime/src/index.mjs";
+import { captureAgentEndTurn } from "../dist/.runtime/src/pipeline/turnCapture.mjs";
+import { stripInjectedHistoricalBlock } from "../dist/.runtime/src/security/escaping.mjs";
 
 function createLogger() {
   return {
@@ -97,7 +97,7 @@ test("turn capture excludes memX prepend context from the captured user message"
 });
 
 test("compiled recall hook returns prependContext rather than overriding systemPrompt", async () => {
-  const compiled = await readFile(new URL("../dist/src/index.mjs", import.meta.url), "utf8");
+  const compiled = await readFile(new URL("../dist/.runtime/src/index.mjs", import.meta.url), "utf8");
 
   assert.match(compiled, /prependContext:\s*_logPromptContext/);
   assert.doesNotMatch(compiled, /systemPrompt:\s*_logSystemPrompt/);

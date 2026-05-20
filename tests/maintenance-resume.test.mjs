@@ -3,10 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DEFAULT_MEMORY_CONFIG } from "../dist/src/config.mjs";
-import { MemxDbClient } from "../dist/src/db/client.mjs";
-import { MaintenanceRepo } from "../dist/src/db/repositories/maintenanceRepo.mjs";
-import { MemxRuntimeManager } from "../dist/src/runtime.mjs";
+import { DEFAULT_MEMORY_CONFIG } from "../dist/.runtime/src/config.mjs";
+import { MemxDbClient } from "../dist/.runtime/src/db/client.mjs";
+import { MaintenanceRepo } from "../dist/.runtime/src/db/repositories/maintenanceRepo.mjs";
+import { MemxRuntimeManager } from "../dist/.runtime/src/runtime.mjs";
 
 const observedAt = "2026-05-13T00:00:00.000Z";
 

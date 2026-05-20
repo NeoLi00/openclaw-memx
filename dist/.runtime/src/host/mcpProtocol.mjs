@@ -170,6 +170,7 @@ async function defaultMemxProxy(path, init) {
 async function handleMcpRequest(request, deps = {}) {
 	const id = request.id ?? null;
 	try {
+		if (request.method === "notifications/initialized") return null;
 		if (request.method === "initialize") return jsonResponse(id, {
 			protocolVersion: "2024-11-05",
 			serverInfo: {

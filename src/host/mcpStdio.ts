@@ -21,7 +21,9 @@ async function handleLine(line: string): Promise<void> {
   try {
     const request = JSON.parse(line) as Record<string, unknown>;
     const response = await handleMcpRequest(request);
-    process.stdout.write(`${JSON.stringify(response)}\n`);
+    if (response) {
+      process.stdout.write(`${JSON.stringify(response)}\n`);
+    }
   } catch (error) {
     process.stdout.write(
       `${JSON.stringify({

@@ -14,6 +14,8 @@ type JsonRpcResponse = {
   error?: { code: number; message: string };
 };
 
+type JsonRpcHandlerResult = JsonRpcResponse | null;
+
 type McpTool = {
   name: string;
   description: string;
@@ -178,9 +180,12 @@ export async function defaultMemxProxy(path: string, init: RequestInit): Promise
 export async function handleMcpRequest(
   request: JsonRpcRequest,
   deps: MemxMcpHandlerDeps = {},
-): Promise<JsonRpcResponse> {
+): Promise<JsonRpcHandlerResult> {
   const id = request.id ?? null;
   try {
+    if (request.method === "notifications/initialized") {
+      return null;
+    }
     if (request.method === "initialize") {
       return jsonResponse(id, {
         protocolVersion: "2024-11-05",

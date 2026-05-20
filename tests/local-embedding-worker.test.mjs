@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { OptionalEmbeddingBackend } from "../dist/src/search/backends/embeddingBackend.mjs";
+import { OptionalEmbeddingBackend } from "../dist/.runtime/src/search/backends/embeddingBackend.mjs";
 
 function createLogger() {
   return {

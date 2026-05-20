@@ -1,6 +1,6 @@
 {
   "name": "memx",
-  "version": "2026.3.14",
+  "version": "2026.3.15",
   "description": "memX: local-first semantic memory for coding agents. Native Codex hooks, MCP tools, and OpenClaw memory integration.",
   "author": {
     "name": "Neo Li"

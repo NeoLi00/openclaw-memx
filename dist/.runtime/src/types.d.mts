@@ -101,7 +101,11 @@ type AdvancedMemoryConfig = {
   llmClassifierModel?: string;
   llmProvider?: MemoryLlmProvider;
   llmBaseURL?: string;
-  llmApiKey?: string;
+  llmApiKey?: string | {
+    source: "env";
+    provider?: string;
+    id: string;
+  };
   llmHeaders?: Record<string, string>;
   enableMaintenanceJobs: boolean;
   maintenanceTriggerMode: "batched" | "per_turn";

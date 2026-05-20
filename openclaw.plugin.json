@@ -235,6 +235,36 @@
           "llmClassifierModel": {
             "type": "string"
           },
+          "llmProvider": {
+            "type": "string",
+            "enum": ["openai-compatible", "anthropic", "google", "ollama"]
+          },
+          "llmBaseURL": {
+            "type": "string"
+          },
+          "llmApiKey": {
+            "type": ["string", "object"],
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": ["env"]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": ["source", "id"]
+          },
+          "llmHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "enableMaintenanceJobs": {
             "type": "boolean"
           },

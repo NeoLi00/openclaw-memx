@@ -2,7 +2,7 @@
   "mcpServers": {
     "memx": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-mcp.mjs"],
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"],
       "env": {
         "MEMX_URL": "${MEMX_URL}",
         "MEMX_SECRET": "${MEMX_SECRET}"

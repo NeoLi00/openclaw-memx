@@ -303,6 +303,24 @@ const uiHints: Record<string, PluginConfigUiHint> = {
   },
 };
 
+const envSecretRefJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    source: { type: "string", enum: ["env"] },
+    provider: { type: "string" },
+    id: { type: "string" },
+  },
+  required: ["source", "id"],
+};
+
+const secretLikeStringJsonSchema = {
+  type: ["string", "object"],
+  additionalProperties: false,
+  properties: envSecretRefJsonSchema.properties,
+  required: envSecretRefJsonSchema.required,
+};
+
 const jsonSchema = {
   type: "object",
   additionalProperties: false,
@@ -357,7 +375,7 @@ const jsonSchema = {
         llmClassifierModel: { type: "string" },
         llmProvider: { type: "string", enum: [...MEMORY_LLM_PROVIDERS] },
         llmBaseURL: { type: "string" },
-        llmApiKey: { type: "string" },
+        llmApiKey: secretLikeStringJsonSchema,
         llmHeaders: {
           type: "object",
           additionalProperties: { type: "string" },
@@ -512,6 +530,26 @@ function asStringArray(raw: unknown, fallback: string[]): string[] {
   return values.length > 0 ? values : fallback;
 }
 
+function asSecretLikeString(raw: unknown): AdvancedMemoryConfig["llmApiKey"] {
+  if (typeof raw === "string") {
+    return raw.trim() || undefined;
+  }
+  if (!isRecord(raw) || raw.source !== "env" || typeof raw.id !== "string") {
+    return undefined;
+  }
+  const id = raw.id.trim();
+  if (!id) {
+    return undefined;
+  }
+  return {
+    source: "env",
+    ...(typeof raw.provider === "string" && raw.provider.trim()
+      ? { provider: raw.provider.trim() }
+      : {}),
+    id,
+  };
+}
+
 function parseConfigInternal(input: unknown): {
   value?: MemoryPluginConfig;
   issues: ValidationIssue[];
@@ -607,8 +645,7 @@ function parseConfigInternal(input: unknown): {
         : undefined,
     llmBaseURL:
       typeof rawAdvanced.llmBaseURL === "string" ? rawAdvanced.llmBaseURL.trim() : undefined,
-    llmApiKey:
-      typeof rawAdvanced.llmApiKey === "string" ? rawAdvanced.llmApiKey.trim() : undefined,
+    llmApiKey: asSecretLikeString(rawAdvanced.llmApiKey),
     llmHeaders: isRecord(rawAdvanced.llmHeaders)
       ? Object.fromEntries(
           Object.entries(rawAdvanced.llmHeaders)

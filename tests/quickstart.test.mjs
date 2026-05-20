@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 test("OpenClaw quickstart config uses unified LLM flags and default local embedding", async () => {
-  const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+  const { applyOpenClawQuickstartConfig } = await import("../dist/.runtime/src/host/quickstart.mjs");
   const existingAgents = {
     defaults: {
       model: { primary: "existing/main-model", fallbacks: ["existing/fallback"] },
@@ -42,7 +42,8 @@ test("OpenClaw quickstart config uses unified LLM flags and default local embedd
 });
 
 test("OpenClaw quickstart can store provider key as an env SecretRef", async () => {
-  const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+  const { applyOpenClawQuickstartConfig } = await import("../dist/.runtime/src/host/quickstart.mjs");
+  const { memxConfigSchema } = await import("../dist/.runtime/src/config.mjs");
 
   const next = applyOpenClawQuickstartConfig(
     {},
@@ -62,10 +63,18 @@ test("OpenClaw quickstart can store provider key as an env SecretRef", async () 
     id: "ANTHROPIC_API_KEY",
   });
   assert.equal(advanced.llmClassifierModel, "claude-fast");
+
+  const validation = memxConfigSchema.validate(next.plugins.entries.memx.config);
+  assert.equal(validation.ok, true);
+  assert.deepEqual(validation.value.advanced.llmApiKey, {
+    source: "env",
+    provider: "default",
+    id: "ANTHROPIC_API_KEY",
+  });
 });
 
 test("OpenClaw quickstart command plan is exec-form only", async () => {
-  const { buildOpenClawQuickstartSteps } = await import("../dist/src/host/quickstart.mjs");
+  const { buildOpenClawQuickstartSteps } = await import("../dist/.runtime/src/host/quickstart.mjs");
 
   const steps = buildOpenClawQuickstartSteps({
     llmProvider: "openai-compatible",
@@ -84,7 +93,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
         "/tmp/home/.openclaw/memx/.venv/bin/python",
         ["-m", "pip", "install", "-U", "pip", "sentence-transformers", "torch"],
       ],
-      ["openclaw", ["plugins", "install", "github:NeoLi00/memX"]],
+      ["openclaw", ["plugins", "install", "@neoli00/memx"]],
       ["openclaw", ["gateway", "restart"]],
       ["openclaw", ["memx", "doctor", "--deep"]],
     ],
@@ -97,7 +106,7 @@ test("OpenClaw quickstart command plan is exec-form only", async () => {
 });
 
 test("OpenClaw quickstart writes config and redacts plaintext API key from result", async () => {
-  const { runOpenClawQuickstart } = await import("../dist/src/host/quickstart.mjs");
+  const { runOpenClawQuickstart } = await import("../dist/.runtime/src/host/quickstart.mjs");
   const dir = mkdtempSync(join(tmpdir(), "memx-quickstart-"));
   const configPath = join(dir, "openclaw.json");
   const calls = [];
@@ -116,6 +125,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
     },
     {
       runCommand: async (command, args) => {
+        assert.equal(existsSync(configPath), false, "plugin install should run before writing memx slot config");
         calls.push({ command, args });
         return { code: 0, stdout: "", stderr: "" };
       },
@@ -123,7 +133,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
   );
 
   assert.deepEqual(calls, [
-    { command: "openclaw", args: ["plugins", "install", "github:NeoLi00/memX"] },
+    { command: "openclaw", args: ["plugins", "install", "@neoli00/memx"] },
   ]);
   assert.equal(existsSync(configPath), true);
   const written = JSON.parse(readFileSync(configPath, "utf8"));
@@ -134,7 +144,7 @@ test("OpenClaw quickstart writes config and redacts plaintext API key from resul
 });
 
 test("OpenClaw quickstart dry run reports that no changes were applied", async () => {
-  const { runOpenClawQuickstart } = await import("../dist/src/host/quickstart.mjs");
+  const { runOpenClawQuickstart } = await import("../dist/.runtime/src/host/quickstart.mjs");
 
   const result = await runOpenClawQuickstart({
     llmProvider: "ollama",
@@ -149,7 +159,7 @@ test("OpenClaw quickstart dry run reports that no changes were applied", async (
 });
 
 test("OpenClaw quickstart keeps legacy provider-id and memx-model aliases", async () => {
-  const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+  const { applyOpenClawQuickstartConfig } = await import("../dist/.runtime/src/host/quickstart.mjs");
 
   const next = applyOpenClawQuickstartConfig(
     {},
@@ -173,7 +183,7 @@ test("OpenClaw quickstart keeps legacy provider-id and memx-model aliases", asyn
 });
 
 test("OpenClaw quickstart migrates legacy memory-memx config into memx", async () => {
-  const { applyOpenClawQuickstartConfig } = await import("../dist/src/host/quickstart.mjs");
+  const { applyOpenClawQuickstartConfig } = await import("../dist/.runtime/src/host/quickstart.mjs");
 
   const next = applyOpenClawQuickstartConfig(
     {

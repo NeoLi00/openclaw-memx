@@ -6,10 +6,10 @@
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "memx": "dist/src/bin/memx.mjs",
-    "memx-server": "dist/src/bin/memx-server.mjs",
-    "memx-mcp": "dist/src/bin/memx-mcp.mjs",
-    "memx-hook": "dist/src/bin/memx-hook.mjs"
+    "memx": "dist/.runtime/src/bin/memx.mjs",
+    "memx-server": "dist/.runtime/src/bin/memx-server.mjs",
+    "memx-mcp": "dist/.runtime/src/bin/memx-mcp.mjs",
+    "memx-hook": "dist/.runtime/src/bin/memx-hook.mjs"
   },
   "files": [
     "dist",
@@ -26,7 +26,7 @@
     "assets"
   ],
   "scripts": {
-    "build": "tsdown index.ts src/bin/memx.ts src/bin/memx-server.ts src/bin/memx-mcp.ts src/bin/memx-hook.ts --no-config --clean --unbundle --root . --out-dir dist --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --dts --copy src/search/backends/sentence_transformers_embedder.py",
+    "build": "node scripts/clean-dist.mjs && tsdown index.ts src/bin/memx.ts src/bin/memx-server.ts src/bin/memx-mcp.ts src/bin/memx-hook.ts --no-config --unbundle --root . --out-dir dist/.runtime --format esm --target es2023 --platform node --no-treeshake --deps.never-bundle openclaw --deps.never-bundle openclaw/plugin-sdk/core --dts --copy src/search/backends/sentence_transformers_embedder.py && node scripts/write-dist-wrappers.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {

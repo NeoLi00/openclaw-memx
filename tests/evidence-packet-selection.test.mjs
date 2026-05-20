@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assembleEvidencePackets } from "../dist/src/pipeline/evidenceAssembler.mjs";
-import { collectBehavioralGuidance } from "../dist/src/pipeline/memoryObjects.mjs";
-import { compileQueryWithoutSemanticFallback } from "../dist/src/pipeline/queryCompiler.mjs";
+import { assembleEvidencePackets } from "../dist/.runtime/src/pipeline/evidenceAssembler.mjs";
+import { collectBehavioralGuidance } from "../dist/.runtime/src/pipeline/memoryObjects.mjs";
+import { compileQueryWithoutSemanticFallback } from "../dist/.runtime/src/pipeline/queryCompiler.mjs";
 
 function queryAnalysis(query) {
   return {

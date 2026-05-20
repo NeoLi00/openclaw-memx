@@ -14,6 +14,7 @@ type JsonRpcResponse = {
     message: string;
   };
 };
+type JsonRpcHandlerResult = JsonRpcResponse | null;
 type McpTool = {
   name: string;
   description: string;
@@ -29,6 +30,6 @@ type MemxMcpHandlerDeps = {
 };
 declare const MEMX_MCP_TOOLS: McpTool[];
 declare function defaultMemxProxy(path: string, init: RequestInit): Promise<unknown>;
-declare function handleMcpRequest(request: JsonRpcRequest, deps?: MemxMcpHandlerDeps): Promise<JsonRpcResponse>;
+declare function handleMcpRequest(request: JsonRpcRequest, deps?: MemxMcpHandlerDeps): Promise<JsonRpcHandlerResult>;
 //#endregion
 export { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, defaultMemxProxy, handleMcpRequest };

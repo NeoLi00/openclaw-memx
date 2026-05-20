@@ -3,13 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { MemxDbClient } from "../dist/src/db/client.mjs";
-import { VectorRepo } from "../dist/src/db/repositories/vectorRepo.mjs";
-import { SqliteFtsBackend } from "../dist/src/search/backends/ftsBackend.mjs";
+import { MemxDbClient } from "../dist/.runtime/src/db/client.mjs";
+import { VectorRepo } from "../dist/.runtime/src/db/repositories/vectorRepo.mjs";
+import { SqliteFtsBackend } from "../dist/.runtime/src/search/backends/ftsBackend.mjs";
 import {
   hasCjkLexicalTerms,
   lexicalSearchTerms,
-} from "../dist/src/search/lexical.mjs";
+} from "../dist/.runtime/src/search/lexical.mjs";
 
 const observedAt = "2026-05-19T00:00:00.000Z";
 

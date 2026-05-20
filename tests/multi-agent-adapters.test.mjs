@@ -35,8 +35,8 @@ test("package ships standalone bins and native plugin assets", () => {
     "memx-mcp",
     "memx-server",
   ]);
-  assert.equal(pkg.bin.memx, "dist/src/bin/memx.mjs");
-  assert.equal(pkg.bin["memx-mcp"], "dist/src/bin/memx-mcp.mjs");
+  assert.equal(pkg.bin.memx, "dist/.runtime/src/bin/memx.mjs");
+  assert.equal(pkg.bin["memx-mcp"], "dist/.runtime/src/bin/memx-mcp.mjs");
 
   for (const path of [".codex-plugin", ".claude-plugin", ".mcp.json", "hooks", "skills"]) {
     assert.ok(pkg.files.includes(path), `package files must include ${path}`);
@@ -46,7 +46,7 @@ test("package ships standalone bins and native plugin assets", () => {
 
 test("standalone server bundle does not require OpenClaw at runtime", () => {
   const embeddingBackend = readFileSync(
-    join(rootPath, "dist/src/search/backends/embeddingBackend.mjs"),
+    join(rootPath, "dist/.runtime/src/search/backends/embeddingBackend.mjs"),
     "utf8",
   );
 
@@ -129,13 +129,13 @@ test("native MCP config runs the local memX MCP binary from plugin root", () => 
   const mcp = readJson(".mcp.json");
   const entry = mcp.mcpServers.memx;
   assert.equal(entry.command, "node");
-  assert.deepEqual(entry.args, ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-mcp.mjs"]);
+  assert.deepEqual(entry.args, ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"]);
   assert.equal(entry.env.MEMX_URL, "${MEMX_URL}");
   assert.equal(entry.env.MEMX_SECRET, "${MEMX_SECRET}");
 });
 
 test("host protocol normalizes Codex and Claude hooks into the same turn envelope", async () => {
-  const { normalizeHookPayload } = await import("../dist/src/host/hookPayload.mjs");
+  const { normalizeHookPayload } = await import("../dist/.runtime/src/host/hookPayload.mjs");
 
   const codex = normalizeHookPayload("codex", "UserPromptSubmit", {
     session_id: "codex-session",
@@ -161,7 +161,7 @@ test("host protocol normalizes Codex and Claude hooks into the same turn envelop
 });
 
 test("MCP handler exposes memX tools and proxies calls to REST", async () => {
-  const { handleMcpRequest } = await import("../dist/src/host/mcpProtocol.mjs");
+  const { handleMcpRequest } = await import("../dist/.runtime/src/host/mcpProtocol.mjs");
   const calls = [];
   const proxy = async (path, init) => {
     calls.push({ path, init });
@@ -194,6 +194,13 @@ test("MCP handler exposes memX tools and proxies calls to REST", async () => {
   assert.equal(calls[0].path, "/v1/recall");
   assert.equal(JSON.parse(calls[0].init.body).query, "Notebook validator");
   assert.equal(call.result.content[0].type, "text");
+
+  const initialized = await handleMcpRequest({
+    jsonrpc: "2.0",
+    method: "notifications/initialized",
+    params: {},
+  });
+  assert.equal(initialized, null);
 });
 
 test("connect helpers generate Codex TOML and generic MCP JSON without duplicating blocks", async () => {
@@ -201,20 +208,20 @@ test("connect helpers generate Codex TOML and generic MCP JSON without duplicati
     applyCodexTomlConnect,
     buildGenericMcpConfig,
     hasCodexMemxBlock,
-  } = await import("../dist/src/host/connect.mjs");
+  } = await import("../dist/.runtime/src/host/connect.mjs");
 
   const first = applyCodexTomlConnect("");
   const second = applyCodexTomlConnect(first);
   assert.equal(hasCodexMemxBlock(second), true);
   assert.equal((second.match(/\[mcp_servers\.memx\]/g) ?? []).length, 1);
-  assert.match(second, /github:NeoLi00\/memX/);
+  assert.match(second, /@neoli00\/memx/);
 
   const generic = buildGenericMcpConfig();
   assert.equal(generic.mcpServers.memx.command, "npx");
   assert.deepEqual(generic.mcpServers.memx.args, [
     "-y",
     "-p",
-    "github:NeoLi00/memX",
+    "@neoli00/memx",
     "memx-mcp",
   ]);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { selectAgentEndMessagesForCapture } from "../dist/src/pipeline/agentEndMessages.mjs";
+import { selectAgentEndMessagesForCapture } from "../dist/.runtime/src/pipeline/agentEndMessages.mjs";
 
 function createCursorStore(initial = new Map()) {
   const values = new Map(initial);

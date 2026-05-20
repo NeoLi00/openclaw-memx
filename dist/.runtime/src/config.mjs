@@ -381,6 +381,25 @@ const uiHints = {
 		advanced: true
 	}
 };
+const envSecretRefJsonSchema = {
+	type: "object",
+	additionalProperties: false,
+	properties: {
+		source: {
+			type: "string",
+			enum: ["env"]
+		},
+		provider: { type: "string" },
+		id: { type: "string" }
+	},
+	required: ["source", "id"]
+};
+const secretLikeStringJsonSchema = {
+	type: ["string", "object"],
+	additionalProperties: false,
+	properties: envSecretRefJsonSchema.properties,
+	required: envSecretRefJsonSchema.required
+};
 const jsonSchema = {
 	type: "object",
 	additionalProperties: false,
@@ -514,7 +533,7 @@ const jsonSchema = {
 					enum: [...MEMORY_LLM_PROVIDERS]
 				},
 				llmBaseURL: { type: "string" },
-				llmApiKey: { type: "string" },
+				llmApiKey: secretLikeStringJsonSchema,
 				llmHeaders: {
 					type: "object",
 					additionalProperties: { type: "string" }
@@ -732,6 +751,17 @@ function asStringArray(raw, fallback) {
 	const values = raw.filter((entry) => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean);
 	return values.length > 0 ? values : fallback;
 }
+function asSecretLikeString(raw) {
+	if (typeof raw === "string") return raw.trim() || void 0;
+	if (!isRecord(raw) || raw.source !== "env" || typeof raw.id !== "string") return;
+	const id = raw.id.trim();
+	if (!id) return;
+	return {
+		source: "env",
+		...typeof raw.provider === "string" && raw.provider.trim() ? { provider: raw.provider.trim() } : {},
+		id
+	};
+}
 function parseConfigInternal(input) {
 	const rawRoot = isRecord(input) ? resolveEnvObject(input) : {};
 	const issues = [];
@@ -785,7 +815,7 @@ function parseConfigInternal(input) {
 		llmClassifierModel: typeof rawAdvanced.llmClassifierModel === "string" ? rawAdvanced.llmClassifierModel.trim() : void 0,
 		llmProvider: rawAdvanced.llmProvider === "openai-compatible" || rawAdvanced.llmProvider === "anthropic" || rawAdvanced.llmProvider === "google" || rawAdvanced.llmProvider === "ollama" ? rawAdvanced.llmProvider : void 0,
 		llmBaseURL: typeof rawAdvanced.llmBaseURL === "string" ? rawAdvanced.llmBaseURL.trim() : void 0,
-		llmApiKey: typeof rawAdvanced.llmApiKey === "string" ? rawAdvanced.llmApiKey.trim() : void 0,
+		llmApiKey: asSecretLikeString(rawAdvanced.llmApiKey),
 		llmHeaders: isRecord(rawAdvanced.llmHeaders) ? Object.fromEntries(Object.entries(rawAdvanced.llmHeaders).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])) : void 0,
 		enableMaintenanceJobs: asBoolean(rawAdvanced.enableMaintenanceJobs, DEFAULT_MEMORY_CONFIG.advanced.enableMaintenanceJobs),
 		enableGraphPromotion: asBoolean(rawAdvanced.enableGraphPromotion, DEFAULT_MEMORY_CONFIG.advanced.enableGraphPromotion),

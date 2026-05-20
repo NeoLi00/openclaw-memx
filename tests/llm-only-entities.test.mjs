@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCandidate } from "../dist/src/pipeline/extract.mjs";
+import { buildCandidate } from "../dist/.runtime/src/pipeline/extract.mjs";
 import {
   buildQueryCompilerPromptInput,
   compileQuery,
   compileQueryWithoutSemanticFallback,
-} from "../dist/src/pipeline/queryCompiler.mjs";
-import { normalizeCandidate } from "../dist/src/pipeline/normalize.mjs";
-import { MemxReasoner } from "../dist/src/pipeline/reasoner.mjs";
-import * as semantics from "../dist/src/pipeline/semantics.mjs";
+} from "../dist/.runtime/src/pipeline/queryCompiler.mjs";
+import { normalizeCandidate } from "../dist/.runtime/src/pipeline/normalize.mjs";
+import { MemxReasoner } from "../dist/.runtime/src/pipeline/reasoner.mjs";
+import * as semantics from "../dist/.runtime/src/pipeline/semantics.mjs";
 import {
   buildLongTurnSemanticScanInputFromSegments,
   buildTurnSemanticCompilerInput,
   compileTurnSemantics,
   frameHintsForSourceRef,
-} from "../dist/src/pipeline/turnSemanticCompiler.mjs";
+} from "../dist/.runtime/src/pipeline/turnSemanticCompiler.mjs";
 
 const observedAt = "2026-05-12T00:00:00.000Z";
 

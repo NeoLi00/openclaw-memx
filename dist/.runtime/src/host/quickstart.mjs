@@ -1,4 +1,4 @@
-import { LEGACY_MEMX_PLUGIN_ID, MEMX_PLUGIN_ID, MEMX_REPOSITORY_SPEC, withoutLegacyPluginIds } from "../identity.mjs";
+import { LEGACY_MEMX_PLUGIN_ID, MEMX_NPM_PACKAGE, MEMX_PLUGIN_ID, withoutLegacyPluginIds } from "../identity.mjs";
 import { DEFAULT_MEMORY_CONFIG } from "../config.mjs";
 import { existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 //#region src/host/quickstart.ts
-const PACKAGE_SPEC = MEMX_REPOSITORY_SPEC;
+const PACKAGE_SPEC = MEMX_NPM_PACKAGE;
 const PLUGIN_ID = MEMX_PLUGIN_ID;
 const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
@@ -228,17 +228,22 @@ function publicSummary(options, steps) {
 		steps
 	};
 }
+function isPreConfigStep(step) {
+	return step.key === "embedding-venv" || step.key === "embedding-deps" || step.key === "plugin-install";
+}
+async function runQuickstartStep(step, runCommand) {
+	const result = await runCommand(step.command, step.args);
+	if (result.code !== 0) throw new Error(`quickstart step failed: ${step.key} (${step.command} ${step.args.join(" ")}) exited ${result.code}`);
+}
 async function runOpenClawQuickstart(rawOptions, deps = {}) {
 	const options = normalizeOptions(rawOptions);
 	const next = applyOpenClawQuickstartConfig(await readConfig(options.configPath), options);
 	const steps = buildOpenClawQuickstartSteps(options);
 	if (!options.dryRun) {
-		await writeAtomicJson(options.configPath, next);
 		const runCommand = deps.runCommand ?? defaultRunCommand;
-		for (const step of steps) {
-			const result = await runCommand(step.command, step.args);
-			if (result.code !== 0) throw new Error(`quickstart step failed: ${step.key} (${step.command} ${step.args.join(" ")}) exited ${result.code}`);
-		}
+		for (const step of steps.filter(isPreConfigStep)) await runQuickstartStep(step, runCommand);
+		await writeAtomicJson(options.configPath, next);
+		for (const step of steps.filter((step) => !isPreConfigStep(step))) await runQuickstartStep(step, runCommand);
 	}
 	return {
 		ok: true,

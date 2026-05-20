@@ -6,7 +6,7 @@ import test from "node:test";
 
 test("standalone quickstart builds independent LLM and local embedding config", async () => {
   const { applyStandaloneMemxQuickstartConfig } = await import(
-    "../dist/src/host/standaloneQuickstart.mjs"
+    "../dist/.runtime/src/host/standaloneQuickstart.mjs"
   );
 
   const next = applyStandaloneMemxQuickstartConfig(
@@ -30,9 +30,9 @@ test("standalone quickstart builds independent LLM and local embedding config", 
 });
 
 test("standalone service config resolves LLM without OpenClaw config", async () => {
-  const { runStandaloneMemxQuickstart } = await import("../dist/src/host/standaloneQuickstart.mjs");
-  const { createServiceConfigFromEnv } = await import("../dist/src/host/service.mjs");
-  const { loadJudgeModelConfig } = await import("../dist/src/pipeline/judgeModelConfig.mjs");
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
+  const { createServiceConfigFromEnv } = await import("../dist/.runtime/src/host/service.mjs");
+  const { loadJudgeModelConfig } = await import("../dist/.runtime/src/pipeline/judgeModelConfig.mjs");
   const dir = mkdtempSync(join(tmpdir(), "memx-standalone-"));
   const configPath = join(dir, "config.json");
 
@@ -57,7 +57,7 @@ test("standalone service config resolves LLM without OpenClaw config", async () 
 });
 
 test("standalone quickstart can configure Codex in one command", async () => {
-  const { runStandaloneMemxQuickstart } = await import("../dist/src/host/standaloneQuickstart.mjs");
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-"));
   const configPath = join(dir, "config.json");
   const codexConfigPath = join(dir, "codex.toml");
@@ -87,7 +87,7 @@ test("standalone quickstart can configure Codex in one command", async () => {
 
 test("standalone quickstart local embedding install plan is exec-form only", async () => {
   const { buildStandaloneMemxQuickstartSteps } = await import(
-    "../dist/src/host/standaloneQuickstart.mjs"
+    "../dist/.runtime/src/host/standaloneQuickstart.mjs"
   );
 
   const steps = buildStandaloneMemxQuickstartSteps({
@@ -117,7 +117,7 @@ test("standalone quickstart local embedding install plan is exec-form only", asy
 });
 
 test("standalone quickstart dry run shows no API key for local Ollama", async () => {
-  const { runStandaloneMemxQuickstart } = await import("../dist/src/host/standaloneQuickstart.mjs");
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
 
   const result = await runStandaloneMemxQuickstart({
     target: "mcp",
