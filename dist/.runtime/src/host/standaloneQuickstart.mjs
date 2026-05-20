@@ -82,7 +82,7 @@ function normalizeOptions(options) {
 	const llmModel = trimOrUndefined(options.llmModel);
 	if (!llmBaseUrl) throw new Error("standalone quickstart requires --llm-base-url");
 	if (!llmModel) throw new Error("standalone quickstart requires --llm-model");
-	if (options.mcpTools && options.mcpTools !== "full" && options.mcpTools !== "lifecycle-safe") throw new Error("standalone quickstart requires --mcp-tools to be full or lifecycle-safe");
+	if (options.mcpTools && options.mcpTools !== "full" && options.mcpTools !== "lifecycle-safe" && options.mcpTools !== "none") throw new Error("standalone quickstart requires --mcp-tools to be full, lifecycle-safe, or none");
 	const homeDir = options.homeDir ?? homedir();
 	const embeddingProvider = normalizeEmbeddingProvider(options.embeddingProvider);
 	return {
@@ -311,7 +311,7 @@ function claudeMcpConfig(options) {
 		env: {
 			MEMX_URL: options.memxUrl,
 			MEMX_SECRET: options.memxSecret ?? "",
-			MEMX_MCP_TOOLS: options.mcpTools ?? "lifecycle-safe"
+			MEMX_MCP_TOOLS: options.mcpTools ?? "none"
 		}
 	} } };
 }
@@ -559,8 +559,8 @@ function redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin,
 }
 function defaultMcpToolsForOptions(options) {
 	if (options.mcpTools) return options.mcpTools;
-	if (options.target === "codex" && !options.skipCodexPluginInstall) return "lifecycle-safe";
-	if (options.target === "claude-code" && !options.skipClaudePluginInstall) return "lifecycle-safe";
+	if (options.target === "codex" && !options.skipCodexPluginInstall) return "none";
+	if (options.target === "claude-code" && !options.skipClaudePluginInstall) return "none";
 	return "full";
 }
 async function runStandaloneMemxQuickstart(rawOptions, deps = {}) {

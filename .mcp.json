@@ -6,7 +6,7 @@
       "env": {
         "MEMX_URL": "${MEMX_URL}",
         "MEMX_SECRET": "${MEMX_SECRET}",
-        "MEMX_MCP_TOOLS": "lifecycle-safe"
+        "MEMX_MCP_TOOLS": "none"
       }
     }
   }

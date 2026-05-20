@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -152,7 +153,7 @@ test("native MCP config runs the local memX MCP binary from plugin root", () => 
   assert.deepEqual(entry.args, ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"]);
   assert.equal(entry.env.MEMX_URL, "${MEMX_URL}");
   assert.equal(entry.env.MEMX_SECRET, "${MEMX_SECRET}");
-  assert.equal(entry.env.MEMX_MCP_TOOLS, "lifecycle-safe");
+  assert.equal(entry.env.MEMX_MCP_TOOLS, "none");
 });
 
 test("host protocol normalizes Codex and Claude hooks into the same turn envelope", async () => {
@@ -308,14 +309,14 @@ test("MCP handler exposes memX tools and proxies calls to REST", async () => {
   assert.equal(initialized, null);
 });
 
-test("MCP lifecycle-safe profile hides tools covered by native hooks", async () => {
+test("MCP none profile hides all tools for native lifecycle plugins", async () => {
   const { handleMcpRequest } = await import("../dist/.runtime/src/host/mcpProtocol.mjs");
   const previous = process.env.MEMX_MCP_TOOLS;
-  process.env.MEMX_MCP_TOOLS = "lifecycle-safe";
+  process.env.MEMX_MCP_TOOLS = "none";
   try {
     const list = await handleMcpRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
     const toolNames = list.result.tools.map((tool) => tool.name).sort();
-    assert.deepEqual(toolNames, ["memx_audit", "memx_forget", "memx_stats"]);
+    assert.deepEqual(toolNames, []);
 
     const recall = await handleMcpRequest({
       jsonrpc: "2.0",
@@ -334,12 +335,60 @@ test("MCP lifecycle-safe profile hides tools covered by native hooks", async () 
     });
     assert.equal(remember.error.code, -32601);
     assert.match(remember.error.message, /not available/i);
+
+    const audit = await handleMcpRequest({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "memx_audit", arguments: { limit: 5 } },
+    });
+    assert.equal(audit.error.code, -32601);
+    assert.match(audit.error.message, /not available/i);
   } finally {
     if (previous === undefined) {
       delete process.env.MEMX_MCP_TOOLS;
     } else {
       process.env.MEMX_MCP_TOOLS = previous;
     }
+  }
+});
+
+test("standalone host service isolates default memory by native host", async () => {
+  const { MemxHostService } = await import("../dist/.runtime/src/host/service.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-host-scope-"));
+  const service = new MemxHostService({
+    config: {
+      dbPath: join(dir, "{agentId}", "memx.sqlite"),
+      defaultScope: "agent:{agentId}",
+      allowedScopes: ["agent:{agentId}", "session:{sessionKey}"],
+      embedding: { provider: "off" },
+      advanced: {
+        llmClassifierEnabled: false,
+        llmProvider: "openai-compatible",
+        llmClassifierModel: "unused",
+      },
+    },
+    logger: { warn() {}, info() {}, debug() {}, error() {} },
+  });
+  try {
+    const codex = await service.observe({
+      hostId: "codex",
+      sessionId: "same-session",
+      messages: [{ role: "user", content: "记住 Codex 使用 pnpm" }],
+    });
+    const claude = await service.observe({
+      hostId: "claude-code",
+      sessionId: "same-session",
+      messages: [{ role: "user", content: "记住 Claude 使用 uv" }],
+    });
+
+    assert.notEqual(codex.actorId, claude.actorId);
+    assert.match(codex.actorId, /^codex--/);
+    assert.match(claude.actorId, /^claude-code--/);
+    assert.equal(existsSync(join(dir, codex.actorId, "memx.sqlite")), true);
+    assert.equal(existsSync(join(dir, claude.actorId, "memx.sqlite")), true);
+  } finally {
+    await service.close();
   }
 });
 

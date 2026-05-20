@@ -141,12 +141,28 @@ function hostSessionKey(envelope: Pick<MemxTurnEnvelope, "hostId" | "sessionId">
   return `${envelope.hostId}:${envelope.sessionId || "default"}`;
 }
 
+function safeAgentPart(value: string | undefined, fallback: string): string {
+  const safe = (value?.trim() || fallback)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return safe || fallback;
+}
+
+function hostScopedAgentId(envelope: Pick<MemxTurnEnvelope, "hostId" | "actorId">): string {
+  const actor = safeAgentPart(envelope.actorId, "memx-shared");
+  if (envelope.hostId === "generic") {
+    return actor;
+  }
+  const hostPrefix = `${envelope.hostId}--`;
+  return actor.startsWith(hostPrefix) ? actor : `${hostPrefix}${actor}`;
+}
+
 function asEnvelopeContext(
   config: MemoryPluginConfig,
   envelope: Pick<MemxTurnEnvelope, "actorId" | "sessionId" | "hostId" | "workspaceDir" | "project" | "runId">,
 ): MemoryOperationContext {
   const ctx = buildOperationContext(config, {
-    agentId: envelope.actorId || "memx-shared",
+    agentId: hostScopedAgentId(envelope),
     sessionKey: hostSessionKey(envelope),
     workspaceDir: envelope.workspaceDir,
     project: envelope.project,

@@ -29,9 +29,10 @@ memX 的运行时由宿主 adapter 层和共享记忆引擎组成。
 归一化成 `MemxTurnEnvelope`：包含 `hostId`、`actorId`、`sessionId`、`workspaceDir`、`eventName`
 以及规范化后的 user/assistant/tool 消息，然后发给本地 memX service。service 统一持有 DB、
 embedding worker、turn scheduler 和 maintenance loop，因此 hook 自身不会启动独立记忆 worker。
-由于 hooks 已经接管自动召回和 turn 捕获，native MCP 工具面默认是 `lifecycle-safe`：只暴露
-`memx_stats`、`memx_audit` 和 `memx_forget`。如果明确需要，也可以通过 `--mcp-tools full`
-恢复召回/写入工具，但它们不是默认 native 生命周期路径的一部分。
+默认 native agent ID 会按 host 分区，所以 Codex 和 Claude Code 即使使用默认 actor，也会写到
+不同的本地数据库。由于 hooks 已经接管自动召回和 turn 捕获，native MCP 工具面默认是 `none`：
+不向 agent 暴露任何 memX 工具。如果明确需要，也可以通过 `--mcp-tools full` 恢复 MCP 工具，
+但它们不是默认 native 生命周期路径的一部分。
 
 对其它 agent，memX 通过 MCP 工具暴露同一套记忆引擎。MCP-only agent 可以调用 `memx_recall`、
 `memx_remember`、`memx_observe`、`memx_forget`、`memx_stats` 和 `memx_audit`。这条路径有意比

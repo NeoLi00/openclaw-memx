@@ -26,7 +26,7 @@ type McpTool = {
   };
 };
 
-export type MemxMcpToolsProfile = "full" | "lifecycle-safe";
+export type MemxMcpToolsProfile = "full" | "lifecycle-safe" | "none";
 
 export type MemxMcpProxy = (path: string, init: RequestInit) => Promise<unknown>;
 
@@ -112,6 +112,9 @@ const LIFECYCLE_SAFE_MCP_TOOLS = new Set(["memx_forget", "memx_stats", "memx_aud
 
 function activeToolsProfile(): MemxMcpToolsProfile {
   const raw = (process.env["MEMX_MCP_TOOLS"] || "").trim().toLowerCase();
+  if (raw === "none" || raw === "off" || raw === "disabled") {
+    return "none";
+  }
   if (raw === "lifecycle-safe" || raw === "native" || raw === "safe") {
     return "lifecycle-safe";
   }
@@ -119,6 +122,9 @@ function activeToolsProfile(): MemxMcpToolsProfile {
 }
 
 function toolsForProfile(profile: MemxMcpToolsProfile): McpTool[] {
+  if (profile === "none") {
+    return [];
+  }
   if (profile === "lifecycle-safe") {
     return MEMX_MCP_TOOLS.filter((tool) => LIFECYCLE_SAFE_MCP_TOOLS.has(tool.name));
   }

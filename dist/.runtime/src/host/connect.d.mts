@@ -3,7 +3,7 @@ type McpCommandConfig = {
   command: string;
   args: string[];
 };
-type McpToolsProfile = "full" | "lifecycle-safe";
+type McpToolsProfile = "full" | "lifecycle-safe" | "none";
 type GenericMcpConfig = {
   mcpServers: {
     memx: {

@@ -48,12 +48,12 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/codex.png" alt="Codex logo" width="34"></td>
     <td><strong>Codex</strong></td>
-    <td><sub>native hooks + lifecycle-safe MCP</sub></td>
+    <td><sub>native hooks, MCP hidden by default</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="34"></td>
     <td><strong>Claude Code</strong></td>
-    <td><sub>native hooks + lifecycle-safe MCP</sub></td>
+    <td><sub>native hooks, MCP hidden by default</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="34"></td>
@@ -95,11 +95,12 @@ want to override that default. Use `--dry-run` to preview the files and exec-for
 writing anything.
 
 For Codex and Claude Code, native hooks are the default lifecycle path for automatic recall and
-turn capture. Their MCP server uses a `lifecycle-safe` tool surface by default, exposing only
-`memx_stats`, `memx_audit`, and `memx_forget`; `memx_recall`, `memx_remember`, and `memx_observe`
-stay hidden so the same turn is not recalled or written twice. Use `--mcp-tools full` only when you
-intentionally want the agent to see the complete MCP tool set. Generic MCP quickstart stays `full`
-by default because it has no native lifecycle hooks.
+turn capture. Their MCP server uses `--mcp-tools none` by default, so no memX tools are exposed to
+the agent; this prevents duplicate recall/write and prevents the agent from reading audit data as a
+side channel. Use `--mcp-tools full` only when you intentionally want the agent to see the complete
+MCP tool set. Generic MCP quickstart stays `full` by default because it has no native lifecycle
+hooks. Default native memories are also host-scoped, so Codex and Claude Code do not share the same
+local database unless you deliberately override the database path and actor settings.
 
 ### Claude Code
 

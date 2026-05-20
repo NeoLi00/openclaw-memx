@@ -215,9 +215,10 @@ function normalizeOptions(
   if (
     options.mcpTools &&
     options.mcpTools !== "full" &&
-    options.mcpTools !== "lifecycle-safe"
+    options.mcpTools !== "lifecycle-safe" &&
+    options.mcpTools !== "none"
   ) {
-    throw new Error("standalone quickstart requires --mcp-tools to be full or lifecycle-safe");
+    throw new Error("standalone quickstart requires --mcp-tools to be full, lifecycle-safe, or none");
   }
   const homeDir = options.homeDir ?? homedir();
   const embeddingProvider = normalizeEmbeddingProvider(options.embeddingProvider);
@@ -491,7 +492,7 @@ function claudeMcpConfig(options: NormalizedStandaloneOptions): Record<string, u
         env: {
           MEMX_URL: options.memxUrl,
           MEMX_SECRET: options.memxSecret ?? "",
-          MEMX_MCP_TOOLS: options.mcpTools ?? "lifecycle-safe",
+          MEMX_MCP_TOOLS: options.mcpTools ?? "none",
         },
       },
     },
@@ -800,10 +801,10 @@ function defaultMcpToolsForOptions(options: NormalizedStandaloneOptions): McpToo
     return options.mcpTools;
   }
   if (options.target === "codex" && !options.skipCodexPluginInstall) {
-    return "lifecycle-safe";
+    return "none";
   }
   if (options.target === "claude-code" && !options.skipClaudePluginInstall) {
-    return "lifecycle-safe";
+    return "none";
   }
   return "full";
 }

@@ -93,7 +93,7 @@ test("standalone quickstart can configure Codex in one command", async () => {
   assert.match(toml, new RegExp(`command = ${JSON.stringify(process.execPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.match(toml, /src\/bin\/memx-mcp\.mjs/);
   assert.match(toml, /MEMX_URL = "http:\/\/127\.0\.0\.1:3878"/);
-  assert.match(toml, /MEMX_MCP_TOOLS = "lifecycle-safe"/);
+  assert.match(toml, /MEMX_MCP_TOOLS = "none"/);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-mcp.mjs")), true);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs")), true);
   assert.equal(
@@ -195,7 +195,7 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
     readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".mcp.json"), "utf8"),
   );
   assert.equal(mcp.mcpServers.memx.env.MEMX_URL, "http://127.0.0.1:3878");
-  assert.equal(mcp.mcpServers.memx.env.MEMX_MCP_TOOLS, "lifecycle-safe");
+  assert.equal(mcp.mcpServers.memx.env.MEMX_MCP_TOOLS, "none");
   const hookJson = readFileSync(
     join(dir, ".memx", "claude-marketplace", "plugins", "memx", "hooks", "hooks.json"),
     "utf8",

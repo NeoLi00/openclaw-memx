@@ -88,10 +88,12 @@ const LIFECYCLE_SAFE_MCP_TOOLS = new Set([
 ]);
 function activeToolsProfile() {
 	const raw = (process.env["MEMX_MCP_TOOLS"] || "").trim().toLowerCase();
+	if (raw === "none" || raw === "off" || raw === "disabled") return "none";
 	if (raw === "lifecycle-safe" || raw === "native" || raw === "safe") return "lifecycle-safe";
 	return "full";
 }
 function toolsForProfile(profile) {
+	if (profile === "none") return [];
 	if (profile === "lifecycle-safe") return MEMX_MCP_TOOLS.filter((tool) => LIFECYCLE_SAFE_MCP_TOOLS.has(tool.name));
 	return MEMX_MCP_TOOLS;
 }

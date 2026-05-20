@@ -74,9 +74,18 @@ function createServiceConfigFromEnv(env = process.env) {
 function hostSessionKey(envelope) {
 	return `${envelope.hostId}:${envelope.sessionId || "default"}`;
 }
+function safeAgentPart(value, fallback) {
+	return (value?.trim() || fallback).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || fallback;
+}
+function hostScopedAgentId(envelope) {
+	const actor = safeAgentPart(envelope.actorId, "memx-shared");
+	if (envelope.hostId === "generic") return actor;
+	const hostPrefix = `${envelope.hostId}--`;
+	return actor.startsWith(hostPrefix) ? actor : `${hostPrefix}${actor}`;
+}
 function asEnvelopeContext(config, envelope) {
 	const ctx = buildOperationContext(config, {
-		agentId: envelope.actorId || "memx-shared",
+		agentId: hostScopedAgentId(envelope),
 		sessionKey: hostSessionKey(envelope),
 		workspaceDir: envelope.workspaceDir,
 		project: envelope.project,

@@ -32,10 +32,11 @@ For Codex and Claude Code, memX ships native plugin manifests and host hooks. Th
 host payloads into a `MemxTurnEnvelope` with `hostId`, `actorId`, `sessionId`, `workspaceDir`,
 `eventName`, and normalized user/assistant/tool messages, then post the envelope to the local memX
 service. The service owns the DB, embedding worker, turn scheduler, and maintenance loop, so hooks
-do not start their own memory workers. Because hooks already own automatic recall and turn capture,
-the native MCP surface defaults to `lifecycle-safe`: only `memx_stats`, `memx_audit`, and
-`memx_forget` are exposed. The recall/write tools can be restored with `--mcp-tools full`, but they
-are not part of the default native lifecycle path.
+do not start their own memory workers. Default native agent IDs are host-scoped, so Codex and
+Claude Code write to separate local databases even when both use the default actor. Because hooks
+already own automatic recall and turn capture, the native MCP surface defaults to `none`: no memX
+tools are exposed to the agent. The MCP tools can be restored with `--mcp-tools full`, but they are
+not part of the default native lifecycle path.
 
 For all other agents, memX exposes the same memory engine through MCP tools. MCP-only agents can
 call `memx_recall`, `memx_remember`, `memx_observe`, `memx_forget`, `memx_stats`, and

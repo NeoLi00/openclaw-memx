@@ -24,7 +24,7 @@ type McpTool = {
     required?: string[];
   };
 };
-type MemxMcpToolsProfile = "full" | "lifecycle-safe";
+type MemxMcpToolsProfile = "full" | "lifecycle-safe" | "none";
 type MemxMcpProxy = (path: string, init: RequestInit) => Promise<unknown>;
 type MemxMcpHandlerDeps = {
   proxy?: MemxMcpProxy;

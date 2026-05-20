@@ -13,7 +13,7 @@ export type McpCommandConfig = {
   args: string[];
 };
 
-export type McpToolsProfile = "full" | "lifecycle-safe";
+export type McpToolsProfile = "full" | "lifecycle-safe" | "none";
 
 export type GenericMcpConfig = {
   mcpServers: {
