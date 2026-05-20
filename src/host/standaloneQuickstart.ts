@@ -11,6 +11,7 @@ import {
   applyCodexTomlConnect,
   buildGenericMcpConfig,
   type McpCommandConfig,
+  type McpToolsProfile,
 } from "./connect.js";
 
 const DEFAULT_CONFIG_PATH = join(homedir(), ".memx", "config.json");
@@ -54,6 +55,7 @@ export type StandaloneMemxQuickstartOptions = {
   pythonBin?: string;
   memxUrl?: string;
   memxSecret?: string;
+  mcpTools?: McpToolsProfile;
   skipEmbeddingDeps?: boolean;
   dryRun?: boolean;
 };
@@ -209,6 +211,13 @@ function normalizeOptions(
   }
   if (!llmModel) {
     throw new Error("standalone quickstart requires --llm-model");
+  }
+  if (
+    options.mcpTools &&
+    options.mcpTools !== "full" &&
+    options.mcpTools !== "lifecycle-safe"
+  ) {
+    throw new Error("standalone quickstart requires --mcp-tools to be full or lifecycle-safe");
   }
   const homeDir = options.homeDir ?? homedir();
   const embeddingProvider = normalizeEmbeddingProvider(options.embeddingProvider);
@@ -482,6 +491,7 @@ function claudeMcpConfig(options: NormalizedStandaloneOptions): Record<string, u
         env: {
           MEMX_URL: options.memxUrl,
           MEMX_SECRET: options.memxSecret ?? "",
+          MEMX_MCP_TOOLS: options.mcpTools ?? "lifecycle-safe",
         },
       },
     },
@@ -714,13 +724,20 @@ async function writeHostConfig(
   commandConfig: McpCommandConfig,
   codexPlugin: Record<string, unknown> | null,
   claudePlugin: Record<string, unknown> | null,
+  mcpTools: McpToolsProfile,
 ): Promise<Record<string, unknown> | null> {
   if (options.target === "codex") {
     const path = trimOrUndefined(options.codexConfigPath) ?? join(options.homeDir, ".codex", "config.toml");
     const current = existsSync(path) ? await readFile(path, "utf8") : "";
     await writeAtomic(
       path,
-      applyCodexTomlConnect(current, options.memxUrl, options.memxSecret ?? "", commandConfig),
+      applyCodexTomlConnect(
+        current,
+        options.memxUrl,
+        options.memxSecret ?? "",
+        commandConfig,
+        mcpTools,
+      ),
     );
     return { host: "codex", path, codexPlugin };
   }
@@ -730,7 +747,13 @@ async function writeHostConfig(
     }
     const path = trimOrUndefined(options.claudeConfigPath) ?? join(options.homeDir, ".claude.json");
     const current = await readJson(path);
-    const next = applyClaudeJsonConnect(current, options.memxUrl, options.memxSecret ?? "", commandConfig);
+    const next = applyClaudeJsonConnect(
+      current,
+      options.memxUrl,
+      options.memxSecret ?? "",
+      commandConfig,
+      mcpTools,
+    );
     await writeAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
     return { host: "claude-code", path };
   }
@@ -743,6 +766,7 @@ function redactSummary(
   commandConfig: McpCommandConfig,
   codexPlugin: Record<string, unknown> | null,
   claudePlugin: Record<string, unknown> | null,
+  mcpTools: McpToolsProfile,
 ) {
   return {
     target: options.target,
@@ -759,15 +783,29 @@ function redactSummary(
     embeddingModel: options.embeddingModel,
     embeddingPythonBin: options.embeddingPythonBin || null,
     memxUrl: options.memxUrl,
+    mcpTools,
     runtimeDir: options.runtimeDir,
     codexPlugin,
     claudePlugin,
     steps,
     mcpConfig:
       options.target === "mcp"
-        ? buildGenericMcpConfig(options.memxUrl, options.memxSecret ?? "", commandConfig)
+        ? buildGenericMcpConfig(options.memxUrl, options.memxSecret ?? "", commandConfig, mcpTools)
         : undefined,
   };
+}
+
+function defaultMcpToolsForOptions(options: NormalizedStandaloneOptions): McpToolsProfile {
+  if (options.mcpTools) {
+    return options.mcpTools;
+  }
+  if (options.target === "codex" && !options.skipCodexPluginInstall) {
+    return "lifecycle-safe";
+  }
+  if (options.target === "claude-code" && !options.skipClaudePluginInstall) {
+    return "lifecycle-safe";
+  }
+  return "full";
 }
 
 export async function runStandaloneMemxQuickstart(
@@ -775,6 +813,7 @@ export async function runStandaloneMemxQuickstart(
   deps: StandaloneQuickstartDeps = {},
 ): Promise<Record<string, unknown>> {
   const options = normalizeOptions(rawOptions);
+  const mcpTools = defaultMcpToolsForOptions(options);
   const current = await readJson(options.configPath);
   const next = applyStandaloneMemxQuickstartConfig(current, options);
   const steps = buildStandaloneMemxQuickstartSteps(options);
@@ -799,7 +838,7 @@ export async function runStandaloneMemxQuickstart(
     if (options.target === "claude-code" && !options.skipClaudePluginInstall) {
       claudePlugin = await installClaudePlugin(options, runCommand, runBestEffortCommand);
     }
-    hostConfig = await writeHostConfig(options, commandConfig, codexPlugin, claudePlugin);
+    hostConfig = await writeHostConfig(options, commandConfig, codexPlugin, claudePlugin, mcpTools);
     for (const step of steps) {
       const result = await runCommand(step.command, step.args);
       if (result.code !== 0) {
@@ -812,7 +851,7 @@ export async function runStandaloneMemxQuickstart(
   return {
     ok: true,
     dryRun: Boolean(options.dryRun),
-    ...redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin),
+    ...redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin, mcpTools),
     hostConfig,
     nextStep:
       "Start memx-server with this config, then use the configured MCP client or native plugin.",

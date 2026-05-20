@@ -13,6 +13,8 @@ export type McpCommandConfig = {
   args: string[];
 };
 
+export type McpToolsProfile = "full" | "lifecycle-safe";
+
 export type GenericMcpConfig = {
   mcpServers: {
     memx: {
@@ -21,6 +23,7 @@ export type GenericMcpConfig = {
       env: {
         MEMX_URL: string;
         MEMX_SECRET: string;
+        MEMX_MCP_TOOLS: McpToolsProfile;
       };
     };
   };
@@ -37,6 +40,7 @@ export function buildGenericMcpConfig(
   url = "${MEMX_URL}",
   secret = "${MEMX_SECRET}",
   commandConfig = defaultMcpCommand(),
+  mcpTools: McpToolsProfile = "full",
 ): GenericMcpConfig {
   return {
     mcpServers: {
@@ -46,6 +50,7 @@ export function buildGenericMcpConfig(
         env: {
           MEMX_URL: url,
           MEMX_SECRET: secret,
+          MEMX_MCP_TOOLS: mcpTools,
         },
       },
     },
@@ -84,6 +89,7 @@ export function applyCodexTomlConnect(
   url = DEFAULT_URL,
   secret = "${MEMX_SECRET}",
   commandConfig = defaultMcpCommand(),
+  mcpTools: McpToolsProfile = "full",
 ): string {
   const cleaned = stripCodexMemxBlock(toml);
   const block = [
@@ -94,6 +100,7 @@ export function applyCodexTomlConnect(
     CODEX_ENV_SECTION,
     `MEMX_URL = "${url}"`,
     `MEMX_SECRET = "${secret}"`,
+    `MEMX_MCP_TOOLS = "${mcpTools}"`,
     "",
   ].join("\n");
   return `${cleaned}${cleaned ? "\n\n" : ""}${block}`;
@@ -104,6 +111,7 @@ export function applyClaudeJsonConnect(
   url = "${MEMX_URL}",
   secret = "${MEMX_SECRET}",
   commandConfig = defaultMcpCommand(),
+  mcpTools: McpToolsProfile = "full",
 ): Record<string, unknown> {
   const base =
     input && typeof input === "object" && !Array.isArray(input)
@@ -117,7 +125,7 @@ export function applyClaudeJsonConnect(
     ...base,
     mcpServers: {
       ...currentServers,
-      memx: buildGenericMcpConfig(url, secret, commandConfig).mcpServers.memx,
+      memx: buildGenericMcpConfig(url, secret, commandConfig, mcpTools).mcpServers.memx,
     },
   };
 }

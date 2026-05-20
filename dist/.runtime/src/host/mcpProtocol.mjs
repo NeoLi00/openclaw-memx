@@ -81,6 +81,20 @@ const MEMX_MCP_TOOLS = [
 		}
 	}
 ];
+const LIFECYCLE_SAFE_MCP_TOOLS = new Set([
+	"memx_forget",
+	"memx_stats",
+	"memx_audit"
+]);
+function activeToolsProfile() {
+	const raw = (process.env["MEMX_MCP_TOOLS"] || "").trim().toLowerCase();
+	if (raw === "lifecycle-safe" || raw === "native" || raw === "safe") return "lifecycle-safe";
+	return "full";
+}
+function toolsForProfile(profile) {
+	if (profile === "lifecycle-safe") return MEMX_MCP_TOOLS.filter((tool) => LIFECYCLE_SAFE_MCP_TOOLS.has(tool.name));
+	return MEMX_MCP_TOOLS;
+}
 function asRecord(value) {
 	return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -180,10 +194,13 @@ async function handleMcpRequest(request, deps = {}) {
 			capabilities: { tools: {} }
 		});
 		if (request.method === "ping") return jsonResponse(id, {});
-		if (request.method === "tools/list") return jsonResponse(id, { tools: MEMX_MCP_TOOLS });
+		if (request.method === "tools/list") return jsonResponse(id, { tools: toolsForProfile(activeToolsProfile()) });
 		if (request.method === "tools/call") {
 			const params = asRecord(request.params);
-			const { path, init } = pathForTool(typeof params.name === "string" ? params.name : "", asRecord(params.arguments));
+			const name = typeof params.name === "string" ? params.name : "";
+			const args = asRecord(params.arguments);
+			if (!toolsForProfile(activeToolsProfile()).some((tool) => tool.name === name)) return errorResponse(id, -32601, `tool not available in this memX MCP profile: ${name}`);
+			const { path, init } = pathForTool(name, args);
 			return jsonResponse(id, textResult(await (deps.proxy ?? defaultMemxProxy)(path, init)));
 		}
 		return errorResponse(id, -32601, `method not found: ${request.method ?? "unknown"}`);

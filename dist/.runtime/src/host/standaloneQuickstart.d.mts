@@ -1,3 +1,4 @@
+import { McpToolsProfile } from "./connect.mjs";
 import { MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig } from "../types.mjs";
 
 //#region src/host/standaloneQuickstart.d.ts
@@ -32,6 +33,7 @@ type StandaloneMemxQuickstartOptions = {
   pythonBin?: string;
   memxUrl?: string;
   memxSecret?: string;
+  mcpTools?: McpToolsProfile;
   skipEmbeddingDeps?: boolean;
   dryRun?: boolean;
 };

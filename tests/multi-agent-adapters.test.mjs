@@ -152,6 +152,7 @@ test("native MCP config runs the local memX MCP binary from plugin root", () => 
   assert.deepEqual(entry.args, ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"]);
   assert.equal(entry.env.MEMX_URL, "${MEMX_URL}");
   assert.equal(entry.env.MEMX_SECRET, "${MEMX_SECRET}");
+  assert.equal(entry.env.MEMX_MCP_TOOLS, "lifecycle-safe");
 });
 
 test("host protocol normalizes Codex and Claude hooks into the same turn envelope", async () => {
@@ -305,6 +306,41 @@ test("MCP handler exposes memX tools and proxies calls to REST", async () => {
     params: {},
   });
   assert.equal(initialized, null);
+});
+
+test("MCP lifecycle-safe profile hides tools covered by native hooks", async () => {
+  const { handleMcpRequest } = await import("../dist/.runtime/src/host/mcpProtocol.mjs");
+  const previous = process.env.MEMX_MCP_TOOLS;
+  process.env.MEMX_MCP_TOOLS = "lifecycle-safe";
+  try {
+    const list = await handleMcpRequest({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const toolNames = list.result.tools.map((tool) => tool.name).sort();
+    assert.deepEqual(toolNames, ["memx_audit", "memx_forget", "memx_stats"]);
+
+    const recall = await handleMcpRequest({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "memx_recall", arguments: { query: "Notebook validator" } },
+    });
+    assert.equal(recall.error.code, -32601);
+    assert.match(recall.error.message, /not available/i);
+
+    const remember = await handleMcpRequest({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "memx_remember", arguments: { content: "Use pnpm" } },
+    });
+    assert.equal(remember.error.code, -32601);
+    assert.match(remember.error.message, /not available/i);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MEMX_MCP_TOOLS;
+    } else {
+      process.env.MEMX_MCP_TOOLS = previous;
+    }
+  }
 });
 
 test("MCP stdio accepts standard Content-Length framed requests", async () => {

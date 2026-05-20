@@ -5,7 +5,8 @@
       "args": ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"],
       "env": {
         "MEMX_URL": "${MEMX_URL}",
-        "MEMX_SECRET": "${MEMX_SECRET}"
+        "MEMX_SECRET": "${MEMX_SECRET}",
+        "MEMX_MCP_TOOLS": "lifecycle-safe"
       }
     }
   }

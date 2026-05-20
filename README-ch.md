@@ -48,12 +48,12 @@ memX 把完成后的工作 turn 编译成结构化、可检索、可维护的长
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/codex.png" alt="Codex logo" width="34"></td>
     <td><strong>Codex</strong></td>
-    <td><sub>原生 + hooks + MCP</sub></td>
+    <td><sub>原生 hooks + lifecycle-safe MCP</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="34"></td>
     <td><strong>Claude Code</strong></td>
-    <td><sub>原生 + hooks + MCP</sub></td>
+    <td><sub>原生 hooks + lifecycle-safe MCP</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="34"></td>
@@ -91,6 +91,12 @@ README 命令默认使用 GitHub package spec。每次全新执行都会拉取 G
 默认 embedding 是本地 `sentence-transformers-local`，模型 `intfloat/multilingual-e5-small`。
 只有想覆盖默认值时才需要额外传 `--embedding-provider` 和 `--embedding-model`。使用 `--dry-run`
 可以先预览会写入哪些文件、会执行哪些 exec-form 命令。
+
+对 Codex 和 Claude Code，native hooks 是默认生命周期入口，自动负责召回和 turn 捕获。它们的
+MCP server 默认使用 `lifecycle-safe` 工具面，只暴露 `memx_stats`、`memx_audit` 和
+`memx_forget`；`memx_recall`、`memx_remember`、`memx_observe` 默认隐藏，避免同一个 turn 被
+重复召回或重复写入。只有明确希望 agent 看见完整 MCP 工具集时，才加 `--mcp-tools full`。通用
+MCP quickstart 默认仍是 `full`，因为它没有 native lifecycle hooks。
 
 ### Claude Code
 

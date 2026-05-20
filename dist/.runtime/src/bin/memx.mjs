@@ -89,6 +89,7 @@ function parseStandaloneQuickstartOptions(target, argv) {
 		pythonBin: readOption(argv, "--python"),
 		memxUrl: readOption(argv, "--memx-url"),
 		memxSecret: readOption(argv, "--memx-secret"),
+		mcpTools: readOption(argv, "--mcp-tools"),
 		skipEmbeddingDeps: hasFlag(argv, "--skip-embedding-deps") || hasFlag(argv, "--no-install-embedding-deps"),
 		dryRun: hasFlag(argv, "--dry-run")
 	};

@@ -24,6 +24,7 @@ type McpTool = {
     required?: string[];
   };
 };
+type MemxMcpToolsProfile = "full" | "lifecycle-safe";
 type MemxMcpProxy = (path: string, init: RequestInit) => Promise<unknown>;
 type MemxMcpHandlerDeps = {
   proxy?: MemxMcpProxy;
@@ -32,4 +33,4 @@ declare const MEMX_MCP_TOOLS: McpTool[];
 declare function defaultMemxProxy(path: string, init: RequestInit): Promise<unknown>;
 declare function handleMcpRequest(request: JsonRpcRequest, deps?: MemxMcpHandlerDeps): Promise<JsonRpcHandlerResult>;
 //#endregion
-export { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, defaultMemxProxy, handleMcpRequest };
+export { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, MemxMcpToolsProfile, defaultMemxProxy, handleMcpRequest };

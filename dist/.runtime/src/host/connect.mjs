@@ -18,13 +18,14 @@ function defaultMcpCommand() {
 		]
 	};
 }
-function buildGenericMcpConfig(url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
+function buildGenericMcpConfig(url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand(), mcpTools = "full") {
 	return { mcpServers: { memx: {
 		command: commandConfig.command,
 		args: commandConfig.args,
 		env: {
 			MEMX_URL: url,
-			MEMX_SECRET: secret
+			MEMX_SECRET: secret,
+			MEMX_MCP_TOOLS: mcpTools
 		}
 	} } };
 }
@@ -48,7 +49,7 @@ function stripCodexMemxBlock(toml) {
 function applyCodexTomlDisconnect(toml) {
 	return stripCodexMemxBlock(toml);
 }
-function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
+function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand(), mcpTools = "full") {
 	const cleaned = stripCodexMemxBlock(toml);
 	const block = [
 		CODEX_SECTION,
@@ -58,18 +59,19 @@ function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}
 		CODEX_ENV_SECTION,
 		`MEMX_URL = "${url}"`,
 		`MEMX_SECRET = "${secret}"`,
+		`MEMX_MCP_TOOLS = "${mcpTools}"`,
 		""
 	].join("\n");
 	return `${cleaned}${cleaned ? "\n\n" : ""}${block}`;
 }
-function applyClaudeJsonConnect(input, url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
+function applyClaudeJsonConnect(input, url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand(), mcpTools = "full") {
 	const base = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
 	const currentServers = base.mcpServers && typeof base.mcpServers === "object" && !Array.isArray(base.mcpServers) ? base.mcpServers : {};
 	return {
 		...base,
 		mcpServers: {
 			...currentServers,
-			memx: buildGenericMcpConfig(url, secret, commandConfig).mcpServers.memx
+			memx: buildGenericMcpConfig(url, secret, commandConfig, mcpTools).mcpServers.memx
 		}
 	};
 }

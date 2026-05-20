@@ -48,12 +48,12 @@ It connects natively to Codex, Claude Code, and OpenClaw, and reaches any MCP-co
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/codex.png" alt="Codex logo" width="34"></td>
     <td><strong>Codex</strong></td>
-    <td><sub>native + hooks + MCP</sub></td>
+    <td><sub>native hooks + lifecycle-safe MCP</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/claude-code.png" alt="Claude Code logo" width="34"></td>
     <td><strong>Claude Code</strong></td>
-    <td><sub>native + hooks + MCP</sub></td>
+    <td><sub>native hooks + lifecycle-safe MCP</sub></td>
   </tr>
   <tr>
     <td align="center" width="56"><img src="./assets/agent-logos/openclaw.png" alt="OpenClaw logo" width="34"></td>
@@ -93,6 +93,13 @@ The default embedding setup is local `sentence-transformers-local` with
 `intfloat/multilingual-e5-small`. Add `--embedding-provider` and `--embedding-model` only when you
 want to override that default. Use `--dry-run` to preview the files and exec-form commands before
 writing anything.
+
+For Codex and Claude Code, native hooks are the default lifecycle path for automatic recall and
+turn capture. Their MCP server uses a `lifecycle-safe` tool surface by default, exposing only
+`memx_stats`, `memx_audit`, and `memx_forget`; `memx_recall`, `memx_remember`, and `memx_observe`
+stay hidden so the same turn is not recalled or written twice. Use `--mcp-tools full` only when you
+intentionally want the agent to see the complete MCP tool set. Generic MCP quickstart stays `full`
+by default because it has no native lifecycle hooks.
 
 ### Claude Code
 

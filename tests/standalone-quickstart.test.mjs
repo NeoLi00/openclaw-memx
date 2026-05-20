@@ -93,6 +93,7 @@ test("standalone quickstart can configure Codex in one command", async () => {
   assert.match(toml, new RegExp(`command = ${JSON.stringify(process.execPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.match(toml, /src\/bin\/memx-mcp\.mjs/);
   assert.match(toml, /MEMX_URL = "http:\/\/127\.0\.0\.1:3878"/);
+  assert.match(toml, /MEMX_MCP_TOOLS = "lifecycle-safe"/);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-mcp.mjs")), true);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs")), true);
   assert.equal(
@@ -194,6 +195,7 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
     readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".mcp.json"), "utf8"),
   );
   assert.equal(mcp.mcpServers.memx.env.MEMX_URL, "http://127.0.0.1:3878");
+  assert.equal(mcp.mcpServers.memx.env.MEMX_MCP_TOOLS, "lifecycle-safe");
   const hookJson = readFileSync(
     join(dir, ".memx", "claude-marketplace", "plugins", "memx", "hooks", "hooks.json"),
     "utf8",
@@ -258,4 +260,47 @@ test("standalone quickstart dry run shows no API key for local Ollama", async ()
   });
 
   assert.equal(result.llmApiKey, null);
+});
+
+test("standalone quickstart keeps generic MCP on the full tool surface", async () => {
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
+
+  const result = await runStandaloneMemxQuickstart({
+    target: "mcp",
+    llmProvider: "ollama",
+    llmBaseUrl: "http://127.0.0.1:11434",
+    llmModel: "qwen2.5:7b",
+    skipEmbeddingDeps: true,
+    dryRun: true,
+  });
+
+  assert.equal(result.mcpConfig.mcpServers.memx.env.MEMX_MCP_TOOLS, "full");
+});
+
+test("standalone quickstart can explicitly expose full MCP tools for native hosts", async () => {
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-codex-full-mcp-"));
+  const configPath = join(dir, "config.json");
+  const codexConfigPath = join(dir, "codex.toml");
+
+  await runStandaloneMemxQuickstart(
+    {
+      target: "codex",
+      configPath,
+      codexConfigPath,
+      homeDir: dir,
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-standalone",
+      mcpTools: "full",
+      skipEmbeddingDeps: true,
+    },
+    {
+      runCommand: async () => ({ code: 0 }),
+    },
+  );
+
+  const toml = readFileSync(codexConfigPath, "utf8");
+  assert.match(toml, /MEMX_MCP_TOOLS = "full"/);
 });
