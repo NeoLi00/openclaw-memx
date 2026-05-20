@@ -44,6 +44,15 @@ test("package ships standalone bins and native plugin assets", () => {
   }
 });
 
+test("standalone server bundle does not require OpenClaw at runtime", () => {
+  const embeddingBackend = readFileSync(
+    join(rootPath, "dist/src/search/backends/embeddingBackend.mjs"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(embeddingBackend, /openclaw\/plugin-sdk/);
+});
+
 test("Codex native plugin manifest wires MCP and supported hooks only", () => {
   const manifest = readJson(".codex-plugin/plugin.json");
   assert.equal(manifest.name, "memx");

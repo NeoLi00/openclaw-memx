@@ -4,8 +4,8 @@ import { mergeHybridHits } from "./hybrid.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 //#region src/search/backends/embeddingBackend.ts
 var LocalEmbeddingTimeoutError = class extends Error {
 	constructor(message) {
@@ -26,6 +26,78 @@ const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 12e4;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 3e5;
 const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(new URL("../../../sentence_transformers_embedder.py", import.meta.url));
+async function runCommandWithTimeout(commandAndArgs, options) {
+	const [command, ...args] = commandAndArgs;
+	if (!command) throw new Error("missing command");
+	return new Promise((resolve, reject) => {
+		const child = spawn(command, args, {
+			shell: false,
+			stdio: [
+				"ignore",
+				"pipe",
+				"pipe"
+			]
+		});
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+		let timeout;
+		let noOutputTimeout;
+		const clearTimers = () => {
+			if (timeout) clearTimeout(timeout);
+			if (noOutputTimeout) clearTimeout(noOutputTimeout);
+		};
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			clearTimers();
+			resolve(result);
+		};
+		const resetNoOutputTimeout = () => {
+			if (!options.noOutputTimeoutMs) return;
+			if (noOutputTimeout) clearTimeout(noOutputTimeout);
+			noOutputTimeout = setTimeout(() => {
+				child.kill("SIGTERM");
+				finish({
+					code: null,
+					stdout,
+					stderr,
+					termination: "no-output-timeout"
+				});
+			}, options.noOutputTimeoutMs);
+			noOutputTimeout.unref();
+		};
+		child.stdout?.on("data", (chunk) => {
+			stdout += chunk.toString("utf8");
+			resetNoOutputTimeout();
+		});
+		child.stderr?.on("data", (chunk) => {
+			stderr += chunk.toString("utf8");
+			resetNoOutputTimeout();
+		});
+		child.once("error", (error) => {
+			if (settled) return;
+			clearTimers();
+			reject(error);
+		});
+		child.once("close", (code) => finish({
+			code,
+			stdout,
+			stderr
+		}));
+		timeout = setTimeout(() => {
+			child.kill("SIGTERM");
+			finish({
+				code: null,
+				stdout,
+				stderr,
+				termination: "timeout"
+			});
+		}, options.timeoutMs);
+		timeout.unref();
+		resetNoOutputTimeout();
+	});
+}
 async function fetchJson(url, init) {
 	const response = await fetch(url, init);
 	if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);

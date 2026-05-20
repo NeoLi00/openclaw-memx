@@ -174,7 +174,7 @@ async function handleMcpRequest(request, deps = {}) {
 			protocolVersion: "2024-11-05",
 			serverInfo: {
 				name: "memx",
-				version: "2026.3.14"
+				version: "2026.3.15"
 			},
 			capabilities: { tools: {} }
 		});

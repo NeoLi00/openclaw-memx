@@ -1,8 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCommandWithTimeout } from "openclaw/plugin-sdk/process-runtime";
 import type { VectorRepo } from "../../db/repositories/vectorRepo.js";
 import { cosineSimilarity, orderByScore } from "../../support.js";
 import type {
@@ -29,6 +29,12 @@ type LocalEmbeddingResponse = {
   embeddings?: number[][];
   error?: string;
 };
+type CommandTimeoutResult = {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  termination?: "timeout" | "no-output-timeout";
+};
 
 class LocalEmbeddingTimeoutError extends Error {
   constructor(message: string) {
@@ -53,6 +59,78 @@ const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
 const LOCAL_WORKER_PATH = fileURLToPath(
   new URL("../../../sentence_transformers_embedder.py", import.meta.url),
 );
+
+async function runCommandWithTimeout(
+  commandAndArgs: string[],
+  options: { timeoutMs: number; noOutputTimeoutMs?: number },
+): Promise<CommandTimeoutResult> {
+  const [command, ...args] = commandAndArgs;
+  if (!command) {
+    throw new Error("missing command");
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let noOutputTimeout: NodeJS.Timeout | undefined;
+
+    const clearTimers = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (noOutputTimeout) {
+        clearTimeout(noOutputTimeout);
+      }
+    };
+    const finish = (result: CommandTimeoutResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimers();
+      resolve(result);
+    };
+    const resetNoOutputTimeout = () => {
+      if (!options.noOutputTimeoutMs) {
+        return;
+      }
+      if (noOutputTimeout) {
+        clearTimeout(noOutputTimeout);
+      }
+      noOutputTimeout = setTimeout(() => {
+        child.kill("SIGTERM");
+        finish({ code: null, stdout, stderr, termination: "no-output-timeout" });
+      }, options.noOutputTimeoutMs);
+      noOutputTimeout.unref();
+    };
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      resetNoOutputTimeout();
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+      resetNoOutputTimeout();
+    });
+    child.once("error", (error) => {
+      if (settled) {
+        return;
+      }
+      clearTimers();
+      reject(error);
+    });
+    child.once("close", (code) => finish({ code, stdout, stderr }));
+
+    timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      finish({ code: null, stdout, stderr, termination: "timeout" });
+    }, options.timeoutMs);
+    timeout.unref();
+    resetNoOutputTimeout();
+  });
+}
 
 async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
   const response = await fetch(url, init);

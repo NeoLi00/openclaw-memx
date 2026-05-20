@@ -184,7 +184,7 @@ export async function handleMcpRequest(
     if (request.method === "initialize") {
       return jsonResponse(id, {
         protocolVersion: "2024-11-05",
-        serverInfo: { name: "memx", version: "2026.3.14" },
+        serverInfo: { name: "memx", version: "2026.3.15" },
         capabilities: { tools: {} },
       });
     }
