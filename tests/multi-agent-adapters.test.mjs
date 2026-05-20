@@ -266,6 +266,91 @@ test("Codex UserPromptSubmit hook injects recalled context and still observes th
   );
 });
 
+test("Codex UserPromptSubmit hook recalls before observing the current prompt", async () => {
+  let currentPromptObserved = false;
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    res.writeHead(200, { "content-type": "application/json" });
+    if (req.url === "/v1/observe") {
+      currentPromptObserved = body.messages?.some((message) =>
+        String(message.content ?? "").includes("NebulaLedger"),
+      );
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.url === "/v1/context") {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      res.end(
+        JSON.stringify({
+          ok: true,
+          prependContext: currentPromptObserved
+            ? "## memX Memory\n- leaked current prompt: NebulaLedger"
+            : "## memX Memory\n- previous memory only",
+        }),
+      );
+      return;
+    }
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const child = spawn(process.execPath, [join(rootPath, "dist/.runtime/src/bin/memx-hook.mjs"), "codex", "UserPromptSubmit"], {
+    env: {
+      ...process.env,
+      MEMX_URL: `http://127.0.0.1:${address.port}`,
+      MEMX_HOOK_TIMEOUT_MS: "2000",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  child.stdin.end(
+    JSON.stringify({
+      session_id: "codex-session",
+      cwd: "/tmp/project",
+      prompt: "NebulaLedger 的校验命令是什么？",
+    }),
+  );
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("memx-hook current prompt ordering test timed out"));
+    }, 5000);
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
+    });
+  });
+  await new Promise((resolve) => server.close(resolve));
+
+  assert.equal(exitCode, 0, stderr);
+  const output = JSON.parse(stdout);
+  assert.equal(
+    output.hookSpecificOutput.additionalContext,
+    "## memX Memory\n- previous memory only",
+  );
+});
+
 test("MCP handler exposes memX tools and proxies calls to REST", async () => {
   const { handleMcpRequest } = await import("../dist/.runtime/src/host/mcpProtocol.mjs");
   const calls = [];
@@ -387,6 +472,38 @@ test("standalone host service isolates default memory by native host", async () 
     assert.match(claude.actorId, /^claude-code--/);
     assert.equal(existsSync(join(dir, codex.actorId, "memx.sqlite")), true);
     assert.equal(existsSync(join(dir, claude.actorId, "memx.sqlite")), true);
+  } finally {
+    await service.close();
+  }
+});
+
+test("standalone host service returns no injected context when recall has no evidence", async () => {
+  const { DEFAULT_MEMORY_CONFIG } = await import("../dist/.runtime/src/config.mjs");
+  const { MemxHostService } = await import("../dist/.runtime/src/host/service.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-empty-recall-"));
+  const config = structuredClone(DEFAULT_MEMORY_CONFIG);
+  config.dbPath = join(dir, "{agentId}", "memx.sqlite");
+  config.embedding.provider = "off";
+  config.advanced.llmClassifierEnabled = false;
+  config.advanced.enableMaintenanceJobs = false;
+  config.advanced.enableTurnSemanticCompiler = false;
+  config.advanced.enableQueryCompiler = false;
+  config.advanced.enableEmbeddingCandidates = false;
+  config.advanced.enableEmbeddingClustering = false;
+  const service = new MemxHostService({
+    config,
+    logger: { warn() {}, info() {}, debug() {}, error() {} },
+  });
+  try {
+    const result = await service.context({
+      hostId: "codex",
+      actorId: "memx-shared",
+      sessionId: "empty-session",
+      query: "NebulaLedger 的校验命令是什么？",
+    });
+
+    assert.equal(result.prependContext, "");
+    assert.equal(result.recall.context, "");
   } finally {
     await service.close();
   }

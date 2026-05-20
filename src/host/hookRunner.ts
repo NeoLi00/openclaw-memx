@@ -93,25 +93,24 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
   try {
     const envelope = normalizeHookPayload(host, eventName, payload);
     const requestTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : 3000;
+    const startedAt = Date.now();
+    const remainingTimeoutMs = () => Math.max(250, requestTimeoutMs - (Date.now() - startedAt));
     const contextRequest = hookCanInjectContext(envelope.hostId, eventName)
       ? contextRequestFromEnvelope(envelope)
       : null;
-    const observe = post("/v1/observe", envelope, requestTimeoutMs);
     if (!contextRequest) {
-      await observe;
+      await post("/v1/observe", envelope, requestTimeoutMs);
       return;
     }
-    const [observeResult, contextResult] = await Promise.allSettled([
-      observe,
-      post("/v1/context", contextRequest, requestTimeoutMs),
-    ]);
-    if (observeResult.status === "rejected" && process.env["MEMX_HOOK_DEBUG"] === "1") {
-      console.error(
-        `memx hook observe failed: ${
-          observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)
-        }`,
+
+    // Recall must read the previous memory epoch. If observe runs first, the current prompt
+    // can be persisted quickly enough to be injected back into itself as "memory".
+    const contextResult = await Promise.resolve()
+      .then(() => post("/v1/context", contextRequest, remainingTimeoutMs()))
+      .then(
+        (value) => ({ status: "fulfilled" as const, value }),
+        (reason) => ({ status: "rejected" as const, reason }),
       );
-    }
     if (contextResult.status === "fulfilled") {
       const context = recalledContext(contextResult.value);
       if (context) {
@@ -121,6 +120,20 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
       console.error(
         `memx hook recall failed: ${
           contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)
+        }`,
+      );
+    }
+
+    const observeResult = await Promise.resolve()
+      .then(() => post("/v1/observe", envelope, remainingTimeoutMs()))
+      .then(
+        () => ({ status: "fulfilled" as const }),
+        (reason) => ({ status: "rejected" as const, reason }),
+      );
+    if (observeResult.status === "rejected" && process.env["MEMX_HOOK_DEBUG"] === "1") {
+      console.error(
+        `memx hook observe failed: ${
+          observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)
         }`,
       );
     }

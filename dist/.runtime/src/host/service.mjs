@@ -106,15 +106,19 @@ function formatEvidenceRows(title, rows, limit) {
 	})];
 }
 function formatRecallContext(bundle, limit) {
-	return [
-		"## memX Memory",
-		"Use the following remembered context only when it directly helps the current request.",
+	const evidenceLines = [
 		...formatEvidenceRows("Guidance", bundle.behavioralGuidance.map((text) => ({ text })), Math.min(limit, 4)),
 		...formatEvidenceRows("State", bundle.states, limit),
 		...formatEvidenceRows("Facts", bundle.facts, limit),
 		...formatEvidenceRows("Events", bundle.events, limit),
 		...formatEvidenceRows("Graph", bundle.graph.paths.map((path) => ({ text: path.summary })), Math.min(limit, 4))
-	].filter((line) => line.trim().length > 0).join("\n");
+	].filter((line) => line.trim().length > 0);
+	if (evidenceLines.length === 0) return "";
+	return [
+		"## memX Memory",
+		"Use the following remembered context only when it directly helps the current request.",
+		...evidenceLines
+	].join("\n");
 }
 var MemxHostService = class {
 	config;

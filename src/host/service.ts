@@ -195,9 +195,7 @@ function formatEvidenceRows(title: string, rows: Array<{ text: string; observedA
 }
 
 function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
-  const lines = [
-    "## memX Memory",
-    "Use the following remembered context only when it directly helps the current request.",
+  const evidenceLines = [
     ...formatEvidenceRows("Guidance", bundle.behavioralGuidance.map((text) => ({ text })), Math.min(limit, 4)),
     ...formatEvidenceRows("State", bundle.states, limit),
     ...formatEvidenceRows("Facts", bundle.facts, limit),
@@ -208,7 +206,14 @@ function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
       Math.min(limit, 4),
     ),
   ].filter((line) => line.trim().length > 0);
-  return lines.join("\n");
+  if (evidenceLines.length === 0) {
+    return "";
+  }
+  return [
+    "## memX Memory",
+    "Use the following remembered context only when it directly helps the current request.",
+    ...evidenceLines,
+  ].join("\n");
 }
 
 export class MemxHostService {

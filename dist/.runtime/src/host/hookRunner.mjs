@@ -73,18 +73,29 @@ async function runMemxHook(argv = process.argv.slice(2)) {
 	try {
 		const envelope = normalizeHookPayload(host, eventName, payload);
 		const requestTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : 3e3;
+		const startedAt = Date.now();
+		const remainingTimeoutMs = () => Math.max(250, requestTimeoutMs - (Date.now() - startedAt));
 		const contextRequest = hookCanInjectContext(envelope.hostId, eventName) ? contextRequestFromEnvelope(envelope) : null;
-		const observe = post("/v1/observe", envelope, requestTimeoutMs);
 		if (!contextRequest) {
-			await observe;
+			await post("/v1/observe", envelope, requestTimeoutMs);
 			return;
 		}
-		const [observeResult, contextResult] = await Promise.allSettled([observe, post("/v1/context", contextRequest, requestTimeoutMs)]);
-		if (observeResult.status === "rejected" && process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook observe failed: ${observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)}`);
+		const contextResult = await Promise.resolve().then(() => post("/v1/context", contextRequest, remainingTimeoutMs())).then((value) => ({
+			status: "fulfilled",
+			value
+		}), (reason) => ({
+			status: "rejected",
+			reason
+		}));
 		if (contextResult.status === "fulfilled") {
 			const context = recalledContext(contextResult.value);
 			if (context) writeAdditionalContext(eventName, context);
 		} else if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook recall failed: ${contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)}`);
+		const observeResult = await Promise.resolve().then(() => post("/v1/observe", envelope, remainingTimeoutMs())).then(() => ({ status: "fulfilled" }), (reason) => ({
+			status: "rejected",
+			reason
+		}));
+		if (observeResult.status === "rejected" && process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook observe failed: ${observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)}`);
 	} catch (error) {
 		if (process.env["MEMX_HOOK_DEBUG"] === "1") console.error(`memx hook failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
