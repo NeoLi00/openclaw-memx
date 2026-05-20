@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyClaudeJsonDisconnect, applyCodexTomlDisconnect } from "./connect.js";
@@ -9,6 +9,8 @@ import { LEGACY_MEMX_PLUGIN_ID, MEMX_PLUGIN_ID, withoutLegacyPluginIds } from ".
 const DEFAULT_OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 const DEFAULT_CODEX_CONFIG_PATH = join(homedir(), ".codex", "config.toml");
 const DEFAULT_CLAUDE_CONFIG_PATH = join(homedir(), ".claude.json");
+const DEFAULT_CODEX_MARKETPLACE_DIRNAME = "codex-marketplace";
+const DEFAULT_CLAUDE_MARKETPLACE_DIRNAME = "claude-marketplace";
 
 type OpenClawConfigLike = {
   plugins?: {
@@ -40,7 +42,11 @@ export type OpenClawUninstallOptions = {
 
 export type StandaloneUninstallOptions = {
   configPath?: string;
+  homeDir?: string;
   codexBin?: string;
+  claudeBin?: string;
+  codexMarketplaceDir?: string;
+  claudeMarketplaceDir?: string;
   dryRun?: boolean;
 };
 
@@ -57,6 +63,14 @@ function trimOrUndefined(value: string | undefined): string | undefined {
 
 function isMemxId(value: string | undefined): boolean {
   return value === MEMX_PLUGIN_ID || value === LEGACY_MEMX_PLUGIN_ID;
+}
+
+function localCodexMarketplaceDir(homeDir: string): string {
+  return join(homeDir, ".memx", DEFAULT_CODEX_MARKETPLACE_DIRNAME);
+}
+
+function localClaudeMarketplaceDir(homeDir: string): string {
+  return join(homeDir, ".memx", DEFAULT_CLAUDE_MARKETPLACE_DIRNAME);
 }
 
 export function applyOpenClawUninstallConfig(input: unknown): OpenClawConfigLike {
@@ -120,6 +134,11 @@ function warningForFailedUninstall(result: UninstallCommandResult): string {
   return `plugin uninstall exited ${result.code}${detail ? `: ${detail}` : ""}`;
 }
 
+function isExpectedMissingCleanup(result: UninstallCommandResult): boolean {
+  const detail = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
+  return /not found|not installed|not configured/iu.test(detail);
+}
+
 function stripTomlSection(toml: string, header: string): string {
   const escaped = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return toml.replace(new RegExp(`\\n?${escaped}\\n[\\s\\S]*?(?=\\n\\[|$)`, "u"), "");
@@ -150,14 +169,16 @@ export async function runOpenClawUninstall(
     await writeAtomic(configPath, `${JSON.stringify(next, null, 2)}\n`);
     if (!rawOptions.skipPluginUninstall) {
       const runCommand = deps.runCommand ?? defaultRunCommand;
-      const result = await runCommand(openclawBin, [
-        "plugins",
-        "uninstall",
-        MEMX_PLUGIN_ID,
-        "--force",
-      ]);
-      if (result.code !== 0) {
-        warnings.push(warningForFailedUninstall(result));
+      for (const pluginId of [MEMX_PLUGIN_ID, LEGACY_MEMX_PLUGIN_ID]) {
+        const result = await runCommand(openclawBin, [
+          "plugins",
+          "uninstall",
+          pluginId,
+          "--force",
+        ]);
+        if (result.code !== 0 && !isExpectedMissingCleanup(result)) {
+          warnings.push(warningForFailedUninstall(result));
+        }
       }
     }
   }
@@ -187,6 +208,9 @@ export async function runCodexUninstall(
 ): Promise<Record<string, unknown>> {
   const configPath = trimOrUndefined(rawOptions.configPath) ?? DEFAULT_CODEX_CONFIG_PATH;
   const codexBin = trimOrUndefined(rawOptions.codexBin) ?? "codex";
+  const homeDir = trimOrUndefined(rawOptions.homeDir) ?? homedir();
+  const marketplaceDir =
+    trimOrUndefined(rawOptions.codexMarketplaceDir) ?? localCodexMarketplaceDir(homeDir);
   const now = deps.now ?? Date.now;
   const dryRun = Boolean(rawOptions.dryRun);
   const current = existsSync(configPath) ? await readFile(configPath, "utf8") : "";
@@ -202,16 +226,18 @@ export async function runCodexUninstall(
       ["plugin", "marketplace", "remove", "memx"],
     ]) {
       const result = await runCommand(codexBin, args);
-      if (result.code !== 0) {
+      if (result.code !== 0 && !isExpectedMissingCleanup(result)) {
         warnings.push(warningForFailedUninstall(result));
       }
     }
+    await rm(marketplaceDir, { recursive: true, force: true });
   }
   return {
     ok: true,
     target: "codex",
     dryRun,
     configPath,
+    marketplaceDir,
     backupPath,
     warnings,
     removed: current !== next,
@@ -220,24 +246,43 @@ export async function runCodexUninstall(
 
 export async function runClaudeCodeUninstall(
   rawOptions: StandaloneUninstallOptions = {},
-  deps: Pick<UninstallDeps, "now"> = {},
+  deps: Pick<UninstallDeps, "now" | "runCommand"> = {},
 ): Promise<Record<string, unknown>> {
   const configPath = trimOrUndefined(rawOptions.configPath) ?? DEFAULT_CLAUDE_CONFIG_PATH;
+  const claudeBin = trimOrUndefined(rawOptions.claudeBin) ?? "claude";
+  const homeDir = trimOrUndefined(rawOptions.homeDir) ?? homedir();
+  const marketplaceDir =
+    trimOrUndefined(rawOptions.claudeMarketplaceDir) ?? localClaudeMarketplaceDir(homeDir);
   const now = deps.now ?? Date.now;
   const dryRun = Boolean(rawOptions.dryRun);
   const current = existsSync(configPath) ? JSON.parse(await readFile(configPath, "utf8")) : {};
   const next = applyClaudeJsonDisconnect(current);
   let backupPath: string | null = null;
+  const warnings: string[] = [];
   if (!dryRun) {
     backupPath = await backupIfExists(configPath, now);
     await writeAtomic(configPath, `${JSON.stringify(next, null, 2)}\n`);
+    const runCommand = deps.runCommand ?? defaultRunCommand;
+    for (const args of [
+      ["plugin", "uninstall", "memx@memx"],
+      ["plugin", "uninstall", "memx"],
+      ["plugin", "marketplace", "remove", "memx"],
+    ]) {
+      const result = await runCommand(claudeBin, args);
+      if (result.code !== 0 && !isExpectedMissingCleanup(result)) {
+        warnings.push(warningForFailedUninstall(result));
+      }
+    }
+    await rm(marketplaceDir, { recursive: true, force: true });
   }
   return {
     ok: true,
     target: "claude-code",
     dryRun,
     configPath,
+    marketplaceDir,
     backupPath,
+    warnings,
     removed: Boolean(
       current?.mcpServers &&
         typeof current.mcpServers === "object" &&

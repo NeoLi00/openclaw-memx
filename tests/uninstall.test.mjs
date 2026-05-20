@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -56,6 +56,9 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
   const { runCodexUninstall } = await import("../dist/.runtime/src/host/uninstall.mjs");
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-uninstall-"));
   const configPath = join(dir, "config.toml");
+  const codexMarketplaceDir = join(dir, ".memx", "codex-marketplace");
+  mkdirSync(codexMarketplaceDir, { recursive: true });
+  writeFileSync(join(codexMarketplaceDir, "marker.txt"), "stale", "utf8");
   await import("node:fs/promises").then(({ writeFile }) =>
     writeFile(
       configPath,
@@ -77,7 +80,7 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
   const calls = [];
 
   const result = await runCodexUninstall(
-    { configPath, codexBin: "codex-test" },
+    { configPath, codexBin: "codex-test", codexMarketplaceDir },
     {
       now: () => 123,
       runCommand: async (command, args) => {
@@ -95,12 +98,14 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
     { command: "codex-test", args: ["plugin", "marketplace", "remove", "memx"] },
   ]);
   assert.equal(result.backupPath, `${configPath}.bak.123`);
+  assert.equal(existsSync(codexMarketplaceDir), false);
 });
 
-test("Claude Code uninstall removes memx MCP server only", async () => {
+test("Claude Code uninstall removes memx MCP server, native plugin, and marketplace", async () => {
   const { applyClaudeJsonDisconnect } = await import(
     "../dist/.runtime/src/host/connect.mjs"
   );
+  const { runClaudeCodeUninstall } = await import("../dist/.runtime/src/host/uninstall.mjs");
 
   const next = applyClaudeJsonDisconnect({
     theme: "dark",
@@ -116,6 +121,44 @@ test("Claude Code uninstall removes memx MCP server only", async () => {
       other: { command: "node" },
     },
   });
+
+  const dir = mkdtempSync(join(tmpdir(), "memx-claude-uninstall-"));
+  const configPath = join(dir, "claude.json");
+  const claudeMarketplaceDir = join(dir, ".memx", "claude-marketplace");
+  mkdirSync(claudeMarketplaceDir, { recursive: true });
+  writeFileSync(join(claudeMarketplaceDir, "marker.txt"), "stale", "utf8");
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      mcpServers: {
+        memx: { command: "node" },
+        other: { command: "node" },
+      },
+    }),
+    "utf8",
+  );
+  const calls = [];
+
+  const result = await runClaudeCodeUninstall(
+    { configPath, claudeBin: "claude-test", claudeMarketplaceDir },
+    {
+      now: () => 123,
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { code: 0 };
+      },
+    },
+  );
+
+  const written = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.deepEqual(written.mcpServers, { other: { command: "node" } });
+  assert.deepEqual(calls, [
+    { command: "claude-test", args: ["plugin", "uninstall", "memx@memx"] },
+    { command: "claude-test", args: ["plugin", "uninstall", "memx"] },
+    { command: "claude-test", args: ["plugin", "marketplace", "remove", "memx"] },
+  ]);
+  assert.equal(result.backupPath, `${configPath}.bak.123`);
+  assert.equal(existsSync(claudeMarketplaceDir), false);
 });
 
 test("OpenClaw uninstall backs up config and treats plugin uninstall as best effort", async () => {
@@ -152,8 +195,9 @@ test("OpenClaw uninstall backs up config and treats plugin uninstall as best eff
   assert.equal(existsSync(`${configPath}.bak.123`), true);
   assert.deepEqual(calls, [
     { command: "openclaw", args: ["plugins", "uninstall", "memx", "--force"] },
+    { command: "openclaw", args: ["plugins", "uninstall", "memory-memx", "--force"] },
   ]);
   const written = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(written.plugins.slots.memory, undefined);
-  assert.deepEqual(result.warnings, ["plugin uninstall exited 1: not installed"]);
+  assert.deepEqual(result.warnings, []);
 });

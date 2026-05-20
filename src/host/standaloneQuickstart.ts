@@ -19,6 +19,8 @@ const DEFAULT_MEMX_URL = "http://127.0.0.1:3878";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 const DEFAULT_RUNTIME_DIRNAME = "runtime";
 const DEFAULT_CODEX_MARKETPLACE_DIRNAME = "codex-marketplace";
+const DEFAULT_CLAUDE_MARKETPLACE_DIRNAME = "claude-marketplace";
+const MEMX_PLUGIN_VERSION = "2026.3.15";
 
 export type StandaloneQuickstartTarget = "codex" | "claude-code" | "mcp";
 
@@ -42,6 +44,9 @@ export type StandaloneMemxQuickstartOptions = {
   codexBin?: string;
   codexMarketplaceDir?: string;
   skipCodexPluginInstall?: boolean;
+  claudeBin?: string;
+  claudeMarketplaceDir?: string;
+  skipClaudePluginInstall?: boolean;
   configPath?: string;
   codexConfigPath?: string;
   claudeConfigPath?: string;
@@ -67,6 +72,8 @@ type NormalizedStandaloneOptions = Required<
     | "runtimeDir"
     | "codexBin"
     | "codexMarketplaceDir"
+    | "claudeBin"
+    | "claudeMarketplaceDir"
   >
 > &
   Omit<
@@ -82,6 +89,8 @@ type NormalizedStandaloneOptions = Required<
     | "runtimeDir"
     | "codexBin"
     | "codexMarketplaceDir"
+    | "claudeBin"
+    | "claudeMarketplaceDir"
   > & {
     embeddingProvider: MemoryEmbeddingProvider;
     embeddingModel: string;
@@ -126,6 +135,10 @@ function localCodexMarketplaceDir(homeDir: string): string {
   return join(homeDir, ".memx", DEFAULT_CODEX_MARKETPLACE_DIRNAME);
 }
 
+function localClaudeMarketplaceDir(homeDir: string): string {
+  return join(homeDir, ".memx", DEFAULT_CLAUDE_MARKETPLACE_DIRNAME);
+}
+
 function currentRuntimeRoot(): string {
   return fileURLToPath(new URL("../../", import.meta.url));
 }
@@ -151,7 +164,11 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-function hookCommandLine(commandConfig: McpCommandConfig, host: "codex", eventName: string): string {
+function hookCommandLine(
+  commandConfig: McpCommandConfig,
+  host: "codex" | "claude-code",
+  eventName: string,
+): string {
   return [...[commandConfig.command, ...commandConfig.args], host, eventName].map(shellQuote).join(" ");
 }
 
@@ -174,6 +191,11 @@ function secretValue(value: string | undefined, envName: string | undefined): st
     return `\${${env}}`;
   }
   return direct;
+}
+
+function isExpectedMissingCleanup(result: StandaloneQuickstartCommandResult): boolean {
+  const detail = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
+  return /not found|not installed|not configured/iu.test(detail);
 }
 
 function normalizeOptions(
@@ -209,6 +231,9 @@ function normalizeOptions(
     codexBin: trimOrUndefined(options.codexBin) ?? "codex",
     codexMarketplaceDir:
       trimOrUndefined(options.codexMarketplaceDir) ?? localCodexMarketplaceDir(homeDir),
+    claudeBin: trimOrUndefined(options.claudeBin) ?? "claude",
+    claudeMarketplaceDir:
+      trimOrUndefined(options.claudeMarketplaceDir) ?? localClaudeMarketplaceDir(homeDir),
   };
 }
 
@@ -312,7 +337,12 @@ async function installStandaloneRuntime(runtimeDir: string): Promise<string> {
   return runtimeDir;
 }
 
-function hookEntry(commandConfig: McpCommandConfig, host: "codex", eventName: string, statusMessage?: string) {
+function hookEntry(
+  commandConfig: McpCommandConfig,
+  host: "codex" | "claude-code",
+  eventName: string,
+  statusMessage?: string,
+) {
   return {
     hooks: [
       {
@@ -350,7 +380,7 @@ function codexHooksConfig(commandConfig: McpCommandConfig): Record<string, unkno
 function codexPluginManifest(): Record<string, unknown> {
   return {
     name: "memx",
-    version: "2026.3.15",
+    version: MEMX_PLUGIN_VERSION,
     description:
       "memX: local-first semantic memory for coding agents. Native Codex lifecycle hooks plus MCP tools.",
     author: { name: "Neo Li" },
@@ -359,6 +389,21 @@ function codexPluginManifest(): Record<string, unknown> {
     repository: "https://github.com/NeoLi00/memX",
     skills: "./skills/",
     hooks: "./hooks/hooks.codex.json",
+  };
+}
+
+function claudePluginManifest(): Record<string, unknown> {
+  return {
+    name: "memx",
+    version: MEMX_PLUGIN_VERSION,
+    description:
+      "memX: local-first semantic memory for coding agents. Native Claude Code hooks plus MCP tools.",
+    author: { name: "Neo Li" },
+    license: "MIT",
+    homepage: "https://github.com/NeoLi00/memX",
+    repository: "https://github.com/NeoLi00/memX",
+    skills: "./skills/",
+    mcpServers: "./.mcp.json",
   };
 }
 
@@ -374,6 +419,128 @@ function codexMarketplaceManifest(): Record<string, unknown> {
       },
     ],
   };
+}
+
+function claudeMarketplaceManifest(): Record<string, unknown> {
+  return {
+    $schema: "https://anthropic.com/claude-code/marketplace.schema.json",
+    name: "memx",
+    description: "memX local plugin marketplace for Claude Code native lifecycle hooks.",
+    owner: { name: "Neo Li" },
+    plugins: [
+      {
+        name: "memx",
+        description: "memX: local-first semantic memory for coding agents.",
+        author: { name: "Neo Li" },
+        source: "./plugins/memx",
+        category: "productivity",
+        homepage: "https://github.com/NeoLi00/memX",
+      },
+    ],
+  };
+}
+
+function claudeHooksConfig(): Record<string, unknown> {
+  const hook = (eventName: string) => ({
+    hooks: [
+      {
+        type: "command",
+        command: `node "\${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs" claude-code ${eventName}`,
+        timeout: 5,
+      },
+    ],
+  });
+  return {
+    hooks: {
+      SessionStart: [hook("SessionStart")],
+      UserPromptSubmit: [hook("UserPromptSubmit")],
+      PreToolUse: [
+        {
+          matcher: "Edit|Write|Read|Glob|Grep",
+          ...hook("PreToolUse"),
+        },
+      ],
+      PostToolUse: [hook("PostToolUse")],
+      PostToolUseFailure: [hook("PostToolUseFailure")],
+      PreCompact: [hook("PreCompact")],
+      SubagentStart: [hook("SubagentStart")],
+      SubagentStop: [hook("SubagentStop")],
+      Notification: [hook("Notification")],
+      TaskCompleted: [hook("TaskCompleted")],
+      Stop: [hook("Stop")],
+      SessionEnd: [hook("SessionEnd")],
+    },
+  };
+}
+
+function claudeMcpConfig(options: NormalizedStandaloneOptions): Record<string, unknown> {
+  return {
+    mcpServers: {
+      memx: {
+        command: process.execPath,
+        args: ["${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-mcp.mjs"],
+        env: {
+          MEMX_URL: options.memxUrl,
+          MEMX_SECRET: options.memxSecret ?? "",
+        },
+      },
+    },
+  };
+}
+
+async function installClaudeMarketplaceSnapshot(
+  options: NormalizedStandaloneOptions,
+): Promise<string> {
+  const marketplaceDir = options.claudeMarketplaceDir;
+  const pluginDir = join(marketplaceDir, "plugins", "memx");
+  const tmpPluginDir = join("plugins", "memx");
+  const tmp = `${marketplaceDir}.tmp-${process.pid}-${Date.now()}`;
+  await rm(tmp, { recursive: true, force: true });
+  await mkdir(join(tmp, ".claude-plugin"), { recursive: true });
+  await mkdir(join(tmp, tmpPluginDir, ".claude-plugin"), { recursive: true });
+  await mkdir(join(tmp, tmpPluginDir, "hooks"), { recursive: true });
+  await mkdir(join(tmp, tmpPluginDir, "skills", "memx"), { recursive: true });
+  await writeFile(
+    join(tmp, ".claude-plugin", "marketplace.json"),
+    `${JSON.stringify(claudeMarketplaceManifest(), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, tmpPluginDir, ".claude-plugin", "plugin.json"),
+    `${JSON.stringify(claudePluginManifest(), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, tmpPluginDir, ".mcp.json"),
+    `${JSON.stringify(claudeMcpConfig(options), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, tmpPluginDir, "hooks", "hooks.json"),
+    `${JSON.stringify(claudeHooksConfig(), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, tmpPluginDir, "skills", "memx", "SKILL.md"),
+    [
+      "---",
+      "name: memx",
+      "description: Use memX memory tools and lifecycle hooks for local agent memory.",
+      "---",
+      "",
+      "# memX",
+      "",
+      "memX provides local semantic memory through lifecycle hooks and MCP tools.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await mkdir(join(tmp, tmpPluginDir, "dist"), { recursive: true });
+  await cp(currentRuntimeRoot(), join(tmp, tmpPluginDir, "dist", ".runtime"), { recursive: true });
+  await rm(marketplaceDir, { recursive: true, force: true });
+  await mkdir(dirname(marketplaceDir), { recursive: true });
+  await rename(tmp, marketplaceDir);
+  return pluginDir;
 }
 
 async function installCodexMarketplaceSnapshot(
@@ -428,12 +595,13 @@ async function installCodexPlugin(
   options: NormalizedStandaloneOptions,
   hookCommandConfig: McpCommandConfig,
   runCommand: (command: string, args: string[]) => Promise<StandaloneQuickstartCommandResult>,
+  runBestEffortCommand: (command: string, args: string[]) => Promise<StandaloneQuickstartCommandResult>,
 ): Promise<Record<string, unknown>> {
   await installCodexMarketplaceSnapshot(options, hookCommandConfig);
   const warnings: string[] = [];
   const bestEffort = async (args: string[]) => {
-    const result = await runCommand(options.codexBin, args);
-    if (result.code !== 0) {
+    const result = await runBestEffortCommand(options.codexBin, args);
+    if (result.code !== 0 && !isExpectedMissingCleanup(result)) {
       const detail = (result.stderr || result.stdout || "").trim();
       warnings.push(
         `${options.codexBin} ${args.join(" ")} exited ${result.code}${detail ? `: ${detail}` : ""}`,
@@ -466,6 +634,49 @@ async function installCodexPlugin(
   };
 }
 
+async function installClaudePlugin(
+  options: NormalizedStandaloneOptions,
+  runCommand: (command: string, args: string[]) => Promise<StandaloneQuickstartCommandResult>,
+  runBestEffortCommand: (command: string, args: string[]) => Promise<StandaloneQuickstartCommandResult>,
+): Promise<Record<string, unknown>> {
+  await installClaudeMarketplaceSnapshot(options);
+  const warnings: string[] = [];
+  const bestEffort = async (args: string[]) => {
+    const result = await runBestEffortCommand(options.claudeBin, args);
+    if (result.code !== 0 && !isExpectedMissingCleanup(result)) {
+      const detail = (result.stderr || result.stdout || "").trim();
+      warnings.push(
+        `${options.claudeBin} ${args.join(" ")} exited ${result.code}${detail ? `: ${detail}` : ""}`,
+      );
+    }
+  };
+  await bestEffort(["plugin", "uninstall", "memx@memx"]);
+  await bestEffort(["plugin", "uninstall", "memx"]);
+  await bestEffort(["plugin", "marketplace", "remove", "memx"]);
+  const addMarketplace = await runCommand(options.claudeBin, [
+    "plugin",
+    "marketplace",
+    "add",
+    options.claudeMarketplaceDir,
+  ]);
+  if (addMarketplace.code !== 0) {
+    throw new Error(
+      `standalone quickstart step failed: claude-plugin-marketplace (${options.claudeBin} plugin marketplace add ${options.claudeMarketplaceDir}) exited ${addMarketplace.code}`,
+    );
+  }
+  const addPlugin = await runCommand(options.claudeBin, ["plugin", "install", "memx@memx"]);
+  if (addPlugin.code !== 0) {
+    throw new Error(
+      `standalone quickstart step failed: claude-plugin-install (${options.claudeBin} plugin install memx@memx) exited ${addPlugin.code}`,
+    );
+  }
+  return {
+    marketplaceDir: options.claudeMarketplaceDir,
+    installed: true,
+    warnings,
+  };
+}
+
 async function defaultRunCommand(
   command: string,
   args: string[],
@@ -477,10 +688,32 @@ async function defaultRunCommand(
   });
 }
 
+async function defaultRunCommandQuiet(
+  command: string,
+  args: string[],
+): Promise<StandaloneQuickstartCommandResult> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { shell: false, stdio: "pipe" });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.once("error", (error) => {
+      resolve({ code: 1, stderr: error.message });
+    });
+    child.once("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });
+}
+
 async function writeHostConfig(
   options: NormalizedStandaloneOptions,
   commandConfig: McpCommandConfig,
   codexPlugin: Record<string, unknown> | null,
+  claudePlugin: Record<string, unknown> | null,
 ): Promise<Record<string, unknown> | null> {
   if (options.target === "codex") {
     const path = trimOrUndefined(options.codexConfigPath) ?? join(options.homeDir, ".codex", "config.toml");
@@ -492,6 +725,9 @@ async function writeHostConfig(
     return { host: "codex", path, codexPlugin };
   }
   if (options.target === "claude-code") {
+    if (claudePlugin) {
+      return { host: "claude-code", claudePlugin };
+    }
     const path = trimOrUndefined(options.claudeConfigPath) ?? join(options.homeDir, ".claude.json");
     const current = await readJson(path);
     const next = applyClaudeJsonConnect(current, options.memxUrl, options.memxSecret ?? "", commandConfig);
@@ -506,6 +742,7 @@ function redactSummary(
   steps: StandaloneQuickstartCommandStep[],
   commandConfig: McpCommandConfig,
   codexPlugin: Record<string, unknown> | null,
+  claudePlugin: Record<string, unknown> | null,
 ) {
   return {
     target: options.target,
@@ -524,6 +761,7 @@ function redactSummary(
     memxUrl: options.memxUrl,
     runtimeDir: options.runtimeDir,
     codexPlugin,
+    claudePlugin,
     steps,
     mcpConfig:
       options.target === "mcp"
@@ -544,14 +782,24 @@ export async function runStandaloneMemxQuickstart(
   const hookCommandConfig = localRuntimeHookCommand(options.runtimeDir);
   let hostConfig: Record<string, unknown> | null = null;
   let codexPlugin: Record<string, unknown> | null = null;
+  let claudePlugin: Record<string, unknown> | null = null;
   if (!options.dryRun) {
     await installStandaloneRuntime(options.runtimeDir);
     await writeAtomic(options.configPath, `${JSON.stringify(next, null, 2)}\n`);
     const runCommand = deps.runCommand ?? defaultRunCommand;
+    const runBestEffortCommand = deps.runCommand ?? defaultRunCommandQuiet;
     if (options.target === "codex" && !options.skipCodexPluginInstall) {
-      codexPlugin = await installCodexPlugin(options, hookCommandConfig, runCommand);
+      codexPlugin = await installCodexPlugin(
+        options,
+        hookCommandConfig,
+        runCommand,
+        runBestEffortCommand,
+      );
     }
-    hostConfig = await writeHostConfig(options, commandConfig, codexPlugin);
+    if (options.target === "claude-code" && !options.skipClaudePluginInstall) {
+      claudePlugin = await installClaudePlugin(options, runCommand, runBestEffortCommand);
+    }
+    hostConfig = await writeHostConfig(options, commandConfig, codexPlugin, claudePlugin);
     for (const step of steps) {
       const result = await runCommand(step.command, step.args);
       if (result.code !== 0) {
@@ -564,7 +812,7 @@ export async function runStandaloneMemxQuickstart(
   return {
     ok: true,
     dryRun: Boolean(options.dryRun),
-    ...redactSummary(options, steps, commandConfig, codexPlugin),
+    ...redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin),
     hostConfig,
     nextStep:
       "Start memx-server with this config, then use the configured MCP client or native plugin.",

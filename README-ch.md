@@ -94,6 +94,9 @@ README 命令默认使用 GitHub package spec。每次全新执行都会拉取 G
 
 ### Claude Code
 
+这条命令会一次性写入共享 memX 配置、生成本地 Claude Code plugin marketplace、安装 native
+生命周期 hooks，并接上 plugin 自带的 MCP server。
+
 ```bash
 npx -y -p github:NeoLi00/memX memx quickstart claude-code \
   --llm-provider openai-compatible \
@@ -103,6 +106,8 @@ npx -y -p github:NeoLi00/memX memx quickstart claude-code \
 ```
 
 ### Codex
+
+这条命令会一次性写入共享 memX 配置、配置 Codex MCP，并安装 native 生命周期 hooks。
 
 ```bash
 npx -y -p github:NeoLi00/memX memx quickstart codex \
@@ -140,9 +145,10 @@ npx -y -p github:NeoLi00/memX memx-server
 
 ## 干净卸载
 
-每个卸载命令都会先备份目标配置文件，然后只删除 memX 自己写入的条目。OpenClaw 清理会额外删掉
-残留的 `memx` / `memory-memx` slot、allow 和 entry 引用，并在 OpenClaw 仍能识别插件时
-best-effort 删除插件文件。
+每个卸载命令都会先备份目标配置文件，然后只删除 memX 自己写入的条目。Claude Code 和 Codex
+清理会同时卸载 native plugin、移除本地 marketplace，并删除生成的 marketplace snapshot。
+OpenClaw 清理会额外删掉残留的 `memx` / `memory-memx` slot、allow 和 entry 引用，并在
+OpenClaw 仍能识别插件时 best-effort 删除当前和旧版插件文件。
 
 ```bash
 npx -y -p github:NeoLi00/memX memx uninstall openclaw

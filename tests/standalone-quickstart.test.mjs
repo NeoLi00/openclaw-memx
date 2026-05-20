@@ -121,6 +121,99 @@ test("standalone quickstart can configure Codex in one command", async () => {
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 
+test("standalone quickstart installs Claude Code native plugin hooks in one command", async () => {
+  const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-claude-"));
+  const configPath = join(dir, "config.json");
+  const claudeConfigPath = join(dir, "claude.json");
+  const calls = [];
+
+  const result = await runStandaloneMemxQuickstart(
+    {
+      target: "claude-code",
+      configPath,
+      claudeConfigPath,
+      homeDir: dir,
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-standalone",
+      skipEmbeddingDeps: true,
+    },
+    {
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { code: 0 };
+      },
+    },
+  );
+
+  assert.equal(existsSync(configPath), true);
+  assert.equal(existsSync(claudeConfigPath), false, "Claude native plugin should provide MCP without duplicate .claude.json server");
+  assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs")), true);
+  assert.equal(
+    existsSync(join(dir, ".memx", "claude-marketplace", ".claude-plugin", "marketplace.json")),
+    true,
+  );
+  assert.equal(
+    existsSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".claude-plugin", "plugin.json")),
+    true,
+  );
+  assert.equal(
+    existsSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", "hooks", "hooks.json")),
+    true,
+  );
+  assert.equal(
+    existsSync(
+      join(
+        dir,
+        ".memx",
+        "claude-marketplace",
+        "plugins",
+        "memx",
+        "dist",
+        ".runtime",
+        "src",
+        "bin",
+        "memx-mcp.mjs",
+      ),
+    ),
+    true,
+  );
+  const marketplace = JSON.parse(
+    readFileSync(join(dir, ".memx", "claude-marketplace", ".claude-plugin", "marketplace.json"), "utf8"),
+  );
+  assert.equal(marketplace.name, "memx");
+  assert.equal(marketplace.plugins[0].source, "./plugins/memx");
+  const pluginManifest = JSON.parse(
+    readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".claude-plugin", "plugin.json"), "utf8"),
+  );
+  assert.equal("hooks" in pluginManifest, false);
+  assert.equal(pluginManifest.mcpServers, "./.mcp.json");
+  const mcp = JSON.parse(
+    readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".mcp.json"), "utf8"),
+  );
+  assert.equal(mcp.mcpServers.memx.env.MEMX_URL, "http://127.0.0.1:3878");
+  const hookJson = readFileSync(
+    join(dir, ".memx", "claude-marketplace", "plugins", "memx", "hooks", "hooks.json"),
+    "utf8",
+  );
+  assert.match(hookJson, /claude-code UserPromptSubmit/);
+  assert.match(hookJson, /node \\"\$\{CLAUDE_PLUGIN_ROOT\}\/dist\/\.runtime\/src\/bin\/memx-hook\.mjs\\" claude-code/);
+  assert.deepEqual(calls, [
+    { command: "claude", args: ["plugin", "uninstall", "memx@memx"] },
+    { command: "claude", args: ["plugin", "uninstall", "memx"] },
+    { command: "claude", args: ["plugin", "marketplace", "remove", "memx"] },
+    {
+      command: "claude",
+      args: ["plugin", "marketplace", "add", join(dir, ".memx", "claude-marketplace")],
+    },
+    { command: "claude", args: ["plugin", "install", "memx@memx"] },
+  ]);
+  assert.equal(result.claudePlugin.installed, true);
+  assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
+});
+
 test("standalone quickstart local embedding install plan is exec-form only", async () => {
   const { buildStandaloneMemxQuickstartSteps } = await import(
     "../dist/.runtime/src/host/standaloneQuickstart.mjs"

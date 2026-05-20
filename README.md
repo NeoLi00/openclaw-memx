@@ -96,6 +96,9 @@ writing anything.
 
 ### Claude Code
 
+This installs the shared memX config, a local Claude Code plugin marketplace, native lifecycle
+hooks, and the plugin-provided MCP server in one run.
+
 ```bash
 npx -y -p github:NeoLi00/memX memx quickstart claude-code \
   --llm-provider openai-compatible \
@@ -105,6 +108,8 @@ npx -y -p github:NeoLi00/memX memx quickstart claude-code \
 ```
 
 ### Codex
+
+This installs the shared memX config, Codex MCP config, and native lifecycle hooks in one run.
 
 ```bash
 npx -y -p github:NeoLi00/memX memx quickstart codex \
@@ -143,8 +148,10 @@ npx -y -p github:NeoLi00/memX memx-server
 ## Clean uninstall
 
 Each uninstall command backs up the target config first, then removes only memX-owned entries.
+Claude Code and Codex cleanup also uninstall the native plugin, remove the local marketplace, and
+delete the generated marketplace snapshot.
 OpenClaw cleanup also removes stale `memx` / `memory-memx` slot, allow, and entry references, then
-best-effort uninstalls the plugin files if OpenClaw can still see them.
+best-effort uninstalls both current and legacy plugin files if OpenClaw can still see them.
 
 ```bash
 npx -y -p github:NeoLi00/memX memx uninstall openclaw

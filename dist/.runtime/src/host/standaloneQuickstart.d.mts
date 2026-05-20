@@ -22,6 +22,9 @@ type StandaloneMemxQuickstartOptions = {
   codexBin?: string;
   codexMarketplaceDir?: string;
   skipCodexPluginInstall?: boolean;
+  claudeBin?: string;
+  claudeMarketplaceDir?: string;
+  skipClaudePluginInstall?: boolean;
   configPath?: string;
   codexConfigPath?: string;
   claudeConfigPath?: string;
