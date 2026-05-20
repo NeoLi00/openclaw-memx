@@ -162,6 +162,90 @@ process.stdout.write(JSON.stringify({
   assert.equal(requestCount, 2);
 });
 
+test("local embedding worker is shared across backend instances with the same model config", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "memx-local-worker-shared-"));
+  const startCountPath = join(tempDir, "starts.txt");
+  const postMethod = ["PO", "ST"].join("");
+  let requestCount = 0;
+  let shutdownCount = 0;
+  const server = createServer((request, response) => {
+    if (request.method !== postMethod) {
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.url === "/shutdown") {
+      shutdownCount++;
+      response.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
+      return;
+    }
+    if (request.url !== "/embed") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      requestCount++;
+      const payload = JSON.parse(body);
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ embeddings: payload.texts.map(() => [1, 0, 0]) }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  const fakeWorkerUrl = `http://127.0.0.1:${address.port}`;
+
+  const fakePythonPath = join(tempDir, "fake-python.mjs");
+  await writeFile(
+    fakePythonPath,
+    `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+
+appendFileSync(${JSON.stringify(startCountPath)}, "start\\n");
+const tokenIndex = process.argv.indexOf("--token");
+process.stdout.write(JSON.stringify({
+  url: ${JSON.stringify(fakeWorkerUrl)},
+  token: tokenIndex >= 0 ? process.argv[tokenIndex + 1] : "",
+}) + "\\n");
+`,
+    "utf8",
+  );
+  await chmod(fakePythonPath, 0o755);
+
+  const config = {
+    provider: "sentence-transformers-local",
+    model: "shared-fake-model",
+    localPythonBin: fakePythonPath,
+    localDevice: "cpu",
+  };
+  const backendA = new OptionalEmbeddingBackend({}, config, createLogger());
+  const backendB = new OptionalEmbeddingBackend({}, config, createLogger());
+
+  try {
+    assert.deepEqual(await backendA.embedTextsBatch(["alpha"], "query"), [[1, 0, 0]]);
+    assert.deepEqual(await backendB.embedTextsBatch(["beta"], "query"), [[1, 0, 0]]);
+    await backendA.close();
+    assert.equal(shutdownCount, 0);
+    assert.deepEqual(await backendB.embedTextsBatch(["gamma"], "query"), [[1, 0, 0]]);
+  } finally {
+    await backendA.close();
+    await backendB.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+
+  const starts = (await readFile(startCountPath, "utf8"))
+    .split("\n")
+    .filter(Boolean);
+  assert.equal(starts.length, 1);
+  assert.equal(requestCount, 3);
+  assert.equal(shutdownCount, 1);
+});
+
 test("local embedding similarity search skips a cold worker in the prompt hot path", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "memx-local-cold-skip-"));
   const startCountPath = join(tempDir, "starts.txt");

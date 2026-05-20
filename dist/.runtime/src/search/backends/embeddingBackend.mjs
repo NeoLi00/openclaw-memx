@@ -165,6 +165,9 @@ var LocalSentenceTransformerWorker = class {
 	isWarm() {
 		return Boolean(this.server) && this.hasCompletedRequest && !this.closed;
 	}
+	isClosed() {
+		return this.closed;
+	}
 	async close() {
 		this.closed = true;
 		await this.stopServer();
@@ -244,10 +247,16 @@ var LocalSentenceTransformerWorker = class {
 		} catch (error) {
 			if (error instanceof LocalEmbeddingHardFailureError) throw error;
 			if (error instanceof Error && error.name === "AbortError") {
-				this.server = null;
+				if (this.server === server) this.server = null;
+				this.stopServerInstance(server).catch((shutdownError) => {
+					this.logger.debug?.(`memx: failed to stop timed-out local embedding server (${String(shutdownError)})`);
+				});
 				throw new LocalEmbeddingTimeoutError(`local sentence-transformers request timed out (${mode}, ${timeoutMs}ms)`);
 			}
-			this.server = null;
+			if (this.server === server) this.server = null;
+			this.stopServerInstance(server).catch((shutdownError) => {
+				this.logger.debug?.(`memx: failed to stop failed local embedding server (${String(shutdownError)})`);
+			});
 			throw new LocalEmbeddingHardFailureError(String(error));
 		} finally {
 			clearTimeout(timer);
@@ -257,6 +266,9 @@ var LocalSentenceTransformerWorker = class {
 		const server = this.server;
 		this.server = null;
 		if (!server) return;
+		await this.stopServerInstance(server);
+	}
+	async stopServerInstance(server) {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), 2e3);
 		try {
@@ -276,6 +288,50 @@ var LocalSentenceTransformerWorker = class {
 		}
 	}
 };
+const LOCAL_WORKER_POOL = /* @__PURE__ */ new Map();
+function localWorkerPoolKey(config) {
+	return JSON.stringify({
+		pythonBin: resolveLocalPythonBin(config),
+		model: resolveLocalModel(config),
+		device: resolveLocalDevice(config),
+		cacheDir: config.localCacheDir?.trim() || ""
+	});
+}
+function acquireLocalEmbeddingWorker(config, logger) {
+	const key = localWorkerPoolKey(config);
+	let entry = LOCAL_WORKER_POOL.get(key);
+	if (!entry || entry.worker.isClosed()) {
+		entry = {
+			worker: new LocalSentenceTransformerWorker(config, logger),
+			refs: 0
+		};
+		LOCAL_WORKER_POOL.set(key, entry);
+	}
+	entry.refs++;
+	let released = false;
+	const release = async (force = false) => {
+		if (released && !force) return;
+		released = true;
+		const current = LOCAL_WORKER_POOL.get(key);
+		if (!current || current.worker !== entry.worker) return;
+		if (force) {
+			LOCAL_WORKER_POOL.delete(key);
+			current.refs = 0;
+			await current.worker.close();
+			return;
+		}
+		current.refs = Math.max(0, current.refs - 1);
+		if (current.refs === 0) {
+			LOCAL_WORKER_POOL.delete(key);
+			await current.worker.close();
+		}
+	};
+	return {
+		worker: entry.worker,
+		release: () => release(false),
+		invalidate: () => release(true)
+	};
+}
 async function embedTextsRemote(config, texts) {
 	if (config.provider === "openai-compatible") {
 		const url = `${config.baseURL?.replace(/\/$/, "") ?? ""}/embeddings`;
@@ -311,6 +367,7 @@ var OptionalEmbeddingBackend = class {
 	embedding;
 	logger;
 	lexical;
+	localWorkerLease;
 	localWorker;
 	warnedUnavailable = false;
 	acceptingUpserts = true;
@@ -323,7 +380,8 @@ var OptionalEmbeddingBackend = class {
 		this.embedding = embedding;
 		this.logger = logger;
 		this.lexical = new SqliteFtsBackend(repo);
-		this.localWorker = embedding.provider === "sentence-transformers-local" ? new LocalSentenceTransformerWorker(embedding, logger) : null;
+		this.localWorkerLease = embedding.provider === "sentence-transformers-local" ? acquireLocalEmbeddingWorker(embedding, logger) : null;
+		this.localWorker = this.localWorkerLease?.worker ?? null;
 	}
 	upsertDocs(docs) {
 		this.repo.upsertDocs(docs);
@@ -362,7 +420,7 @@ var OptionalEmbeddingBackend = class {
 		await this.flushPendingUpserts();
 		await this.localPrewarm?.catch(() => {});
 		this.closed = true;
-		await this.localWorker?.close();
+		await this.localWorkerLease?.release();
 	}
 	deleteDocs(docIds) {
 		this.repo.deleteDocs(docIds);
@@ -439,7 +497,7 @@ var OptionalEmbeddingBackend = class {
 		if (this.embedding.provider !== "sentence-transformers-local" || error instanceof LocalEmbeddingTimeoutError) return;
 		this.localUnavailableForProcess = true;
 		this.acceptingUpserts = false;
-		this.localWorker?.close().catch((error) => {
+		this.localWorkerLease?.invalidate().catch((error) => {
 			this.logger.debug?.(`memx: failed to close unavailable local embedding worker (${String(error)})`);
 		});
 	}

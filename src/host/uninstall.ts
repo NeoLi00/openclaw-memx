@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { applyClaudeJsonDisconnect, applyCodexTomlDisconnect } from "./connect.js";
@@ -11,6 +11,7 @@ const DEFAULT_CODEX_CONFIG_PATH = join(homedir(), ".codex", "config.toml");
 const DEFAULT_CLAUDE_CONFIG_PATH = join(homedir(), ".claude.json");
 const DEFAULT_CODEX_MARKETPLACE_DIRNAME = "codex-marketplace";
 const DEFAULT_CLAUDE_MARKETPLACE_DIRNAME = "claude-marketplace";
+const CLAUDE_SETTINGS_BACKUP = "claude-settings-backup.json";
 
 type OpenClawConfigLike = {
   plugins?: {
@@ -71,6 +72,31 @@ function localCodexMarketplaceDir(homeDir: string): string {
 
 function localClaudeMarketplaceDir(homeDir: string): string {
   return join(homeDir, ".memx", DEFAULT_CLAUDE_MARKETPLACE_DIRNAME);
+}
+
+function claudeSettingsPath(homeDir: string): string {
+  return join(homeDir, ".claude", "settings.json");
+}
+
+function claudeSettingsBackupPath(homeDir: string): string {
+  return join(homeDir, ".memx", CLAUDE_SETTINGS_BACKUP);
+}
+
+async function removeCachedMemxPlugin(cacheRoot: string): Promise<void> {
+  let marketplaceEntries: string[];
+  try {
+    marketplaceEntries = await readdir(cacheRoot);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    marketplaceEntries.map((marketplace) =>
+      rm(join(cacheRoot, marketplace, "memx"), {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
 }
 
 export function applyOpenClawUninstallConfig(input: unknown): OpenClawConfigLike {
@@ -149,6 +175,54 @@ function applyCodexPluginDisconnect(toml: string): string {
     stripTomlSection(toml, '[plugins."memx@memx"]'),
     "[marketplaces.memx]",
   ).trim();
+}
+
+function restoreSnapshotValue(
+  target: Record<string, unknown>,
+  key: string,
+  snapshot: unknown,
+): void {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return;
+  }
+  const record = snapshot as Record<string, unknown>;
+  if (record.present === true) {
+    target[key] = record.value;
+    return;
+  }
+  if (record.present === false) {
+    delete target[key];
+  }
+}
+
+async function restoreClaudeNativeSettings(homeDir: string): Promise<string | null> {
+  const backupPath = claudeSettingsBackupPath(homeDir);
+  if (!existsSync(backupPath)) {
+    return null;
+  }
+  const settingsPath = claudeSettingsPath(homeDir);
+  const current = existsSync(settingsPath)
+    ? JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>
+    : {};
+  const backup = JSON.parse(await readFile(backupPath, "utf8")) as Record<string, unknown>;
+  restoreSnapshotValue(current, "autoMemoryEnabled", backup.autoMemoryEnabled);
+  const currentEnv =
+    current.env && typeof current.env === "object" && !Array.isArray(current.env)
+      ? { ...(current.env as Record<string, unknown>) }
+      : {};
+  const backupEnv =
+    backup.env && typeof backup.env === "object" && !Array.isArray(backup.env)
+      ? (backup.env as Record<string, unknown>)
+      : {};
+  restoreSnapshotValue(currentEnv, "CLAUDE_CODE_DISABLE_AUTO_MEMORY", backupEnv.CLAUDE_CODE_DISABLE_AUTO_MEMORY);
+  if (Object.keys(currentEnv).length > 0) {
+    current.env = currentEnv;
+  } else {
+    delete current.env;
+  }
+  await writeAtomic(settingsPath, `${JSON.stringify(current, null, 2)}\n`);
+  await rm(backupPath, { force: true });
+  return settingsPath;
 }
 
 export async function runOpenClawUninstall(
@@ -231,6 +305,7 @@ export async function runCodexUninstall(
       }
     }
     await rm(marketplaceDir, { recursive: true, force: true });
+    await removeCachedMemxPlugin(join(homeDir, ".codex", "plugins", "cache"));
   }
   return {
     ok: true,
@@ -258,10 +333,12 @@ export async function runClaudeCodeUninstall(
   const current = existsSync(configPath) ? JSON.parse(await readFile(configPath, "utf8")) : {};
   const next = applyClaudeJsonDisconnect(current);
   let backupPath: string | null = null;
+  let settingsPath: string | null = null;
   const warnings: string[] = [];
   if (!dryRun) {
     backupPath = await backupIfExists(configPath, now);
     await writeAtomic(configPath, `${JSON.stringify(next, null, 2)}\n`);
+    settingsPath = await restoreClaudeNativeSettings(homeDir);
     const runCommand = deps.runCommand ?? defaultRunCommand;
     for (const args of [
       ["plugin", "uninstall", "memx@memx"],
@@ -274,6 +351,7 @@ export async function runClaudeCodeUninstall(
       }
     }
     await rm(marketplaceDir, { recursive: true, force: true });
+    await removeCachedMemxPlugin(join(homeDir, ".claude", "plugins", "cache"));
   }
   return {
     ok: true,
@@ -282,6 +360,7 @@ export async function runClaudeCodeUninstall(
     configPath,
     marketplaceDir,
     backupPath,
+    settingsPath,
     warnings,
     removed: Boolean(
       current?.mcpServers &&

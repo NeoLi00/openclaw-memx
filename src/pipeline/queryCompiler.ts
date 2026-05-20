@@ -90,6 +90,7 @@ type QueryCompilerReasoner = {
 type QueryCompilerReasonerOptions = {
   stage?: MemoryLlmCallStage;
   audit?: MemoryLlmBudgetAudit;
+  signal?: AbortSignal;
 };
 
 type QueryCompileParams = {
@@ -2269,6 +2270,53 @@ function mergeCompiledQuery(
   };
 }
 
+function queryCompilerTimeoutMs(ctx: MemoryOperationContext): number {
+  const raw = ctx.config.advanced.queryCompilerHotPathTimeoutMs;
+  return Number.isFinite(raw) && raw > 0 ? Math.max(250, Math.min(15000, raw)) : 2200;
+}
+
+function timedQueryCompile(
+  start: (signal: AbortSignal) => Promise<Partial<QueryCompileResult> | null>,
+  timeoutMs: number,
+): Promise<
+  | { status: "fulfilled"; value: Partial<QueryCompileResult> | null }
+  | { status: "rejected"; reason: unknown }
+  | { status: "timeout" }
+> {
+  const controller = new AbortController();
+  const promise = start(controller.signal);
+  promise.catch(() => {});
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      controller.abort();
+      resolve({ status: "timeout" });
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve({ status: "fulfilled", value });
+      },
+      (reason) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(controller.signal.aborted ? { status: "timeout" } : { status: "rejected", reason });
+      },
+    );
+  });
+}
+
 export async function compileQuery(params: QueryCompileParams): Promise<QueryCompileResult> {
   const fallback = compileQueryWithoutSemanticFallback(params.query);
   if (
@@ -2285,10 +2333,36 @@ export async function compileQuery(params: QueryCompileParams): Promise<QueryCom
     });
     return fallback;
   }
-  const compiled = await params.reasoner.compileQuerySemantics(params.query, fallback, {
-    stage: "query_hot_path",
-    audit: params.ctx.llmBudgetAudit,
-  });
+  const compiledResult = await timedQueryCompile(
+    (signal) =>
+      params.reasoner!.compileQuerySemantics!(params.query, fallback, {
+        stage: "query_hot_path",
+        audit: params.ctx.llmBudgetAudit,
+        signal,
+      }),
+    queryCompilerTimeoutMs(params.ctx),
+  );
+  if (compiledResult.status === "timeout") {
+    recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
+      label: "query-compile",
+      stage: "query_hot_path",
+      provenance: "deterministic",
+      mode: "fallback",
+      detail: "query compiler LLM exceeded hot-path timeout",
+    });
+    return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-timeout");
+  }
+  if (compiledResult.status === "rejected") {
+    recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
+      label: "query-compile",
+      stage: "query_hot_path",
+      provenance: "deterministic",
+      mode: "fallback",
+      detail: "query compiler LLM rejected on hot path",
+    });
+    return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-error");
+  }
+  const compiled = compiledResult.value;
   if (!compiled) {
     return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-empty");
   }

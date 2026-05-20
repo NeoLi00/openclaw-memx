@@ -136,6 +136,7 @@ type AdvancedMemoryConfig = {
   recallProbeContinuationEscalateThreshold: number;
   enableTurnSemanticCompiler: boolean;
   enableQueryCompiler: boolean;
+  queryCompilerHotPathTimeoutMs: number;
   enableEmbeddingCandidates: boolean;
   enableEmbeddingClustering: boolean;
   enableHotPathChunkSummaryLlm: boolean;
@@ -1762,4 +1763,4 @@ type MemxLogger = {
   error?: (message: string) => void;
 };
 //#endregion
-export { EvidenceBundle, MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig, MemxLogger };
+export { EvidenceBundle, MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig, MemxLogger, QueryCompileResult };

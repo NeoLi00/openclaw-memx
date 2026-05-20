@@ -72,14 +72,14 @@ test("standalone server bundle does not require OpenClaw at runtime", () => {
   assert.doesNotMatch(embeddingBackend, /openclaw\/plugin-sdk/);
 });
 
-test("Codex native plugin manifest wires MCP and supported hooks only", () => {
+test("Codex native plugin manifest is hook-only by default", () => {
   const manifest = readJson(".codex-plugin/plugin.json");
   assert.equal(manifest.name, "memx");
   assert.equal(manifest.homepage, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.repository, "https://github.com/NeoLi00/memX");
-  assert.equal(manifest.mcpServers, "./.mcp.json");
   assert.equal(manifest.hooks, "./hooks/hooks.codex.json");
-  assert.equal(manifest.skills, "./skills/");
+  assert.equal("mcpServers" in manifest, false);
+  assert.equal("skills" in manifest, false);
 
   const hooks = readJson("hooks/hooks.codex.json").hooks;
   const supported = new Set([
@@ -110,12 +110,13 @@ test("Codex native plugin manifest wires MCP and supported hooks only", () => {
   }
 });
 
-test("Claude Code native plugin manifest keeps Claude-only hooks separate", () => {
+test("Claude Code native plugin manifest is hook-only by default", () => {
   const manifest = readJson(".claude-plugin/plugin.json");
   assert.equal(manifest.name, "memx");
   assert.equal(manifest.homepage, "https://github.com/NeoLi00/memX");
   assert.equal(manifest.repository, "https://github.com/NeoLi00/memX");
-  assert.equal(manifest.mcpServers, "./.mcp.json");
+  assert.equal("mcpServers" in manifest, false);
+  assert.equal("skills" in manifest, false);
   assert.equal(
     "hooks" in manifest,
     false,
@@ -156,7 +157,7 @@ test("native MCP config runs the local memX MCP binary from plugin root", () => 
   assert.equal(entry.env.MEMX_MCP_TOOLS, "none");
 });
 
-test("host protocol normalizes Codex and Claude hooks into the same turn envelope", async () => {
+test("host protocol normalizes user turns and ignores tool hooks by default", async () => {
   const { normalizeHookPayload } = await import("../dist/.runtime/src/host/hookPayload.mjs");
 
   const codex = normalizeHookPayload("codex", "UserPromptSubmit", {
@@ -177,12 +178,10 @@ test("host protocol normalizes Codex and Claude hooks into the same turn envelop
     tool_response: "ok",
   });
   assert.equal(claude.hostId, "claude-code");
-  assert.equal(claude.messages[0].role, "tool");
-  assert.equal(claude.messages[0].toolName, "Write");
-  assert.match(claude.messages[0].content, /validator\.py/);
+  assert.deepEqual(claude.messages, []);
 });
 
-test("Codex UserPromptSubmit hook injects recalled context and still observes the turn", async () => {
+test("Codex UserPromptSubmit hook injects recalled context and defers write until Stop", async () => {
   const calls = [];
   const server = createServer(async (req, res) => {
     const chunks = [];
@@ -253,10 +252,7 @@ test("Codex UserPromptSubmit hook injects recalled context and still observes th
   await new Promise((resolve) => server.close(resolve));
 
   assert.equal(exitCode, 0, stderr);
-  assert.deepEqual(
-    calls.map((call) => call.path).sort(),
-    ["/v1/context", "/v1/observe"],
-  );
+  assert.deepEqual(calls.map((call) => call.path), ["/v1/context"]);
   assert.equal(calls.find((call) => call.path === "/v1/context").body.query, "继续 notebook validator 任务");
   const output = JSON.parse(stdout);
   assert.equal(output.hookSpecificOutput.hookEventName, "UserPromptSubmit");
@@ -264,6 +260,86 @@ test("Codex UserPromptSubmit hook injects recalled context and still observes th
     output.hookSpecificOutput.additionalContext,
     "## memX Memory\n- notebook validator prefers pytest fixtures",
   );
+});
+
+test("Codex Stop hook writes a complete pending user and assistant turn", async () => {
+  const calls = [];
+  const server = createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    calls.push({
+      path: req.url,
+      body: bodyText ? JSON.parse(bodyText) : {},
+    });
+    res.writeHead(200, { "content-type": "application/json" });
+    if (req.url === "/v1/context") {
+      res.end(JSON.stringify({ ok: true, prependContext: "" }));
+      return;
+    }
+    res.end(JSON.stringify({ ok: true }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const pendingDir = mkdtempSync(join(tmpdir(), "memx-pending-turn-"));
+  const env = {
+    ...process.env,
+    MEMX_URL: `http://127.0.0.1:${address.port}`,
+    MEMX_HOOK_TIMEOUT_MS: "2000",
+    MEMX_PENDING_DIR: pendingDir,
+  };
+
+  async function runHook(eventName, payload) {
+    const child = spawn(process.execPath, [join(rootPath, "dist/.runtime/src/bin/memx-hook.mjs"), "codex", eventName], {
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.stdin.end(JSON.stringify(payload));
+    const exitCode = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error(`memx-hook ${eventName} test timed out`));
+      }, 5000);
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+    });
+    assert.equal(exitCode, 0, stderr);
+  }
+
+  await runHook("UserPromptSubmit", {
+    session_id: "codex-session",
+    cwd: "/tmp/project",
+    prompt: "继续 notebook validator 任务",
+  });
+  await runHook("Stop", {
+    session_id: "codex-session",
+    cwd: "/tmp/project",
+    assistant_response: "已补上 pytest fixtures，并记录了验证命令。",
+  });
+  await new Promise((resolve) => server.close(resolve));
+
+  assert.deepEqual(calls.map((call) => call.path), ["/v1/context", "/v1/observe"]);
+  const observe = calls.find((call) => call.path === "/v1/observe").body;
+  assert.deepEqual(
+    observe.messages.map((message) => message.role),
+    ["user", "assistant"],
+  );
+  assert.match(observe.messages[0].content, /notebook validator/);
+  assert.match(observe.messages[1].content, /pytest fixtures/);
 });
 
 test("Codex UserPromptSubmit hook recalls before observing the current prompt", async () => {
@@ -403,6 +479,9 @@ test("MCP none profile hides all tools for native lifecycle plugins", async () =
     const toolNames = list.result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(toolNames, []);
 
+    const init = await handleMcpRequest({ jsonrpc: "2.0", id: 0, method: "initialize" });
+    assert.deepEqual(init.result.capabilities, {});
+
     const recall = await handleMcpRequest({
       jsonrpc: "2.0",
       id: 2,
@@ -507,6 +586,62 @@ test("standalone host service returns no injected context when recall has no evi
   } finally {
     await service.close();
   }
+});
+
+test("native context injection requires memory intent or a distinctive anchor", async () => {
+  const { assessNativeContextEligibility } = await import("../dist/.runtime/src/host/service.mjs");
+  const { compileQueryWithoutSemanticFallback } = await import(
+    "../dist/.runtime/src/pipeline/queryCompiler.mjs"
+  );
+  const packet = {
+    packetId: "packet-1",
+    slotId: "answer",
+    operationType: "lookup",
+    role: "answer",
+    injected: true,
+    primaryText:
+      "项目 BlueWhaleLedger 的回归校验命令是 npm run verify:ledger，幂等键字段叫 operationFingerprint，批量导入必须先跑 dry-run。",
+    supportingTexts: [],
+    sourceRefs: ["user:1"],
+    layers: ["chunk"],
+    coverage: { filled: true, missing: [], confidence: 0.88 },
+    grade: {
+      retrievalScore: 0.08,
+      answerScore: 0.03,
+      contextBindingScore: 0.03,
+      slotCoverageScore: 0.08,
+      authorityScore: 0.08,
+      finalScore: 0.03,
+    },
+  };
+  const bundle = {
+    routeConfidence: 0.44,
+    evidencePackets: [packet],
+  };
+
+  const generic = assessNativeContextEligibility(
+    "把“批量导入完成”改成更适合日志的短句。",
+    compileQueryWithoutSemanticFallback("把“批量导入完成”改成更适合日志的短句。"),
+    bundle,
+  );
+  assert.equal(generic.eligible, false);
+  assert.equal(generic.reason, "no-memory-intent-or-anchor");
+
+  const anchored = assessNativeContextEligibility(
+    "BlueWhaleLedger 的回归校验命令是什么？",
+    compileQueryWithoutSemanticFallback("BlueWhaleLedger 的回归校验命令是什么？"),
+    bundle,
+  );
+  assert.equal(anchored.eligible, true);
+  assert.equal(anchored.reason, "distinctive-query-anchor");
+
+  const explicit = assessNativeContextEligibility(
+    "我之前说的回归校验命令是什么？",
+    compileQueryWithoutSemanticFallback("我之前说的回归校验命令是什么？"),
+    bundle,
+  );
+  assert.equal(explicit.eligible, true);
+  assert.equal(explicit.reason, "explicit-memory-intent");
 });
 
 test("MCP stdio accepts standard Content-Length framed requests", async () => {

@@ -212,10 +212,11 @@ export async function handleMcpRequest(
       return null;
     }
     if (request.method === "initialize") {
+      const tools = toolsForProfile(activeToolsProfile());
       return jsonResponse(id, {
         protocolVersion: "2024-11-05",
         serverInfo: { name: "memx", version: "2026.3.15" },
-        capabilities: { tools: {} },
+        capabilities: tools.length > 0 ? { tools: {} } : {},
       });
     }
     if (request.method === "ping") {

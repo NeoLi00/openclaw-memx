@@ -1,5 +1,5 @@
 import { MemxTurnEnvelope } from "./hookPayload.mjs";
-import { MemoryPluginConfig, MemxLogger } from "../types.mjs";
+import { EvidenceBundle, MemoryPluginConfig, MemxLogger, QueryCompileResult } from "../types.mjs";
 
 //#region src/host/service.d.ts
 type MemxServiceOptions = {
@@ -16,6 +16,12 @@ type MemxRecallRequest = {
   project?: string;
 };
 declare function createServiceConfigFromEnv(env?: NodeJS.ProcessEnv): MemoryPluginConfig;
+type NativeContextEligibility = {
+  eligible: boolean;
+  reason: string;
+  bestScore: number;
+};
+declare function assessNativeContextEligibility(query: string, queryAnalysis: QueryCompileResult, bundle: EvidenceBundle): NativeContextEligibility;
 declare class MemxHostService {
   private readonly config;
   private readonly logger;
@@ -32,4 +38,4 @@ declare class MemxHostService {
 }
 declare function stableHostTurnId(envelope: MemxTurnEnvelope): string;
 //#endregion
-export { MemxHostService, MemxRecallRequest, MemxServiceOptions, createServiceConfigFromEnv, stableHostTurnId };
+export { MemxHostService, MemxRecallRequest, MemxServiceOptions, assessNativeContextEligibility, createServiceConfigFromEnv, stableHostTurnId };

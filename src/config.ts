@@ -59,6 +59,7 @@ const DEFAULT_ADVANCED: AdvancedMemoryConfig = {
   recallProbeContinuationEscalateThreshold: 0.68,
   enableTurnSemanticCompiler: true,
   enableQueryCompiler: true,
+  queryCompilerHotPathTimeoutMs: 2200,
   enableEmbeddingCandidates: true,
   enableEmbeddingClustering: true,
   enableHotPathChunkSummaryLlm: false,
@@ -393,6 +394,7 @@ const jsonSchema = {
         enableTurnScheduler: { type: "boolean" },
         enableTurnSemanticCompiler: { type: "boolean" },
         enableQueryCompiler: { type: "boolean" },
+        queryCompilerHotPathTimeoutMs: { type: "number", minimum: 250, maximum: 15000 },
         enableEmbeddingCandidates: { type: "boolean" },
         enableEmbeddingClustering: { type: "boolean" },
         enableHotPathChunkSummaryLlm: { type: "boolean" },
@@ -455,6 +457,15 @@ function envBooleanOverride(name: string, current: boolean): boolean {
     return false;
   }
   return current;
+}
+
+function envNumberOverride(name: string, current: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return current;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.max(250, Math.min(15000, parsed)) : current;
 }
 
 function resolveEnvObject<T>(value: T): T {
@@ -693,6 +704,13 @@ function parseConfigInternal(input: unknown): {
       rawAdvanced.enableQueryCompiler,
       DEFAULT_MEMORY_CONFIG.advanced.enableQueryCompiler,
     ),
+    queryCompilerHotPathTimeoutMs: asNumber(
+      rawAdvanced.queryCompilerHotPathTimeoutMs,
+      DEFAULT_MEMORY_CONFIG.advanced.queryCompilerHotPathTimeoutMs,
+      issues,
+      "advanced.queryCompilerHotPathTimeoutMs",
+      { min: 250, max: 15000 },
+    ),
     enableEmbeddingCandidates: asBoolean(
       rawAdvanced.enableEmbeddingCandidates,
       DEFAULT_MEMORY_CONFIG.advanced.enableEmbeddingCandidates,
@@ -881,6 +899,10 @@ function parseConfigInternal(input: unknown): {
   advanced.enableQueryCompiler = envBooleanOverride(
     "MEMX_ENABLE_QUERY_COMPILER",
     advanced.enableQueryCompiler,
+  );
+  advanced.queryCompilerHotPathTimeoutMs = envNumberOverride(
+    "MEMX_QUERY_COMPILER_TIMEOUT_MS",
+    advanced.queryCompilerHotPathTimeoutMs,
   );
   advanced.enableEmbeddingCandidates = envBooleanOverride(
     "MEMX_ENABLE_EMBEDDING_CANDIDATES",

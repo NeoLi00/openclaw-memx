@@ -1311,6 +1311,41 @@ function mergeCompiledQuery(fallback, compiled) {
 		compilerProvenance
 	};
 }
+function queryCompilerTimeoutMs(ctx) {
+	const raw = ctx.config.advanced.queryCompilerHotPathTimeoutMs;
+	return Number.isFinite(raw) && raw > 0 ? Math.max(250, Math.min(15e3, raw)) : 2200;
+}
+function timedQueryCompile(start, timeoutMs) {
+	const controller = new AbortController();
+	const promise = start(controller.signal);
+	promise.catch(() => {});
+	return new Promise((resolve) => {
+		let settled = false;
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			controller.abort();
+			resolve({ status: "timeout" });
+		}, timeoutMs);
+		promise.then((value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve({
+				status: "fulfilled",
+				value
+			});
+		}, (reason) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(controller.signal.aborted ? { status: "timeout" } : {
+				status: "rejected",
+				reason
+			});
+		});
+	});
+}
 async function compileQuery(params) {
 	const fallback = compileQueryWithoutSemanticFallback(params.query);
 	if (!params.ctx.config.advanced.enableQueryCompiler || !params.reasoner?.isEnabled?.() || !params.reasoner.compileQuerySemantics) {
@@ -1323,10 +1358,32 @@ async function compileQuery(params) {
 		});
 		return fallback;
 	}
-	const compiled = await params.reasoner.compileQuerySemantics(params.query, fallback, {
+	const compiledResult = await timedQueryCompile((signal) => params.reasoner.compileQuerySemantics(params.query, fallback, {
 		stage: "query_hot_path",
-		audit: params.ctx.llmBudgetAudit
-	});
+		audit: params.ctx.llmBudgetAudit,
+		signal
+	}), queryCompilerTimeoutMs(params.ctx));
+	if (compiledResult.status === "timeout") {
+		recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
+			label: "query-compile",
+			stage: "query_hot_path",
+			provenance: "deterministic",
+			mode: "fallback",
+			detail: "query compiler LLM exceeded hot-path timeout"
+		});
+		return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-timeout");
+	}
+	if (compiledResult.status === "rejected") {
+		recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
+			label: "query-compile",
+			stage: "query_hot_path",
+			provenance: "deterministic",
+			mode: "fallback",
+			detail: "query compiler LLM rejected on hot path"
+		});
+		return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-error");
+	}
+	const compiled = compiledResult.value;
 	if (!compiled) return compileQueryWithoutSemanticFallback(params.query, "query-compile-llm-empty");
 	return applyQueryCompileGuards(params.query, mergeCompiledQuery(fallback, {
 		compilerProvenance: {

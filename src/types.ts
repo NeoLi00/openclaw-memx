@@ -277,6 +277,7 @@ export type AdvancedMemoryConfig = {
   recallProbeContinuationEscalateThreshold: number;
   enableTurnSemanticCompiler: boolean;
   enableQueryCompiler: boolean;
+  queryCompilerHotPathTimeoutMs: number;
   enableEmbeddingCandidates: boolean;
   enableEmbeddingClustering: boolean;
   enableHotPathChunkSummaryLlm: boolean;

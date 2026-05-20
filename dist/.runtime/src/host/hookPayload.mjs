@@ -41,6 +41,9 @@ function hookToolMessage(eventName, payload) {
 		].filter(Boolean).join("\n")
 	};
 }
+function canCaptureToolEvents() {
+	return process.env["MEMX_CAPTURE_TOOL_EVENTS"] === "1";
+}
 function messagesFromHook(eventName, payload) {
 	const prompt = readString(payload, [
 		"prompt",
@@ -60,12 +63,12 @@ function messagesFromHook(eventName, payload) {
 		role: "assistant",
 		content: assistant
 	}];
-	if (eventName === "PreToolUse" || eventName === "PostToolUse" || eventName === "PostToolUseFailure" || eventName === "PreCompact" || eventName === "PostCompact" || eventName === "SubagentStart" || eventName === "SubagentStop" || eventName === "Notification" || eventName === "TaskCompleted" || eventName === "SessionStart" || eventName === "SessionEnd") return [hookToolMessage(eventName, payload)];
+	if (eventName === "PreToolUse" || eventName === "PostToolUse" || eventName === "PostToolUseFailure" || eventName === "PreCompact" || eventName === "PostCompact" || eventName === "SubagentStart" || eventName === "SubagentStop" || eventName === "Notification" || eventName === "TaskCompleted" || eventName === "SessionStart" || eventName === "SessionEnd") return canCaptureToolEvents() ? [hookToolMessage(eventName, payload)] : [];
 	if (prompt) return [{
 		role: "user",
 		content: prompt
 	}];
-	return [hookToolMessage(eventName, payload)];
+	return canCaptureToolEvents() ? [hookToolMessage(eventName, payload)] : [];
 }
 function normalizeHookPayload(hostId, eventName, payload) {
 	const normalizedHost = normalizeHostId(hostId);

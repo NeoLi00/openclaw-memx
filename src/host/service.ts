@@ -7,8 +7,15 @@ import { retrieveEvidence } from "../pipeline/retrieve.js";
 import { captureAgentEndTurn } from "../pipeline/turnCapture.js";
 import { buildOperationContext, MemxRuntimeManager, type MemxStoreBundle } from "../runtime.js";
 import { resolveDefaultScope } from "../security/scopes.js";
-import { nowIso, randomId, stableHash, truncateText } from "../support.js";
-import type { EvidenceBundle, MemoryOperationContext, MemoryPluginConfig, MemxLogger } from "../types.js";
+import { normalizeText, nowIso, randomId, stableHash, truncateText } from "../support.js";
+import type {
+  EvidenceBundle,
+  EvidencePacket,
+  MemoryOperationContext,
+  MemoryPluginConfig,
+  MemxLogger,
+  QueryCompileResult,
+} from "../types.js";
 import { normalizeObservePayload, type MemxTurnEnvelope } from "./hookPayload.js";
 
 const DEFAULT_SERVER_DB_PATH = join(homedir(), ".memx", "{agentId}", "memx.sqlite");
@@ -181,20 +188,26 @@ function countTable(store: MemxStoreBundle, table: string): number {
   return Number(row?.count ?? 0);
 }
 
-function formatEvidenceRows(title: string, rows: Array<{ text: string; observedAt?: string }>, limit: number): string[] {
-  if (rows.length === 0) {
+function formatEvidenceRows(
+  title: string,
+  rows: Array<{ text?: string; observedAt?: string }>,
+  limit: number,
+): string[] {
+  const usableRows = rows.filter((row) => typeof row.text === "string" && row.text.trim().length > 0);
+  if (usableRows.length === 0) {
     return [];
   }
   return [
     `## ${title}`,
-    ...rows.slice(0, limit).map((row) => {
+    ...usableRows.slice(0, limit).map((row) => {
       const date = row.observedAt ? ` [${row.observedAt.slice(0, 10)}]` : "";
-      return `- ${truncateText(row.text, 360)}${date}`;
+      return `- ${truncateText(row.text ?? "", 360)}${date}`;
     }),
   ];
 }
 
 function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
+  const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
   const evidenceLines = [
     ...formatEvidenceRows("Guidance", bundle.behavioralGuidance.map((text) => ({ text })), Math.min(limit, 4)),
     ...formatEvidenceRows("State", bundle.states, limit),
@@ -202,7 +215,7 @@ function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
     ...formatEvidenceRows("Events", bundle.events, limit),
     ...formatEvidenceRows(
       "Graph",
-      bundle.graph.paths.map((path) => ({ text: path.summary })),
+      graphPaths.map((path) => ({ text: path.summary })),
       Math.min(limit, 4),
     ),
   ].filter((line) => line.trim().length > 0);
@@ -214,6 +227,103 @@ function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
     "Use the following remembered context only when it directly helps the current request.",
     ...evidenceLines,
   ].join("\n");
+}
+
+type NativeContextEligibility = {
+  eligible: boolean;
+  reason: string;
+  bestScore: number;
+};
+
+function injectedPackets(bundle: EvidenceBundle): EvidencePacket[] {
+  return bundle.evidencePackets.filter((packet) => packet.injected && !packet.dropReason);
+}
+
+function packetPromptText(packet: EvidencePacket): string {
+  return [
+    packet.primaryText,
+    ...(packet.displayLines ?? []),
+    ...packet.supportingTexts,
+    ...(packet.entityAliases ?? []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function bestInjectedPacketScore(packets: EvidencePacket[]): number {
+  return packets.reduce(
+    (best, packet) =>
+      Math.max(best, packet.grade?.finalScore ?? packet.score ?? packet.coverage.confidence ?? 0),
+    0,
+  );
+}
+
+function hasExplicitMemoryIntent(query: string): boolean {
+  const normalized = normalizeText(query);
+  return (
+    /\b(remember|recall|previous|previously|earlier|last time|what did i|what was my|what were my|my .{0,40}(preference|preferences|config|configuration|requirement|requirements|constraint|constraints|command|field|account|token|key))\b/iu.test(
+      normalized,
+    ) ||
+    /(之前|上次|刚才|曾经|以前|历史|记得|记住|我说过|我提到|我提过|还记得|回忆|记忆)/u.test(
+      normalized,
+    ) ||
+    /我的.{0,24}(偏好|配置|要求|约束|命令|字段|账号|地址|密钥|是什么|有哪些|多少)/u.test(
+      normalized,
+    )
+  );
+}
+
+function distinctiveQueryAnchors(query: string): string[] {
+  const anchors = new Set<string>();
+  for (const match of query.matchAll(/[A-Za-z][A-Za-z0-9_:-]{3,}/gu)) {
+    const token = match[0];
+    if (/[A-Z]/u.test(token) || /[_:-]|\d/u.test(token) || token.length >= 8) {
+      anchors.add(token.toLowerCase());
+    }
+  }
+  return [...anchors].slice(0, 8);
+}
+
+function hasDistinctivePacketAnchor(query: string, packets: EvidencePacket[]): boolean {
+  const anchors = distinctiveQueryAnchors(query);
+  if (anchors.length === 0) {
+    return false;
+  }
+  return packets.some((packet) => {
+    const haystack = packetPromptText(packet).toLowerCase();
+    return anchors.some((anchor) => haystack.includes(anchor));
+  });
+}
+
+export function assessNativeContextEligibility(
+  query: string,
+  queryAnalysis: QueryCompileResult,
+  bundle: EvidenceBundle,
+): NativeContextEligibility {
+  const packets = injectedPackets(bundle);
+  if (packets.length === 0) {
+    return { eligible: false, reason: "no-injected-packets", bestScore: 0 };
+  }
+  const bestScore = bestInjectedPacketScore(packets);
+  const explicitMemoryIntent = hasExplicitMemoryIntent(query);
+  const distinctiveAnchor = hasDistinctivePacketAnchor(query, packets);
+  const enoughEvidence =
+    bestScore >= 0.62 ||
+    bundle.routeConfidence >= 0.68 ||
+    packets.some((packet) => packet.coverage.filled && packet.coverage.confidence >= 0.58);
+  if (!enoughEvidence && !explicitMemoryIntent && !distinctiveAnchor) {
+    return { eligible: false, reason: "weak-evidence", bestScore };
+  }
+  if (explicitMemoryIntent) {
+    return { eligible: true, reason: "explicit-memory-intent", bestScore };
+  }
+  if (distinctiveAnchor) {
+    return { eligible: true, reason: "distinctive-query-anchor", bestScore };
+  }
+  if (queryAnalysis.queryEntities.length > 0) {
+    return { eligible: true, reason: "llm-query-entities", bestScore };
+  }
+  return { eligible: false, reason: "no-memory-intent-or-anchor", bestScore };
 }
 
 export class MemxHostService {
@@ -308,18 +418,22 @@ export class MemxHostService {
       queryAnalysis: compiled,
     });
     const limit = Math.max(1, Math.min(Math.trunc(request.limit ?? 6), 24));
+    const contextEligibility = assessNativeContextEligibility(request.query, compiled, bundle);
+    const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
+    const graphEdges = Array.isArray(bundle.graph?.edges) ? bundle.graph.edges : [];
     return {
       ok: true,
       routeType: bundle.routeType,
       routeConfidence: bundle.routeConfidence,
       focusedQuery: compiled.focusedQuery,
       context: formatRecallContext(bundle, limit),
+      contextEligibility,
       states: bundle.states.slice(0, limit),
       facts: bundle.facts.slice(0, limit),
       events: bundle.events.slice(0, limit),
       graph: {
-        paths: bundle.graph.paths.slice(0, Math.min(limit, 6)),
-        edges: bundle.graph.edges.slice(0, Math.min(limit, 12)),
+        paths: graphPaths.slice(0, Math.min(limit, 6)),
+        edges: graphEdges.slice(0, Math.min(limit, 12)),
       },
       diagnostics: bundle.diagnostics,
     };
@@ -411,9 +525,15 @@ export class MemxHostService {
 
   async context(request: MemxRecallRequest): Promise<Record<string, unknown>> {
     const recalled = await this.recall(request);
+    const eligibility = recalled.contextEligibility as NativeContextEligibility | undefined;
+    if (eligibility && !eligibility.eligible) {
+      this.logger.info?.(
+        `memx: native context withheld reason=${eligibility.reason} best=${eligibility.bestScore.toFixed(2)} query="${request.query.slice(0, 80)}"`,
+      );
+    }
     return {
       ok: true,
-      prependContext: recalled.context,
+      prependContext: eligibility?.eligible === false ? "" : recalled.context,
       recall: recalled,
     };
   }

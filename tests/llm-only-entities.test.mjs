@@ -444,6 +444,49 @@ test("query compiler uses LLM semantics when available", async () => {
   assert.equal(result.supportNeed, 0.8);
 });
 
+test("query compiler falls back to raw-query retrieval when LLM exceeds hot-path deadline", async () => {
+  const started = Date.now();
+  let aborted = false;
+  const compiled = await compileQuery({
+    query: "BlueWhaleLedger 的校验命令和幂等字段是什么？",
+    ctx: {
+      ...minimalCtx(),
+      config: {
+        ...minimalConfig(),
+        advanced: {
+          ...minimalConfig().advanced,
+          queryCompilerHotPathTimeoutMs: 250,
+        },
+      },
+    },
+    reasoner: {
+      isEnabled: () => true,
+      compileQuerySemantics: (_query, _fallback, options) =>
+        new Promise((resolve) => {
+          const timer = setTimeout(
+            () => resolve({ focusedQuery: "SHOULD_NOT_BLOCK_HOOK" }),
+            1000,
+          );
+          options?.signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              clearTimeout(timer);
+            },
+            { once: true },
+          );
+        }),
+    },
+  });
+
+  assert.ok(Date.now() - started < 600);
+  assert.equal(aborted, true);
+  assert.equal(compiled.focusedQuery, "BlueWhaleLedger 的校验命令和幂等字段是什么？");
+  assert.deepEqual(compiled.queryEntities, []);
+  assert.ok(compiled.candidateSurfaces.includes("chunk"));
+  assert.ok(compiled.compilerProvenance.reasons.includes("query-compile-llm-timeout"));
+});
+
 test("query compiler accepts lightweight query intent and derives entity recall surfaces", async () => {
   const result = await compileQuery({
     query: "之前 memx 的 node_modules 安装问题是什么",

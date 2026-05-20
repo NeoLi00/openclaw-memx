@@ -61,6 +61,12 @@ test("standalone quickstart can configure Codex in one command", async () => {
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-"));
   const configPath = join(dir, "config.json");
   const codexConfigPath = join(dir, "codex.toml");
+  const staleCodexCache = join(dir, ".codex", "plugins", "cache", "memx", "memx", "2026.3.15");
+  await import("node:fs/promises").then(({ mkdir, writeFile }) =>
+    mkdir(staleCodexCache, { recursive: true }).then(() =>
+      writeFile(join(staleCodexCache, "stale.txt"), "old manifest", "utf8"),
+    ),
+  );
   const calls = [];
 
   const result = await runStandaloneMemxQuickstart(
@@ -84,22 +90,17 @@ test("standalone quickstart can configure Codex in one command", async () => {
   );
 
   assert.equal(existsSync(configPath), true);
-  assert.equal(existsSync(codexConfigPath), true);
+  assert.equal(existsSync(codexConfigPath), false, "Codex native hook install should not add an MCP server by default");
   const written = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(written.advanced.llmBaseURL, "https://llm.example.com/v1");
   assert.equal(written.embedding.model, "intfloat/multilingual-e5-small");
-  const toml = readFileSync(codexConfigPath, "utf8");
-  assert.match(toml, /\[mcp_servers\.memx\]/);
-  assert.match(toml, new RegExp(`command = ${JSON.stringify(process.execPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-  assert.match(toml, /src\/bin\/memx-mcp\.mjs/);
-  assert.match(toml, /MEMX_URL = "http:\/\/127\.0\.0\.1:3878"/);
-  assert.match(toml, /MEMX_MCP_TOOLS = "none"/);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-mcp.mjs")), true);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs")), true);
   assert.equal(
     existsSync(join(dir, ".memx", "codex-marketplace", ".agents", "plugins", "marketplace.json")),
     true,
   );
+  assert.equal(existsSync(staleCodexCache), false, "quickstart should invalidate stale Codex plugin cache");
   const hookJson = readFileSync(
     join(dir, ".memx", "codex-marketplace", "plugins", "memx", "hooks", "hooks.codex.json"),
     "utf8",
@@ -109,6 +110,11 @@ test("standalone quickstart can configure Codex in one command", async () => {
   const userPromptHook = hookConfig.hooks.UserPromptSubmit[0].hooks[0];
   assert.equal("args" in userPromptHook, false);
   assert.match(userPromptHook.command, /memx-hook\.mjs'? codex UserPromptSubmit$/);
+  const pluginManifest = JSON.parse(
+    readFileSync(join(dir, ".memx", "codex-marketplace", "plugins", "memx", ".codex-plugin", "plugin.json"), "utf8"),
+  );
+  assert.equal("mcpServers" in pluginManifest, false);
+  assert.equal("skills" in pluginManifest, false);
   assert.deepEqual(calls, [
     { command: "codex", args: ["plugin", "remove", "memx@memx"] },
     { command: "codex", args: ["plugin", "marketplace", "remove", "memx"] },
@@ -119,6 +125,7 @@ test("standalone quickstart can configure Codex in one command", async () => {
     { command: "codex", args: ["plugin", "add", "memx@memx"] },
   ]);
   assert.equal(result.codexPlugin.installed, true);
+  assert.equal(result.hostConfig.path, undefined);
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 
@@ -127,6 +134,12 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
   const dir = mkdtempSync(join(tmpdir(), "memx-claude-"));
   const configPath = join(dir, "config.json");
   const claudeConfigPath = join(dir, "claude.json");
+  const staleClaudeCache = join(dir, ".claude", "plugins", "cache", "memx-local", "memx", "2026.3.15");
+  await import("node:fs/promises").then(({ mkdir, writeFile }) =>
+    mkdir(staleClaudeCache, { recursive: true }).then(() =>
+      writeFile(join(staleClaudeCache, "stale.txt"), "old manifest", "utf8"),
+    ),
+  );
   const calls = [];
 
   const result = await runStandaloneMemxQuickstart(
@@ -156,6 +169,7 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
     existsSync(join(dir, ".memx", "claude-marketplace", ".claude-plugin", "marketplace.json")),
     true,
   );
+  assert.equal(existsSync(staleClaudeCache), false, "quickstart should invalidate stale Claude plugin cache");
   assert.equal(
     existsSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".claude-plugin", "plugin.json")),
     true,
@@ -190,12 +204,17 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
     readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".claude-plugin", "plugin.json"), "utf8"),
   );
   assert.equal("hooks" in pluginManifest, false);
-  assert.equal(pluginManifest.mcpServers, "./.mcp.json");
-  const mcp = JSON.parse(
-    readFileSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".mcp.json"), "utf8"),
+  assert.equal("mcpServers" in pluginManifest, false);
+  assert.equal("skills" in pluginManifest, false);
+  assert.equal(
+    existsSync(join(dir, ".memx", "claude-marketplace", "plugins", "memx", ".mcp.json")),
+    false,
   );
-  assert.equal(mcp.mcpServers.memx.env.MEMX_URL, "http://127.0.0.1:3878");
-  assert.equal(mcp.mcpServers.memx.env.MEMX_MCP_TOOLS, "none");
+  const claudeSettingsPath = join(dir, ".claude", "settings.json");
+  const claudeSettings = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+  assert.equal(claudeSettings.autoMemoryEnabled, false);
+  assert.equal(claudeSettings.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1");
+  assert.equal(existsSync(join(dir, ".memx", "claude-settings-backup.json")), true);
   const hookJson = readFileSync(
     join(dir, ".memx", "claude-marketplace", "plugins", "memx", "hooks", "hooks.json"),
     "utf8",
@@ -213,6 +232,7 @@ test("standalone quickstart installs Claude Code native plugin hooks in one comm
     { command: "claude", args: ["plugin", "install", "memx@memx"] },
   ]);
   assert.equal(result.claudePlugin.installed, true);
+  assert.equal(result.hostConfig.settingsPath, claudeSettingsPath);
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 

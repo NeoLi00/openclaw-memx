@@ -40,6 +40,7 @@ const DEFAULT_ADVANCED = {
 	recallProbeContinuationEscalateThreshold: .68,
 	enableTurnSemanticCompiler: true,
 	enableQueryCompiler: true,
+	queryCompilerHotPathTimeoutMs: 2200,
 	enableEmbeddingCandidates: true,
 	enableEmbeddingClustering: true,
 	enableHotPathChunkSummaryLlm: false,
@@ -562,6 +563,11 @@ const jsonSchema = {
 				enableTurnScheduler: { type: "boolean" },
 				enableTurnSemanticCompiler: { type: "boolean" },
 				enableQueryCompiler: { type: "boolean" },
+				queryCompilerHotPathTimeoutMs: {
+					type: "number",
+					minimum: 250,
+					maximum: 15e3
+				},
 				enableEmbeddingCandidates: { type: "boolean" },
 				enableEmbeddingClustering: { type: "boolean" },
 				enableHotPathChunkSummaryLlm: { type: "boolean" },
@@ -705,6 +711,12 @@ function envBooleanOverride(name, current) {
 	if (/^(?:0|false|no|off)$/iu.test(raw.trim())) return false;
 	return current;
 }
+function envNumberOverride(name, current) {
+	const raw = process.env[name];
+	if (raw === void 0) return current;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) ? Math.max(250, Math.min(15e3, parsed)) : current;
+}
 function resolveEnvObject(value) {
 	if (typeof value === "string") return resolveEnvString(value);
 	if (Array.isArray(value)) return value.map((entry) => resolveEnvObject(entry));
@@ -827,6 +839,10 @@ function parseConfigInternal(input) {
 		enableTurnScheduler: asBoolean(rawAdvanced.enableTurnScheduler, DEFAULT_MEMORY_CONFIG.advanced.enableTurnScheduler),
 		enableTurnSemanticCompiler: asBoolean(rawAdvanced.enableTurnSemanticCompiler, DEFAULT_MEMORY_CONFIG.advanced.enableTurnSemanticCompiler),
 		enableQueryCompiler: asBoolean(rawAdvanced.enableQueryCompiler, DEFAULT_MEMORY_CONFIG.advanced.enableQueryCompiler),
+		queryCompilerHotPathTimeoutMs: asNumber(rawAdvanced.queryCompilerHotPathTimeoutMs, DEFAULT_MEMORY_CONFIG.advanced.queryCompilerHotPathTimeoutMs, issues, "advanced.queryCompilerHotPathTimeoutMs", {
+			min: 250,
+			max: 15e3
+		}),
 		enableEmbeddingCandidates: asBoolean(rawAdvanced.enableEmbeddingCandidates, DEFAULT_MEMORY_CONFIG.advanced.enableEmbeddingCandidates),
 		enableEmbeddingClustering: asBoolean(rawAdvanced.enableEmbeddingClustering, DEFAULT_MEMORY_CONFIG.advanced.enableEmbeddingClustering),
 		enableHotPathChunkSummaryLlm: asBoolean(rawAdvanced.enableHotPathChunkSummaryLlm, DEFAULT_MEMORY_CONFIG.advanced.enableHotPathChunkSummaryLlm),
@@ -928,6 +944,7 @@ function parseConfigInternal(input) {
 	};
 	advanced.enableTurnSemanticCompiler = envBooleanOverride("MEMX_ENABLE_TURN_SEMANTIC_COMPILER", advanced.enableTurnSemanticCompiler);
 	advanced.enableQueryCompiler = envBooleanOverride("MEMX_ENABLE_QUERY_COMPILER", advanced.enableQueryCompiler);
+	advanced.queryCompilerHotPathTimeoutMs = envNumberOverride("MEMX_QUERY_COMPILER_TIMEOUT_MS", advanced.queryCompilerHotPathTimeoutMs);
 	advanced.enableEmbeddingCandidates = envBooleanOverride("MEMX_ENABLE_EMBEDDING_CANDIDATES", advanced.enableEmbeddingCandidates);
 	advanced.enableEmbeddingClustering = envBooleanOverride("MEMX_ENABLE_EMBEDDING_CLUSTERING", advanced.enableEmbeddingClustering);
 	advanced.enableHotPathChunkSummaryLlm = envBooleanOverride("MEMX_ENABLE_HOT_PATH_CHUNK_SUMMARY_LLM", advanced.enableHotPathChunkSummaryLlm);

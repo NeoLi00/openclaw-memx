@@ -193,7 +193,7 @@ async function handleMcpRequest(request, deps = {}) {
 				name: "memx",
 				version: "2026.3.15"
 			},
-			capabilities: { tools: {} }
+			capabilities: toolsForProfile(activeToolsProfile()).length > 0 ? { tools: {} } : {}
 		});
 		if (request.method === "ping") return jsonResponse(id, {});
 		if (request.method === "tools/list") return jsonResponse(id, { tools: toolsForProfile(activeToolsProfile()) });

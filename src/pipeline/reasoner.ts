@@ -73,6 +73,7 @@ type ReasonerCallAuditOptions = {
   maxTokens?: number;
   jsonMode?: boolean;
   temperature?: number;
+  signal?: AbortSignal;
 };
 
 export type DedupDecision = {
@@ -2101,10 +2102,18 @@ function buildStrategyClusterValidationPrompt(
 async function callJudgeModel(
   cfg: JudgeModelConfig,
   prompt: { system: string; user: string },
-  options: { maxTokens?: number; jsonMode?: boolean; temperature?: number } = {},
+  options: {
+    maxTokens?: number;
+    jsonMode?: boolean;
+    temperature?: number;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<string> {
   const maxTokens = Math.max(128, Math.min(1600, options.maxTokens ?? 800));
   const temperature = typeof options.temperature === "number" ? options.temperature : 0.1;
+  const requestSignal = options.signal
+    ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)])
+    : AbortSignal.timeout(30_000);
   if (cfg.provider === "anthropic") {
     const response = await fetch(normalizeAnthropicEndpoint(cfg.baseUrl), {
       method: "POST",
@@ -2121,7 +2130,7 @@ async function callJudgeModel(
         system: prompt.system,
         messages: [{ role: "user", content: prompt.user }],
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: requestSignal,
     });
     if (!response.ok) {
       throw new Error(`anthropic ${response.status}: ${await response.text()}`);
@@ -2151,7 +2160,7 @@ async function callJudgeModel(
             maxOutputTokens: maxTokens,
           },
         }),
-        signal: AbortSignal.timeout(30_000),
+        signal: requestSignal,
       },
     );
     if (!response.ok) {
@@ -2179,7 +2188,7 @@ async function callJudgeModel(
           { role: "user", content: prompt.user },
         ],
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: requestSignal,
     });
     if (!response.ok) {
       throw new Error(`ollama ${response.status}: ${await response.text()}`);
@@ -2221,7 +2230,7 @@ async function callJudgeModel(
         ...baseBody,
         response_format: { type: "json_object" },
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: requestSignal,
     });
     if (response.ok) {
       const jsonModeText = await parseOpenAiCompatibleResponse(response);
@@ -2248,9 +2257,19 @@ async function callJudgeModel(
     method: "POST",
     headers,
     body: JSON.stringify(baseBody),
-    signal: AbortSignal.timeout(30_000),
+    signal: requestSignal,
   });
   return parseOpenAiCompatibleResponse(response);
+}
+
+function isAbortLike(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  if (error instanceof Error) {
+    return error.name === "AbortError" || /aborted|aborterror/iu.test(error.message);
+  }
+  return false;
 }
 
 export class MemxReasoner {
@@ -3241,6 +3260,7 @@ export class MemxReasoner {
         maxTokens: options.maxTokens,
         jsonMode: options.jsonMode,
         temperature: options.temperature,
+        signal: options.signal,
       });
       const _tLlm1 = performance.now();
       const elapsedMs = Math.round(_tLlm1 - _tLlm0);
@@ -3307,6 +3327,37 @@ export class MemxReasoner {
       return null;
     } catch (error) {
       const elapsedMs = undefined;
+      if (options.signal?.aborted || isAbortLike(error)) {
+        this.logger.info?.(
+          `memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=aborted mode=${failureMode}`,
+        );
+        this.recordTrace({
+          label,
+          mode: failureMode,
+          provenance: "hybrid",
+          detail:
+            "LLM request was canceled by the caller budget; the caller degraded conservatively.",
+          stage: options.stage,
+          provider: this.judgeModel.provider,
+          model: this.judgeModel.model,
+        });
+        recordMemoryLlmBudgetCall(options.audit, {
+          label,
+          stage: options.stage ?? "write_hot_path",
+          provenance: "hybrid",
+          mode: failureMode,
+          provider: this.judgeModel.provider,
+          model: this.judgeModel.model,
+          detail: "LLM request canceled by caller budget.",
+          promptChars,
+          responseChars: 0,
+          estimatedPromptTokens,
+          estimatedCompletionTokens: 0,
+          estimatedTotalTokens: estimatedPromptTokens,
+          elapsedMs,
+        });
+        return null;
+      }
       const key = `${label}:${this.judgeModel.provider}:${this.judgeModel.model}`;
       if (!this.warned.has(key)) {
         this.warned.add(key);

@@ -1095,6 +1095,7 @@ function buildStrategyClusterValidationPrompt(entries) {
 async function callJudgeModel(cfg, prompt, options = {}) {
 	const maxTokens = Math.max(128, Math.min(1600, options.maxTokens ?? 800));
 	const temperature = typeof options.temperature === "number" ? options.temperature : .1;
+	const requestSignal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(3e4)]) : AbortSignal.timeout(3e4);
 	if (cfg.provider === "anthropic") {
 		const response = await fetch(normalizeAnthropicEndpoint(cfg.baseUrl), {
 			method: "POST",
@@ -1114,7 +1115,7 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 					content: prompt.user
 				}]
 			}),
-			signal: AbortSignal.timeout(3e4)
+			signal: requestSignal
 		});
 		if (!response.ok) throw new Error(`anthropic ${response.status}: ${await response.text()}`);
 		return extractTextContent((await response.json()).content);
@@ -1136,7 +1137,7 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 					maxOutputTokens: maxTokens
 				}
 			}),
-			signal: AbortSignal.timeout(3e4)
+			signal: requestSignal
 		});
 		if (!response.ok) throw new Error(`google ${response.status}: ${await response.text()}`);
 		return extractTextContent((await response.json()).candidates?.[0]?.content?.parts ?? []);
@@ -1163,7 +1164,7 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 					content: prompt.user
 				}]
 			}),
-			signal: AbortSignal.timeout(3e4)
+			signal: requestSignal
 		});
 		if (!response.ok) throw new Error(`ollama ${response.status}: ${await response.text()}`);
 		return (await response.json()).message?.content?.trim() ?? "";
@@ -1199,7 +1200,7 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 				...baseBody,
 				response_format: { type: "json_object" }
 			}),
-			signal: AbortSignal.timeout(3e4)
+			signal: requestSignal
 		});
 		if (response.ok) {
 			const jsonModeText = await parseOpenAiCompatibleResponse(response);
@@ -1213,8 +1214,13 @@ async function callJudgeModel(cfg, prompt, options = {}) {
 		method: "POST",
 		headers,
 		body: JSON.stringify(baseBody),
-		signal: AbortSignal.timeout(3e4)
+		signal: requestSignal
 	}));
+}
+function isAbortLike(error) {
+	if (error instanceof DOMException && error.name === "AbortError") return true;
+	if (error instanceof Error) return error.name === "AbortError" || /aborted|aborterror/iu.test(error.message);
+	return false;
 }
 var MemxReasoner = class {
 	config;
@@ -1777,7 +1783,8 @@ var MemxReasoner = class {
 			const raw = await callJudgeModel(this.judgeModel, prompt, {
 				maxTokens: options.maxTokens,
 				jsonMode: options.jsonMode,
-				temperature: options.temperature
+				temperature: options.temperature,
+				signal: options.signal
 			});
 			const _tLlm1 = performance.now();
 			const elapsedMs = Math.round(_tLlm1 - _tLlm0);
@@ -1840,6 +1847,34 @@ var MemxReasoner = class {
 			return null;
 		} catch (error) {
 			const elapsedMs = void 0;
+			if (options.signal?.aborted || isAbortLike(error)) {
+				this.logger.info?.(`memx: PROBE llm-fallback label=${label} stage=${options.stage ?? "unspecified"} reason=aborted mode=${failureMode}`);
+				this.recordTrace({
+					label,
+					mode: failureMode,
+					provenance: "hybrid",
+					detail: "LLM request was canceled by the caller budget; the caller degraded conservatively.",
+					stage: options.stage,
+					provider: this.judgeModel.provider,
+					model: this.judgeModel.model
+				});
+				recordMemoryLlmBudgetCall(options.audit, {
+					label,
+					stage: options.stage ?? "write_hot_path",
+					provenance: "hybrid",
+					mode: failureMode,
+					provider: this.judgeModel.provider,
+					model: this.judgeModel.model,
+					detail: "LLM request canceled by caller budget.",
+					promptChars,
+					responseChars: 0,
+					estimatedPromptTokens,
+					estimatedCompletionTokens: 0,
+					estimatedTotalTokens: estimatedPromptTokens,
+					elapsedMs
+				});
+				return null;
+			}
 			const key = `${label}:${this.judgeModel.provider}:${this.judgeModel.model}`;
 			if (!this.warned.has(key)) {
 				this.warned.add(key);

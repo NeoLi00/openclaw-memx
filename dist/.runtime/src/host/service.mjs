@@ -1,4 +1,4 @@
-import { nowIso, randomId, stableHash, truncateText } from "../support.mjs";
+import { normalizeText, nowIso, randomId, stableHash, truncateText } from "../support.mjs";
 import { normalizeObservePayload } from "./hookPayload.mjs";
 import { DEFAULT_MEMORY_CONFIG, memxConfigSchema } from "../config.mjs";
 import { compileQuery } from "../pipeline/queryCompiler.mjs";
@@ -99,19 +99,21 @@ function countTable(store, table) {
 	return Number(row?.count ?? 0);
 }
 function formatEvidenceRows(title, rows, limit) {
-	if (rows.length === 0) return [];
-	return [`## ${title}`, ...rows.slice(0, limit).map((row) => {
+	const usableRows = rows.filter((row) => typeof row.text === "string" && row.text.trim().length > 0);
+	if (usableRows.length === 0) return [];
+	return [`## ${title}`, ...usableRows.slice(0, limit).map((row) => {
 		const date = row.observedAt ? ` [${row.observedAt.slice(0, 10)}]` : "";
-		return `- ${truncateText(row.text, 360)}${date}`;
+		return `- ${truncateText(row.text ?? "", 360)}${date}`;
 	})];
 }
 function formatRecallContext(bundle, limit) {
+	const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
 	const evidenceLines = [
 		...formatEvidenceRows("Guidance", bundle.behavioralGuidance.map((text) => ({ text })), Math.min(limit, 4)),
 		...formatEvidenceRows("State", bundle.states, limit),
 		...formatEvidenceRows("Facts", bundle.facts, limit),
 		...formatEvidenceRows("Events", bundle.events, limit),
-		...formatEvidenceRows("Graph", bundle.graph.paths.map((path) => ({ text: path.summary })), Math.min(limit, 4))
+		...formatEvidenceRows("Graph", graphPaths.map((path) => ({ text: path.summary })), Math.min(limit, 4))
 	].filter((line) => line.trim().length > 0);
 	if (evidenceLines.length === 0) return "";
 	return [
@@ -119,6 +121,76 @@ function formatRecallContext(bundle, limit) {
 		"Use the following remembered context only when it directly helps the current request.",
 		...evidenceLines
 	].join("\n");
+}
+function injectedPackets(bundle) {
+	return bundle.evidencePackets.filter((packet) => packet.injected && !packet.dropReason);
+}
+function packetPromptText(packet) {
+	return [
+		packet.primaryText,
+		...packet.displayLines ?? [],
+		...packet.supportingTexts,
+		...packet.entityAliases ?? []
+	].filter(Boolean).join("\n");
+}
+function bestInjectedPacketScore(packets) {
+	return packets.reduce((best, packet) => Math.max(best, packet.grade?.finalScore ?? packet.score ?? packet.coverage.confidence ?? 0), 0);
+}
+function hasExplicitMemoryIntent(query) {
+	const normalized = normalizeText(query);
+	return /\b(remember|recall|previous|previously|earlier|last time|what did i|what was my|what were my|my .{0,40}(preference|preferences|config|configuration|requirement|requirements|constraint|constraints|command|field|account|token|key))\b/iu.test(normalized) || /(之前|上次|刚才|曾经|以前|历史|记得|记住|我说过|我提到|我提过|还记得|回忆|记忆)/u.test(normalized) || /我的.{0,24}(偏好|配置|要求|约束|命令|字段|账号|地址|密钥|是什么|有哪些|多少)/u.test(normalized);
+}
+function distinctiveQueryAnchors(query) {
+	const anchors = /* @__PURE__ */ new Set();
+	for (const match of query.matchAll(/[A-Za-z][A-Za-z0-9_:-]{3,}/gu)) {
+		const token = match[0];
+		if (/[A-Z]/u.test(token) || /[_:-]|\d/u.test(token) || token.length >= 8) anchors.add(token.toLowerCase());
+	}
+	return [...anchors].slice(0, 8);
+}
+function hasDistinctivePacketAnchor(query, packets) {
+	const anchors = distinctiveQueryAnchors(query);
+	if (anchors.length === 0) return false;
+	return packets.some((packet) => {
+		const haystack = packetPromptText(packet).toLowerCase();
+		return anchors.some((anchor) => haystack.includes(anchor));
+	});
+}
+function assessNativeContextEligibility(query, queryAnalysis, bundle) {
+	const packets = injectedPackets(bundle);
+	if (packets.length === 0) return {
+		eligible: false,
+		reason: "no-injected-packets",
+		bestScore: 0
+	};
+	const bestScore = bestInjectedPacketScore(packets);
+	const explicitMemoryIntent = hasExplicitMemoryIntent(query);
+	const distinctiveAnchor = hasDistinctivePacketAnchor(query, packets);
+	if (!(bestScore >= .62 || bundle.routeConfidence >= .68 || packets.some((packet) => packet.coverage.filled && packet.coverage.confidence >= .58)) && !explicitMemoryIntent && !distinctiveAnchor) return {
+		eligible: false,
+		reason: "weak-evidence",
+		bestScore
+	};
+	if (explicitMemoryIntent) return {
+		eligible: true,
+		reason: "explicit-memory-intent",
+		bestScore
+	};
+	if (distinctiveAnchor) return {
+		eligible: true,
+		reason: "distinctive-query-anchor",
+		bestScore
+	};
+	if (queryAnalysis.queryEntities.length > 0) return {
+		eligible: true,
+		reason: "llm-query-entities",
+		bestScore
+	};
+	return {
+		eligible: false,
+		reason: "no-memory-intent-or-anchor",
+		bestScore
+	};
 }
 var MemxHostService = class {
 	config;
@@ -204,18 +276,22 @@ var MemxHostService = class {
 		});
 		const bundle = await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, { queryAnalysis: compiled });
 		const limit = Math.max(1, Math.min(Math.trunc(request.limit ?? 6), 24));
+		const contextEligibility = assessNativeContextEligibility(request.query, compiled, bundle);
+		const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
+		const graphEdges = Array.isArray(bundle.graph?.edges) ? bundle.graph.edges : [];
 		return {
 			ok: true,
 			routeType: bundle.routeType,
 			routeConfidence: bundle.routeConfidence,
 			focusedQuery: compiled.focusedQuery,
 			context: formatRecallContext(bundle, limit),
+			contextEligibility,
 			states: bundle.states.slice(0, limit),
 			facts: bundle.facts.slice(0, limit),
 			events: bundle.events.slice(0, limit),
 			graph: {
-				paths: bundle.graph.paths.slice(0, Math.min(limit, 6)),
-				edges: bundle.graph.edges.slice(0, Math.min(limit, 12))
+				paths: graphPaths.slice(0, Math.min(limit, 6)),
+				edges: graphEdges.slice(0, Math.min(limit, 12))
 			},
 			diagnostics: bundle.diagnostics
 		};
@@ -317,9 +393,11 @@ var MemxHostService = class {
 	}
 	async context(request) {
 		const recalled = await this.recall(request);
+		const eligibility = recalled.contextEligibility;
+		if (eligibility && !eligibility.eligible) this.logger.info?.(`memx: native context withheld reason=${eligibility.reason} best=${eligibility.bestScore.toFixed(2)} query="${request.query.slice(0, 80)}"`);
 		return {
 			ok: true,
-			prependContext: recalled.context,
+			prependContext: eligibility?.eligible === false ? "" : recalled.context,
 			recall: recalled
 		};
 	}
@@ -333,4 +411,4 @@ function stableHostTurnId(envelope) {
 	]);
 }
 //#endregion
-export { MemxHostService, createServiceConfigFromEnv, stableHostTurnId };
+export { MemxHostService, assessNativeContextEligibility, createServiceConfigFromEnv, stableHostTurnId };

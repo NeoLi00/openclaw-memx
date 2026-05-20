@@ -70,6 +70,10 @@ function hookToolMessage(eventName: string, payload: Record<string, unknown>): M
   };
 }
 
+function canCaptureToolEvents(): boolean {
+  return process.env["MEMX_CAPTURE_TOOL_EVENTS"] === "1";
+}
+
 function messagesFromHook(eventName: string, payload: Record<string, unknown>): MemxHostMessage[] {
   const prompt = readString(payload, ["prompt", "user_prompt", "userPrompt"]);
   if (eventName === "UserPromptSubmit" && prompt) {
@@ -92,12 +96,12 @@ function messagesFromHook(eventName: string, payload: Record<string, unknown>): 
     eventName === "SessionStart" ||
     eventName === "SessionEnd"
   ) {
-    return [hookToolMessage(eventName, payload)];
+    return canCaptureToolEvents() ? [hookToolMessage(eventName, payload)] : [];
   }
   if (prompt) {
     return [{ role: "user", content: prompt }];
   }
-  return [hookToolMessage(eventName, payload)];
+  return canCaptureToolEvents() ? [hookToolMessage(eventName, payload)] : [];
 }
 
 export function normalizeHookPayload(

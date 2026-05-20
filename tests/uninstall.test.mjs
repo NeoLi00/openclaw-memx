@@ -57,8 +57,11 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-uninstall-"));
   const configPath = join(dir, "config.toml");
   const codexMarketplaceDir = join(dir, ".memx", "codex-marketplace");
+  const codexCacheDir = join(dir, ".codex", "plugins", "cache", "memx", "memx");
   mkdirSync(codexMarketplaceDir, { recursive: true });
+  mkdirSync(codexCacheDir, { recursive: true });
   writeFileSync(join(codexMarketplaceDir, "marker.txt"), "stale", "utf8");
+  writeFileSync(join(codexCacheDir, "marker.txt"), "stale", "utf8");
   await import("node:fs/promises").then(({ writeFile }) =>
     writeFile(
       configPath,
@@ -80,7 +83,7 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
   const calls = [];
 
   const result = await runCodexUninstall(
-    { configPath, codexBin: "codex-test", codexMarketplaceDir },
+    { configPath, homeDir: dir, codexBin: "codex-test", codexMarketplaceDir },
     {
       now: () => 123,
       runCommand: async (command, args) => {
@@ -99,6 +102,7 @@ test("Codex uninstall removes memx plugin and marketplace config", async () => {
   ]);
   assert.equal(result.backupPath, `${configPath}.bak.123`);
   assert.equal(existsSync(codexMarketplaceDir), false);
+  assert.equal(existsSync(codexCacheDir), false);
 });
 
 test("Claude Code uninstall removes memx MCP server, native plugin, and marketplace", async () => {
@@ -125,8 +129,11 @@ test("Claude Code uninstall removes memx MCP server, native plugin, and marketpl
   const dir = mkdtempSync(join(tmpdir(), "memx-claude-uninstall-"));
   const configPath = join(dir, "claude.json");
   const claudeMarketplaceDir = join(dir, ".memx", "claude-marketplace");
+  const claudeCacheDir = join(dir, ".claude", "plugins", "cache", "memx-local", "memx");
   mkdirSync(claudeMarketplaceDir, { recursive: true });
+  mkdirSync(claudeCacheDir, { recursive: true });
   writeFileSync(join(claudeMarketplaceDir, "marker.txt"), "stale", "utf8");
+  writeFileSync(join(claudeCacheDir, "marker.txt"), "stale", "utf8");
   writeFileSync(
     configPath,
     JSON.stringify({
@@ -140,7 +147,7 @@ test("Claude Code uninstall removes memx MCP server, native plugin, and marketpl
   const calls = [];
 
   const result = await runClaudeCodeUninstall(
-    { configPath, claudeBin: "claude-test", claudeMarketplaceDir },
+    { configPath, homeDir: dir, claudeBin: "claude-test", claudeMarketplaceDir },
     {
       now: () => 123,
       runCommand: async (command, args) => {
@@ -159,6 +166,54 @@ test("Claude Code uninstall removes memx MCP server, native plugin, and marketpl
   ]);
   assert.equal(result.backupPath, `${configPath}.bak.123`);
   assert.equal(existsSync(claudeMarketplaceDir), false);
+  assert.equal(existsSync(claudeCacheDir), false);
+});
+
+test("Claude Code uninstall restores native memory settings that quickstart changed", async () => {
+  const { runClaudeCodeUninstall } = await import("../dist/.runtime/src/host/uninstall.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-claude-settings-uninstall-"));
+  const configPath = join(dir, "claude.json");
+  const settingsPath = join(dir, ".claude", "settings.json");
+  const backupPath = join(dir, ".memx", "claude-settings-backup.json");
+  mkdirSync(join(dir, ".claude"), { recursive: true });
+  mkdirSync(join(dir, ".memx"), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      theme: "dark",
+      autoMemoryEnabled: false,
+      env: {
+        ANTHROPIC_BASE_URL: "https://example.com",
+        CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+      },
+    }),
+    "utf8",
+  );
+  writeFileSync(
+    backupPath,
+    JSON.stringify({
+      autoMemoryEnabled: { present: true, value: true },
+      env: {
+        CLAUDE_CODE_DISABLE_AUTO_MEMORY: { present: false },
+      },
+    }),
+    "utf8",
+  );
+  writeFileSync(configPath, JSON.stringify({ mcpServers: {} }), "utf8");
+
+  await runClaudeCodeUninstall(
+    { configPath, homeDir: dir, claudeBin: "claude-test" },
+    {
+      now: () => 123,
+      runCommand: async () => ({ code: 0 }),
+    },
+  );
+
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.equal(settings.autoMemoryEnabled, true);
+  assert.equal(settings.env.ANTHROPIC_BASE_URL, "https://example.com");
+  assert.equal(settings.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, undefined);
+  assert.equal(existsSync(backupPath), false);
 });
 
 test("OpenClaw uninstall backs up config and treats plugin uninstall as best effort", async () => {
