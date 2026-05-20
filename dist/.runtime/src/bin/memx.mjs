@@ -75,6 +75,7 @@ function parseStandaloneQuickstartOptions(target, argv) {
 		embeddingCacheDir: readOption(argv, "--embedding-cache-dir"),
 		embeddingDevice: readOption(argv, "--embedding-device"),
 		embeddingOllamaBaseUrl: readOption(argv, "--embedding-ollama-base-url"),
+		runtimeDir: readOption(argv, "--runtime-dir"),
 		configPath: readOption(argv, "--config"),
 		codexConfigPath: readOption(argv, "--codex-config"),
 		claudeConfigPath: readOption(argv, "--claude-config"),

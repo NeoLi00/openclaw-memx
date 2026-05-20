@@ -81,7 +81,10 @@ test("standalone quickstart can configure Codex in one command", async () => {
   assert.equal(written.embedding.model, "intfloat/multilingual-e5-small");
   const toml = readFileSync(codexConfigPath, "utf8");
   assert.match(toml, /\[mcp_servers\.memx\]/);
+  assert.match(toml, new RegExp(`command = ${JSON.stringify(process.execPath).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(toml, /src\/bin\/memx-mcp\.mjs/);
   assert.match(toml, /MEMX_URL = "http:\/\/127\.0\.0\.1:3878"/);
+  assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-mcp.mjs")), true);
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 

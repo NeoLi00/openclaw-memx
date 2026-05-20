@@ -8,10 +8,15 @@ const DEFAULT_URL = "http://127.0.0.1:3878";
 const CODEX_SECTION = "[mcp_servers.memx]";
 const CODEX_ENV_SECTION = "[mcp_servers.memx.env]";
 
+export type McpCommandConfig = {
+  command: string;
+  args: string[];
+};
+
 export type GenericMcpConfig = {
   mcpServers: {
     memx: {
-      command: "npx";
+      command: string;
       args: string[];
       env: {
         MEMX_URL: string;
@@ -21,15 +26,23 @@ export type GenericMcpConfig = {
   };
 };
 
+function defaultMcpCommand(): McpCommandConfig {
+  return {
+    command: "npx",
+    args: ["-y", "-p", PACKAGE_SPEC, "memx-mcp"],
+  };
+}
+
 export function buildGenericMcpConfig(
   url = "${MEMX_URL}",
   secret = "${MEMX_SECRET}",
+  commandConfig = defaultMcpCommand(),
 ): GenericMcpConfig {
   return {
     mcpServers: {
       memx: {
-        command: "npx",
-        args: ["-y", "-p", PACKAGE_SPEC, "memx-mcp"],
+        command: commandConfig.command,
+        args: commandConfig.args,
         env: {
           MEMX_URL: url,
           MEMX_SECRET: secret,
@@ -66,12 +79,17 @@ export function applyCodexTomlDisconnect(toml: string): string {
   return stripCodexMemxBlock(toml);
 }
 
-export function applyCodexTomlConnect(toml: string, url = DEFAULT_URL, secret = "${MEMX_SECRET}"): string {
+export function applyCodexTomlConnect(
+  toml: string,
+  url = DEFAULT_URL,
+  secret = "${MEMX_SECRET}",
+  commandConfig = defaultMcpCommand(),
+): string {
   const cleaned = stripCodexMemxBlock(toml);
   const block = [
     CODEX_SECTION,
-    'command = "npx"',
-    `args = ["-y", "-p", "${PACKAGE_SPEC}", "memx-mcp"]`,
+    `command = ${JSON.stringify(commandConfig.command)}`,
+    `args = ${JSON.stringify(commandConfig.args)}`,
     "",
     CODEX_ENV_SECTION,
     `MEMX_URL = "${url}"`,
@@ -85,6 +103,7 @@ export function applyClaudeJsonConnect(
   input: unknown,
   url = "${MEMX_URL}",
   secret = "${MEMX_SECRET}",
+  commandConfig = defaultMcpCommand(),
 ): Record<string, unknown> {
   const base =
     input && typeof input === "object" && !Array.isArray(input)
@@ -98,7 +117,7 @@ export function applyClaudeJsonConnect(
     ...base,
     mcpServers: {
       ...currentServers,
-      memx: buildGenericMcpConfig(url, secret).mcpServers.memx,
+      memx: buildGenericMcpConfig(url, secret, commandConfig).mcpServers.memx,
     },
   };
 }

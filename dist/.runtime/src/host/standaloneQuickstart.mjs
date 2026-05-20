@@ -3,13 +3,15 @@ import { DEFAULT_MEMORY_CONFIG } from "../config.mjs";
 import { existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 //#region src/host/standaloneQuickstart.ts
 const DEFAULT_CONFIG_PATH = join(homedir(), ".memx", "config.json");
 const DEFAULT_DB_PATH = join(homedir(), ".memx", "{agentId}", "memx.sqlite");
 const DEFAULT_MEMX_URL = "http://127.0.0.1:3878";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
+const DEFAULT_RUNTIME_DIRNAME = "runtime";
 function trimOrUndefined(value) {
 	const trimmed = value?.trim();
 	return trimmed ? trimmed : void 0;
@@ -20,6 +22,18 @@ function localVenvDir(homeDir) {
 function localVenvPython(homeDir) {
 	const venv = localVenvDir(homeDir);
 	return platform() === "win32" ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
+}
+function localRuntimeDir(homeDir) {
+	return join(homeDir, ".memx", DEFAULT_RUNTIME_DIRNAME);
+}
+function currentRuntimeRoot() {
+	return fileURLToPath(new URL("../../", import.meta.url));
+}
+function localRuntimeMcpCommand(runtimeDir) {
+	return {
+		command: process.execPath,
+		args: [join(runtimeDir, "src", "bin", "memx-mcp.mjs")]
+	};
 }
 function normalizeEmbeddingProvider(provider) {
 	if (!provider || provider === "local") return "sentence-transformers-local";
@@ -52,7 +66,8 @@ function normalizeOptions(options) {
 		configPath: trimOrUndefined(options.configPath) ?? DEFAULT_CONFIG_PATH,
 		homeDir,
 		pythonBin: trimOrUndefined(options.pythonBin) ?? "python3",
-		memxUrl: trimOrUndefined(options.memxUrl) ?? DEFAULT_MEMX_URL
+		memxUrl: trimOrUndefined(options.memxUrl) ?? DEFAULT_MEMX_URL,
+		runtimeDir: trimOrUndefined(options.runtimeDir) ?? localRuntimeDir(homeDir)
 	};
 }
 function isRecord(value) {
@@ -135,6 +150,21 @@ async function writeAtomic(path, text) {
 	await writeFile(tmp, text, "utf8");
 	await rename(tmp, path);
 }
+async function installStandaloneRuntime(runtimeDir) {
+	const tmp = `${runtimeDir}.tmp-${process.pid}-${Date.now()}`;
+	await rm(tmp, {
+		recursive: true,
+		force: true
+	});
+	await mkdir(dirname(runtimeDir), { recursive: true });
+	await cp(currentRuntimeRoot(), tmp, { recursive: true });
+	await rm(runtimeDir, {
+		recursive: true,
+		force: true
+	});
+	await rename(tmp, runtimeDir);
+	return runtimeDir;
+}
 async function defaultRunCommand(command, args) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
@@ -145,10 +175,10 @@ async function defaultRunCommand(command, args) {
 		child.once("close", (code) => resolve({ code: code ?? 1 }));
 	});
 }
-async function writeHostConfig(options) {
+async function writeHostConfig(options, commandConfig) {
 	if (options.target === "codex") {
 		const path = trimOrUndefined(options.codexConfigPath) ?? join(options.homeDir, ".codex", "config.toml");
-		await writeAtomic(path, applyCodexTomlConnect(existsSync(path) ? await readFile(path, "utf8") : "", options.memxUrl, options.memxSecret ?? ""));
+		await writeAtomic(path, applyCodexTomlConnect(existsSync(path) ? await readFile(path, "utf8") : "", options.memxUrl, options.memxSecret ?? "", commandConfig));
 		return {
 			host: "codex",
 			path
@@ -156,7 +186,7 @@ async function writeHostConfig(options) {
 	}
 	if (options.target === "claude-code") {
 		const path = trimOrUndefined(options.claudeConfigPath) ?? join(options.homeDir, ".claude.json");
-		const next = applyClaudeJsonConnect(await readJson(path), options.memxUrl, options.memxSecret ?? "");
+		const next = applyClaudeJsonConnect(await readJson(path), options.memxUrl, options.memxSecret ?? "", commandConfig);
 		await writeAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
 		return {
 			host: "claude-code",
@@ -165,7 +195,7 @@ async function writeHostConfig(options) {
 	}
 	return null;
 }
-function redactSummary(options, steps) {
+function redactSummary(options, steps, commandConfig) {
 	return {
 		target: options.target,
 		configPath: options.configPath,
@@ -180,18 +210,21 @@ function redactSummary(options, steps) {
 		embeddingModel: options.embeddingModel,
 		embeddingPythonBin: options.embeddingPythonBin || null,
 		memxUrl: options.memxUrl,
+		runtimeDir: options.runtimeDir,
 		steps,
-		mcpConfig: options.target === "mcp" ? buildGenericMcpConfig(options.memxUrl, options.memxSecret ?? "") : void 0
+		mcpConfig: options.target === "mcp" ? buildGenericMcpConfig(options.memxUrl, options.memxSecret ?? "", commandConfig) : void 0
 	};
 }
 async function runStandaloneMemxQuickstart(rawOptions, deps = {}) {
 	const options = normalizeOptions(rawOptions);
 	const next = applyStandaloneMemxQuickstartConfig(await readJson(options.configPath), options);
 	const steps = buildStandaloneMemxQuickstartSteps(options);
+	const commandConfig = localRuntimeMcpCommand(options.runtimeDir);
 	let hostConfig = null;
 	if (!options.dryRun) {
+		await installStandaloneRuntime(options.runtimeDir);
 		await writeAtomic(options.configPath, `${JSON.stringify(next, null, 2)}\n`);
-		hostConfig = await writeHostConfig(options);
+		hostConfig = await writeHostConfig(options, commandConfig);
 		const runCommand = deps.runCommand ?? defaultRunCommand;
 		for (const step of steps) {
 			const result = await runCommand(step.command, step.args);
@@ -201,7 +234,7 @@ async function runStandaloneMemxQuickstart(rawOptions, deps = {}) {
 	return {
 		ok: true,
 		dryRun: Boolean(options.dryRun),
-		...redactSummary(options, steps),
+		...redactSummary(options, steps, commandConfig),
 		hostConfig,
 		nextStep: "Start memx-server with this config, then use the configured MCP client or native plugin."
 	};

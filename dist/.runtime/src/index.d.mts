@@ -1,4 +1,4 @@
-import { GenericMcpConfig, applyClaudeJsonConnect, applyClaudeJsonDisconnect, applyCodexTomlConnect, applyCodexTomlDisconnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock } from "./host/connect.mjs";
+import { GenericMcpConfig, McpCommandConfig, applyClaudeJsonConnect, applyClaudeJsonDisconnect, applyCodexTomlConnect, applyCodexTomlDisconnect, buildGenericMcpConfig, connectClaudeCodeConfig, connectCodexConfig, hasCodexMemxBlock } from "./host/connect.mjs";
 import { MemxHostId, MemxHostMessage, MemxTurnEnvelope, normalizeHookPayload, normalizeObservePayload } from "./host/hookPayload.mjs";
 import { MEMX_MCP_TOOLS, MemxMcpHandlerDeps, MemxMcpProxy, defaultMemxProxy, handleMcpRequest } from "./host/mcpProtocol.mjs";
 import { EvidenceBundle } from "./types.mjs";

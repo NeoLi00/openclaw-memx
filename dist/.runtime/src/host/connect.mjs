@@ -7,15 +7,21 @@ const PACKAGE_SPEC = MEMX_INSTALL_SPEC;
 const DEFAULT_URL = "http://127.0.0.1:3878";
 const CODEX_SECTION = "[mcp_servers.memx]";
 const CODEX_ENV_SECTION = "[mcp_servers.memx.env]";
-function buildGenericMcpConfig(url = "${MEMX_URL}", secret = "${MEMX_SECRET}") {
-	return { mcpServers: { memx: {
+function defaultMcpCommand() {
+	return {
 		command: "npx",
 		args: [
 			"-y",
 			"-p",
 			PACKAGE_SPEC,
 			"memx-mcp"
-		],
+		]
+	};
+}
+function buildGenericMcpConfig(url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
+	return { mcpServers: { memx: {
+		command: commandConfig.command,
+		args: commandConfig.args,
 		env: {
 			MEMX_URL: url,
 			MEMX_SECRET: secret
@@ -42,12 +48,12 @@ function stripCodexMemxBlock(toml) {
 function applyCodexTomlDisconnect(toml) {
 	return stripCodexMemxBlock(toml);
 }
-function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}") {
+function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
 	const cleaned = stripCodexMemxBlock(toml);
 	const block = [
 		CODEX_SECTION,
-		"command = \"npx\"",
-		`args = ["-y", "-p", "${PACKAGE_SPEC}", "memx-mcp"]`,
+		`command = ${JSON.stringify(commandConfig.command)}`,
+		`args = ${JSON.stringify(commandConfig.args)}`,
 		"",
 		CODEX_ENV_SECTION,
 		`MEMX_URL = "${url}"`,
@@ -56,14 +62,14 @@ function applyCodexTomlConnect(toml, url = DEFAULT_URL, secret = "${MEMX_SECRET}
 	].join("\n");
 	return `${cleaned}${cleaned ? "\n\n" : ""}${block}`;
 }
-function applyClaudeJsonConnect(input, url = "${MEMX_URL}", secret = "${MEMX_SECRET}") {
+function applyClaudeJsonConnect(input, url = "${MEMX_URL}", secret = "${MEMX_SECRET}", commandConfig = defaultMcpCommand()) {
 	const base = input && typeof input === "object" && !Array.isArray(input) ? { ...input } : {};
 	const currentServers = base.mcpServers && typeof base.mcpServers === "object" && !Array.isArray(base.mcpServers) ? base.mcpServers : {};
 	return {
 		...base,
 		mcpServers: {
 			...currentServers,
-			memx: buildGenericMcpConfig(url, secret).mcpServers.memx
+			memx: buildGenericMcpConfig(url, secret, commandConfig).mcpServers.memx
 		}
 	};
 }

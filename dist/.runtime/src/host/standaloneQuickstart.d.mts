@@ -18,6 +18,7 @@ type StandaloneMemxQuickstartOptions = {
   embeddingCacheDir?: string;
   embeddingDevice?: "auto" | "cpu" | "mps" | "cuda";
   embeddingOllamaBaseUrl?: string;
+  runtimeDir?: string;
   configPath?: string;
   codexConfigPath?: string;
   claudeConfigPath?: string;
