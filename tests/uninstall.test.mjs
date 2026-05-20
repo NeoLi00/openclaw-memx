@@ -52,6 +52,51 @@ test("Codex uninstall removes only memx MCP TOML sections", async () => {
   assert.match(next, /\[tools\]/);
 });
 
+test("Codex uninstall removes memx plugin and marketplace config", async () => {
+  const { runCodexUninstall } = await import("../dist/.runtime/src/host/uninstall.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "memx-codex-uninstall-"));
+  const configPath = join(dir, "config.toml");
+  await import("node:fs/promises").then(({ writeFile }) =>
+    writeFile(
+      configPath,
+      [
+        '[mcp_servers.memx]',
+        'command = "node"',
+        "",
+        '[plugins."memx@memx"]',
+        "enabled = true",
+        "",
+        "[marketplaces.memx]",
+        'source = "/tmp/memx"',
+        "",
+        "[projects.foo]",
+        'trust_level = "trusted"',
+      ].join("\n"),
+    ),
+  );
+  const calls = [];
+
+  const result = await runCodexUninstall(
+    { configPath, codexBin: "codex-test" },
+    {
+      now: () => 123,
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { code: 0 };
+      },
+    },
+  );
+
+  const written = readFileSync(configPath, "utf8");
+  assert.doesNotMatch(written, /memx/);
+  assert.match(written, /\[projects\.foo\]/);
+  assert.deepEqual(calls, [
+    { command: "codex-test", args: ["plugin", "remove", "memx@memx"] },
+    { command: "codex-test", args: ["plugin", "marketplace", "remove", "memx"] },
+  ]);
+  assert.equal(result.backupPath, `${configPath}.bak.123`);
+});
+
 test("Claude Code uninstall removes memx MCP server only", async () => {
   const { applyClaudeJsonDisconnect } = await import(
     "../dist/.runtime/src/host/connect.mjs"

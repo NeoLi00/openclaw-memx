@@ -102,9 +102,8 @@ test("Codex native plugin manifest wires MCP and supported hooks only", () => {
     assert.ok(supported.has(event), `unsupported Codex hook event: ${event}`);
   }
   for (const hook of collectCommandHooks({ hooks })) {
-    assert.equal(hook.command, "node");
-    assert.ok(Array.isArray(hook.args), "Codex hooks should use exec-form args");
-    assert.match(hook.args[0], /^\$\{CLAUDE_PLUGIN_ROOT\}/);
+    assert.match(hook.command, /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/dist\/\.runtime\/src\/bin\/memx-hook\.mjs" codex /);
+    assert.equal("args" in hook, false, "Codex hooks should use Codex-compatible command strings");
     assert.equal(hook.timeout, 5);
   }
 });
@@ -135,9 +134,8 @@ test("Claude Code native plugin manifest keeps Claude-only hooks separate", () =
     assert.ok(event in hooks, `missing Claude Code hook: ${event}`);
   }
   for (const hook of collectCommandHooks({ hooks })) {
-    assert.equal(hook.command, "node");
-    assert.ok(Array.isArray(hook.args), "Claude hooks should use exec-form args");
-    assert.match(hook.args[0], /^\$\{CLAUDE_PLUGIN_ROOT\}/);
+    assert.match(hook.command, /^node "\$\{CLAUDE_PLUGIN_ROOT\}\/dist\/\.runtime\/src\/bin\/memx-hook\.mjs" claude-code /);
+    assert.equal("args" in hook, false, "Claude hooks should use command strings");
     assert.equal(hook.timeout, 5);
   }
 });

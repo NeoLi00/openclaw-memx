@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
-import { runMemxHook } from "../host/hookRunner.js";
+async function main(): Promise<void> {
+  const { runMemxHook } = await import("../host/hookRunner.js");
+  await runMemxHook();
+}
 
-runMemxHook().catch((error) => {
+main().catch((error) => {
   if (process.env["MEMX_HOOK_DEBUG"] === "1") {
     console.error(error instanceof Error ? error.message : String(error));
   }

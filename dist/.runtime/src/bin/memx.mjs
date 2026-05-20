@@ -76,6 +76,9 @@ function parseStandaloneQuickstartOptions(target, argv) {
 		embeddingDevice: readOption(argv, "--embedding-device"),
 		embeddingOllamaBaseUrl: readOption(argv, "--embedding-ollama-base-url"),
 		runtimeDir: readOption(argv, "--runtime-dir"),
+		codexBin: readOption(argv, "--codex-bin"),
+		codexMarketplaceDir: readOption(argv, "--codex-marketplace-dir"),
+		skipCodexPluginInstall: hasFlag(argv, "--skip-codex-plugin-install"),
 		configPath: readOption(argv, "--config"),
 		codexConfigPath: readOption(argv, "--codex-config"),
 		claudeConfigPath: readOption(argv, "--claude-config"),
@@ -91,6 +94,7 @@ function parseUninstallOptions(target, argv) {
 	return {
 		target,
 		configPath: readOption(argv, "--config") ?? (target === "codex" ? readOption(argv, "--codex-config") : target === "claude-code" ? readOption(argv, "--claude-config") : void 0),
+		codexBin: readOption(argv, "--codex-bin"),
 		openclawBin: readOption(argv, "--openclaw-bin"),
 		skipPluginUninstall: hasFlag(argv, "--skip-plugin-uninstall"),
 		dryRun: hasFlag(argv, "--dry-run")

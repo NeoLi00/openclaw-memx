@@ -13,6 +13,7 @@
   },
   "files": [
     "dist",
+    ".agents",
     ".codex-plugin",
     ".claude-plugin",
     ".mcp.json",

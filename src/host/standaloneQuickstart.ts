@@ -18,6 +18,7 @@ const DEFAULT_DB_PATH = join(homedir(), ".memx", "{agentId}", "memx.sqlite");
 const DEFAULT_MEMX_URL = "http://127.0.0.1:3878";
 const DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 const DEFAULT_RUNTIME_DIRNAME = "runtime";
+const DEFAULT_CODEX_MARKETPLACE_DIRNAME = "codex-marketplace";
 
 export type StandaloneQuickstartTarget = "codex" | "claude-code" | "mcp";
 
@@ -38,6 +39,9 @@ export type StandaloneMemxQuickstartOptions = {
   embeddingDevice?: "auto" | "cpu" | "mps" | "cuda";
   embeddingOllamaBaseUrl?: string;
   runtimeDir?: string;
+  codexBin?: string;
+  codexMarketplaceDir?: string;
+  skipCodexPluginInstall?: boolean;
   configPath?: string;
   codexConfigPath?: string;
   claudeConfigPath?: string;
@@ -61,11 +65,23 @@ type NormalizedStandaloneOptions = Required<
     | "pythonBin"
     | "memxUrl"
     | "runtimeDir"
+    | "codexBin"
+    | "codexMarketplaceDir"
   >
 > &
   Omit<
     StandaloneMemxQuickstartOptions,
-    "target" | "llmProvider" | "llmBaseUrl" | "llmModel" | "configPath" | "homeDir" | "pythonBin" | "memxUrl"
+    | "target"
+    | "llmProvider"
+    | "llmBaseUrl"
+    | "llmModel"
+    | "configPath"
+    | "homeDir"
+    | "pythonBin"
+    | "memxUrl"
+    | "runtimeDir"
+    | "codexBin"
+    | "codexMarketplaceDir"
   > & {
     embeddingProvider: MemoryEmbeddingProvider;
     embeddingModel: string;
@@ -106,6 +122,10 @@ function localRuntimeDir(homeDir: string): string {
   return join(homeDir, ".memx", DEFAULT_RUNTIME_DIRNAME);
 }
 
+function localCodexMarketplaceDir(homeDir: string): string {
+  return join(homeDir, ".memx", DEFAULT_CODEX_MARKETPLACE_DIRNAME);
+}
+
 function currentRuntimeRoot(): string {
   return fileURLToPath(new URL("../../", import.meta.url));
 }
@@ -115,6 +135,24 @@ function localRuntimeMcpCommand(runtimeDir: string): McpCommandConfig {
     command: process.execPath,
     args: [join(runtimeDir, "src", "bin", "memx-mcp.mjs")],
   };
+}
+
+function localRuntimeHookCommand(runtimeDir: string): McpCommandConfig {
+  return {
+    command: process.execPath,
+    args: [join(runtimeDir, "src", "bin", "memx-hook.mjs")],
+  };
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_/:=.,@%+-]+$/u.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function hookCommandLine(commandConfig: McpCommandConfig, host: "codex", eventName: string): string {
+  return [...[commandConfig.command, ...commandConfig.args], host, eventName].map(shellQuote).join(" ");
 }
 
 function normalizeEmbeddingProvider(
@@ -168,6 +206,9 @@ function normalizeOptions(
     pythonBin: trimOrUndefined(options.pythonBin) ?? "python3",
     memxUrl: trimOrUndefined(options.memxUrl) ?? DEFAULT_MEMX_URL,
     runtimeDir: trimOrUndefined(options.runtimeDir) ?? localRuntimeDir(homeDir),
+    codexBin: trimOrUndefined(options.codexBin) ?? "codex",
+    codexMarketplaceDir:
+      trimOrUndefined(options.codexMarketplaceDir) ?? localCodexMarketplaceDir(homeDir),
   };
 }
 
@@ -271,6 +312,160 @@ async function installStandaloneRuntime(runtimeDir: string): Promise<string> {
   return runtimeDir;
 }
 
+function hookEntry(commandConfig: McpCommandConfig, host: "codex", eventName: string, statusMessage?: string) {
+  return {
+    hooks: [
+      {
+        type: "command",
+        command: hookCommandLine(commandConfig, host, eventName),
+        timeout: 5,
+        ...(statusMessage ? { statusMessage } : {}),
+      },
+    ],
+  };
+}
+
+function codexHooksConfig(commandConfig: McpCommandConfig): Record<string, unknown> {
+  return {
+    hooks: {
+      SessionStart: [
+        hookEntry(commandConfig, "codex", "SessionStart", "memx: opening memory session"),
+      ],
+      UserPromptSubmit: [
+        hookEntry(commandConfig, "codex", "UserPromptSubmit", "memx: capturing user turn"),
+      ],
+      PreToolUse: [
+        {
+          matcher: "Edit|Write|Read|Glob|Grep|apply_patch|exec_command",
+          ...hookEntry(commandConfig, "codex", "PreToolUse"),
+        },
+      ],
+      PostToolUse: [hookEntry(commandConfig, "codex", "PostToolUse")],
+      PreCompact: [hookEntry(commandConfig, "codex", "PreCompact")],
+      Stop: [hookEntry(commandConfig, "codex", "Stop")],
+    },
+  };
+}
+
+function codexPluginManifest(): Record<string, unknown> {
+  return {
+    name: "memx",
+    version: "2026.3.15",
+    description:
+      "memX: local-first semantic memory for coding agents. Native Codex lifecycle hooks plus MCP tools.",
+    author: { name: "Neo Li" },
+    license: "MIT",
+    homepage: "https://github.com/NeoLi00/memX",
+    repository: "https://github.com/NeoLi00/memX",
+    skills: "./skills/",
+    hooks: "./hooks/hooks.codex.json",
+  };
+}
+
+function codexMarketplaceManifest(): Record<string, unknown> {
+  return {
+    name: "memx",
+    plugins: [
+      {
+        name: "memx",
+        source: { source: "local", path: "./plugins/memx" },
+        policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+        category: "Productivity",
+      },
+    ],
+  };
+}
+
+async function installCodexMarketplaceSnapshot(
+  options: NormalizedStandaloneOptions,
+  hookCommandConfig: McpCommandConfig,
+): Promise<string> {
+  const marketplaceDir = options.codexMarketplaceDir;
+  const pluginDir = join(marketplaceDir, "plugins", "memx");
+  const tmp = `${marketplaceDir}.tmp-${process.pid}-${Date.now()}`;
+  await rm(tmp, { recursive: true, force: true });
+  await mkdir(join(tmp, ".agents", "plugins"), { recursive: true });
+  await mkdir(join(tmp, "plugins", "memx", ".codex-plugin"), { recursive: true });
+  await mkdir(join(tmp, "plugins", "memx", "hooks"), { recursive: true });
+  await mkdir(join(tmp, "plugins", "memx", "skills", "memx"), { recursive: true });
+  await writeFile(
+    join(tmp, ".agents", "plugins", "marketplace.json"),
+    `${JSON.stringify(codexMarketplaceManifest(), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, "plugins", "memx", ".codex-plugin", "plugin.json"),
+    `${JSON.stringify(codexPluginManifest(), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, "plugins", "memx", "hooks", "hooks.codex.json"),
+    `${JSON.stringify(codexHooksConfig(hookCommandConfig), null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, "plugins", "memx", "skills", "memx", "SKILL.md"),
+    [
+      "---",
+      "name: memx",
+      "description: Use memX memory tools and lifecycle hooks for local agent memory.",
+      "---",
+      "",
+      "# memX",
+      "",
+      "memX provides local semantic memory through lifecycle hooks and MCP tools.",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  await rm(marketplaceDir, { recursive: true, force: true });
+  await mkdir(dirname(marketplaceDir), { recursive: true });
+  await rename(tmp, marketplaceDir);
+  return pluginDir;
+}
+
+async function installCodexPlugin(
+  options: NormalizedStandaloneOptions,
+  hookCommandConfig: McpCommandConfig,
+  runCommand: (command: string, args: string[]) => Promise<StandaloneQuickstartCommandResult>,
+): Promise<Record<string, unknown>> {
+  await installCodexMarketplaceSnapshot(options, hookCommandConfig);
+  const warnings: string[] = [];
+  const bestEffort = async (args: string[]) => {
+    const result = await runCommand(options.codexBin, args);
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout || "").trim();
+      warnings.push(
+        `${options.codexBin} ${args.join(" ")} exited ${result.code}${detail ? `: ${detail}` : ""}`,
+      );
+    }
+  };
+  await bestEffort(["plugin", "remove", "memx@memx"]);
+  await bestEffort(["plugin", "marketplace", "remove", "memx"]);
+  const addMarketplace = await runCommand(options.codexBin, [
+    "plugin",
+    "marketplace",
+    "add",
+    options.codexMarketplaceDir,
+  ]);
+  if (addMarketplace.code !== 0) {
+    throw new Error(
+      `standalone quickstart step failed: codex-plugin-marketplace (${options.codexBin} plugin marketplace add ${options.codexMarketplaceDir}) exited ${addMarketplace.code}`,
+    );
+  }
+  const addPlugin = await runCommand(options.codexBin, ["plugin", "add", "memx@memx"]);
+  if (addPlugin.code !== 0) {
+    throw new Error(
+      `standalone quickstart step failed: codex-plugin-install (${options.codexBin} plugin add memx@memx) exited ${addPlugin.code}`,
+    );
+  }
+  return {
+    marketplaceDir: options.codexMarketplaceDir,
+    installed: true,
+    warnings,
+  };
+}
+
 async function defaultRunCommand(
   command: string,
   args: string[],
@@ -285,6 +480,7 @@ async function defaultRunCommand(
 async function writeHostConfig(
   options: NormalizedStandaloneOptions,
   commandConfig: McpCommandConfig,
+  codexPlugin: Record<string, unknown> | null,
 ): Promise<Record<string, unknown> | null> {
   if (options.target === "codex") {
     const path = trimOrUndefined(options.codexConfigPath) ?? join(options.homeDir, ".codex", "config.toml");
@@ -293,7 +489,7 @@ async function writeHostConfig(
       path,
       applyCodexTomlConnect(current, options.memxUrl, options.memxSecret ?? "", commandConfig),
     );
-    return { host: "codex", path };
+    return { host: "codex", path, codexPlugin };
   }
   if (options.target === "claude-code") {
     const path = trimOrUndefined(options.claudeConfigPath) ?? join(options.homeDir, ".claude.json");
@@ -309,6 +505,7 @@ function redactSummary(
   options: NormalizedStandaloneOptions,
   steps: StandaloneQuickstartCommandStep[],
   commandConfig: McpCommandConfig,
+  codexPlugin: Record<string, unknown> | null,
 ) {
   return {
     target: options.target,
@@ -326,6 +523,7 @@ function redactSummary(
     embeddingPythonBin: options.embeddingPythonBin || null,
     memxUrl: options.memxUrl,
     runtimeDir: options.runtimeDir,
+    codexPlugin,
     steps,
     mcpConfig:
       options.target === "mcp"
@@ -343,12 +541,17 @@ export async function runStandaloneMemxQuickstart(
   const next = applyStandaloneMemxQuickstartConfig(current, options);
   const steps = buildStandaloneMemxQuickstartSteps(options);
   const commandConfig = localRuntimeMcpCommand(options.runtimeDir);
+  const hookCommandConfig = localRuntimeHookCommand(options.runtimeDir);
   let hostConfig: Record<string, unknown> | null = null;
+  let codexPlugin: Record<string, unknown> | null = null;
   if (!options.dryRun) {
     await installStandaloneRuntime(options.runtimeDir);
     await writeAtomic(options.configPath, `${JSON.stringify(next, null, 2)}\n`);
-    hostConfig = await writeHostConfig(options, commandConfig);
     const runCommand = deps.runCommand ?? defaultRunCommand;
+    if (options.target === "codex" && !options.skipCodexPluginInstall) {
+      codexPlugin = await installCodexPlugin(options, hookCommandConfig, runCommand);
+    }
+    hostConfig = await writeHostConfig(options, commandConfig, codexPlugin);
     for (const step of steps) {
       const result = await runCommand(step.command, step.args);
       if (result.code !== 0) {
@@ -361,7 +564,7 @@ export async function runStandaloneMemxQuickstart(
   return {
     ok: true,
     dryRun: Boolean(options.dryRun),
-    ...redactSummary(options, steps, commandConfig),
+    ...redactSummary(options, steps, commandConfig, codexPlugin),
     hostConfig,
     nextStep:
       "Start memx-server with this config, then use the configured MCP client or native plugin.",

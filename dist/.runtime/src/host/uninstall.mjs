@@ -80,6 +80,13 @@ function warningForFailedUninstall(result) {
 	const detail = (result.stderr || result.stdout || "").trim();
 	return `plugin uninstall exited ${result.code}${detail ? `: ${detail}` : ""}`;
 }
+function stripTomlSection(toml, header) {
+	const escaped = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return toml.replace(new RegExp(`\\n?${escaped}\\n[\\s\\S]*?(?=\\n\\[|$)`, "u"), "");
+}
+function applyCodexPluginDisconnect(toml) {
+	return stripTomlSection(stripTomlSection(toml, "[plugins.\"memx@memx\"]"), "[marketplaces.memx]").trim();
+}
 async function runOpenClawUninstall(rawOptions = {}, deps = {}) {
 	const configPath = trimOrUndefined(rawOptions.configPath) ?? DEFAULT_OPENCLAW_CONFIG_PATH;
 	const openclawBin = trimOrUndefined(rawOptions.openclawBin) ?? "openclaw";
@@ -120,14 +127,30 @@ async function runOpenClawUninstall(rawOptions = {}, deps = {}) {
 }
 async function runCodexUninstall(rawOptions = {}, deps = {}) {
 	const configPath = trimOrUndefined(rawOptions.configPath) ?? DEFAULT_CODEX_CONFIG_PATH;
+	const codexBin = trimOrUndefined(rawOptions.codexBin) ?? "codex";
 	const now = deps.now ?? Date.now;
 	const dryRun = Boolean(rawOptions.dryRun);
 	const current = existsSync(configPath) ? await readFile(configPath, "utf8") : "";
-	const next = applyCodexTomlDisconnect(current);
+	const next = applyCodexPluginDisconnect(applyCodexTomlDisconnect(current));
 	let backupPath = null;
+	const warnings = [];
 	if (!dryRun) {
 		backupPath = await backupIfExists(configPath, now);
 		await writeAtomic(configPath, next ? `${next}\n` : "");
+		const runCommand = deps.runCommand ?? defaultRunCommand;
+		for (const args of [[
+			"plugin",
+			"remove",
+			"memx@memx"
+		], [
+			"plugin",
+			"marketplace",
+			"remove",
+			"memx"
+		]]) {
+			const result = await runCommand(codexBin, args);
+			if (result.code !== 0) warnings.push(warningForFailedUninstall(result));
+		}
 	}
 	return {
 		ok: true,
@@ -135,6 +158,7 @@ async function runCodexUninstall(rawOptions = {}, deps = {}) {
 		dryRun,
 		configPath,
 		backupPath,
+		warnings,
 		removed: current !== next
 	};
 }

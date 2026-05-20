@@ -40,6 +40,7 @@ export type OpenClawUninstallOptions = {
 
 export type StandaloneUninstallOptions = {
   configPath?: string;
+  codexBin?: string;
   dryRun?: boolean;
 };
 
@@ -119,6 +120,18 @@ function warningForFailedUninstall(result: UninstallCommandResult): string {
   return `plugin uninstall exited ${result.code}${detail ? `: ${detail}` : ""}`;
 }
 
+function stripTomlSection(toml: string, header: string): string {
+  const escaped = header.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return toml.replace(new RegExp(`\\n?${escaped}\\n[\\s\\S]*?(?=\\n\\[|$)`, "u"), "");
+}
+
+function applyCodexPluginDisconnect(toml: string): string {
+  return stripTomlSection(
+    stripTomlSection(toml, '[plugins."memx@memx"]'),
+    "[marketplaces.memx]",
+  ).trim();
+}
+
 export async function runOpenClawUninstall(
   rawOptions: OpenClawUninstallOptions = {},
   deps: UninstallDeps = {},
@@ -170,17 +183,29 @@ export async function runOpenClawUninstall(
 
 export async function runCodexUninstall(
   rawOptions: StandaloneUninstallOptions = {},
-  deps: Pick<UninstallDeps, "now"> = {},
+  deps: Pick<UninstallDeps, "now" | "runCommand"> = {},
 ): Promise<Record<string, unknown>> {
   const configPath = trimOrUndefined(rawOptions.configPath) ?? DEFAULT_CODEX_CONFIG_PATH;
+  const codexBin = trimOrUndefined(rawOptions.codexBin) ?? "codex";
   const now = deps.now ?? Date.now;
   const dryRun = Boolean(rawOptions.dryRun);
   const current = existsSync(configPath) ? await readFile(configPath, "utf8") : "";
-  const next = applyCodexTomlDisconnect(current);
+  const next = applyCodexPluginDisconnect(applyCodexTomlDisconnect(current));
   let backupPath: string | null = null;
+  const warnings: string[] = [];
   if (!dryRun) {
     backupPath = await backupIfExists(configPath, now);
     await writeAtomic(configPath, next ? `${next}\n` : "");
+    const runCommand = deps.runCommand ?? defaultRunCommand;
+    for (const args of [
+      ["plugin", "remove", "memx@memx"],
+      ["plugin", "marketplace", "remove", "memx"],
+    ]) {
+      const result = await runCommand(codexBin, args);
+      if (result.code !== 0) {
+        warnings.push(warningForFailedUninstall(result));
+      }
+    }
   }
   return {
     ok: true,
@@ -188,6 +213,7 @@ export async function runCodexUninstall(
     dryRun,
     configPath,
     backupPath,
+    warnings,
     removed: current !== next,
   };
 }

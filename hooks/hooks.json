@@ -5,8 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "SessionStart"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SessionStart",
             "timeout": 5
           }
         ]
@@ -17,8 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "UserPromptSubmit"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code UserPromptSubmit",
             "timeout": 5
           }
         ]
@@ -30,8 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "PreToolUse"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PreToolUse",
             "timeout": 5
           }
         ]
@@ -42,8 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "PostToolUse"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PostToolUse",
             "timeout": 5
           }
         ]
@@ -54,8 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "PostToolUseFailure"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PostToolUseFailure",
             "timeout": 5
           }
         ]
@@ -66,8 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "PreCompact"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PreCompact",
             "timeout": 5
           }
         ]
@@ -78,8 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "SubagentStart"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SubagentStart",
             "timeout": 5
           }
         ]
@@ -90,8 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "SubagentStop"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SubagentStop",
             "timeout": 5
           }
         ]
@@ -102,8 +94,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "Notification"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code Notification",
             "timeout": 5
           }
         ]
@@ -114,8 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "TaskCompleted"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code TaskCompleted",
             "timeout": 5
           }
         ]
@@ -126,8 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "Stop"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code Stop",
             "timeout": 5
           }
         ]
@@ -138,8 +127,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "claude-code", "SessionEnd"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SessionEnd",
             "timeout": 5
           }
         ]

@@ -25,11 +25,12 @@ type OpenClawUninstallOptions = {
 };
 type StandaloneUninstallOptions = {
   configPath?: string;
+  codexBin?: string;
   dryRun?: boolean;
 };
 declare function applyOpenClawUninstallConfig(input: unknown): OpenClawConfigLike;
 declare function runOpenClawUninstall(rawOptions?: OpenClawUninstallOptions, deps?: UninstallDeps): Promise<Record<string, unknown>>;
-declare function runCodexUninstall(rawOptions?: StandaloneUninstallOptions, deps?: Pick<UninstallDeps, "now">): Promise<Record<string, unknown>>;
+declare function runCodexUninstall(rawOptions?: StandaloneUninstallOptions, deps?: Pick<UninstallDeps, "now" | "runCommand">): Promise<Record<string, unknown>>;
 declare function runClaudeCodeUninstall(rawOptions?: StandaloneUninstallOptions, deps?: Pick<UninstallDeps, "now">): Promise<Record<string, unknown>>;
 //#endregion
 export { OpenClawUninstallOptions, StandaloneUninstallOptions, UninstallCommandResult, UninstallDeps, applyOpenClawUninstallConfig, runClaudeCodeUninstall, runCodexUninstall, runOpenClawUninstall };

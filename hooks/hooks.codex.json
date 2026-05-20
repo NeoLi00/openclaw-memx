@@ -5,8 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "SessionStart"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex SessionStart",
             "timeout": 5,
             "statusMessage": "memx: opening memory session"
           }
@@ -18,8 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "UserPromptSubmit"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex UserPromptSubmit",
             "timeout": 5,
             "statusMessage": "memx: capturing user turn"
           }
@@ -32,8 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "PreToolUse"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex PreToolUse",
             "timeout": 5
           }
         ]
@@ -44,8 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "PostToolUse"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex PostToolUse",
             "timeout": 5
           }
         ]
@@ -56,8 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "PreCompact"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex PreCompact",
             "timeout": 5
           }
         ]
@@ -68,8 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/dist/src/bin/memx-hook.mjs", "codex", "Stop"],
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" codex Stop",
             "timeout": 5
           }
         ]

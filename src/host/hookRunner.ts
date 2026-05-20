@@ -1,6 +1,6 @@
 import { normalizeHookPayload, type MemxHostId } from "./hookPayload.js";
 
-const DEFAULT_URL = "http://localhost:3878";
+const DEFAULT_URL = "http://127.0.0.1:3878";
 
 async function readStdinJson(): Promise<Record<string, unknown>> {
   let input = "";

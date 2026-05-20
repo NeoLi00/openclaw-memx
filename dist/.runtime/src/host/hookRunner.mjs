@@ -1,6 +1,6 @@
 import { normalizeHookPayload } from "./hookPayload.mjs";
 //#region src/host/hookRunner.ts
-const DEFAULT_URL = "http://localhost:3878";
+const DEFAULT_URL = "http://127.0.0.1:3878";
 async function readStdinJson() {
 	let input = "";
 	for await (const chunk of process.stdin) input += chunk;

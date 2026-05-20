@@ -61,18 +61,27 @@ test("standalone quickstart can configure Codex in one command", async () => {
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-"));
   const configPath = join(dir, "config.json");
   const codexConfigPath = join(dir, "codex.toml");
+  const calls = [];
 
-  const result = await runStandaloneMemxQuickstart({
-    target: "codex",
-    configPath,
-    codexConfigPath,
-    homeDir: dir,
-    llmProvider: "openai-compatible",
-    llmBaseUrl: "https://llm.example.com/v1",
-    llmModel: "fast-memory-model",
-    llmApiKey: "sk-standalone",
-    skipEmbeddingDeps: true,
-  });
+  const result = await runStandaloneMemxQuickstart(
+    {
+      target: "codex",
+      configPath,
+      codexConfigPath,
+      homeDir: dir,
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-standalone",
+      skipEmbeddingDeps: true,
+    },
+    {
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { code: 0 };
+      },
+    },
+  );
 
   assert.equal(existsSync(configPath), true);
   assert.equal(existsSync(codexConfigPath), true);
@@ -85,6 +94,30 @@ test("standalone quickstart can configure Codex in one command", async () => {
   assert.match(toml, /src\/bin\/memx-mcp\.mjs/);
   assert.match(toml, /MEMX_URL = "http:\/\/127\.0\.0\.1:3878"/);
   assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-mcp.mjs")), true);
+  assert.equal(existsSync(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs")), true);
+  assert.equal(
+    existsSync(join(dir, ".memx", "codex-marketplace", ".agents", "plugins", "marketplace.json")),
+    true,
+  );
+  const hookJson = readFileSync(
+    join(dir, ".memx", "codex-marketplace", "plugins", "memx", "hooks", "hooks.codex.json"),
+    "utf8",
+  );
+  assert.match(hookJson, new RegExp(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  const hookConfig = JSON.parse(hookJson);
+  const userPromptHook = hookConfig.hooks.UserPromptSubmit[0].hooks[0];
+  assert.equal("args" in userPromptHook, false);
+  assert.match(userPromptHook.command, /memx-hook\.mjs'? codex UserPromptSubmit$/);
+  assert.deepEqual(calls, [
+    { command: "codex", args: ["plugin", "remove", "memx@memx"] },
+    { command: "codex", args: ["plugin", "marketplace", "remove", "memx"] },
+    {
+      command: "codex",
+      args: ["plugin", "marketplace", "add", join(dir, ".memx", "codex-marketplace")],
+    },
+    { command: "codex", args: ["plugin", "add", "memx@memx"] },
+  ]);
+  assert.equal(result.codexPlugin.installed, true);
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 
