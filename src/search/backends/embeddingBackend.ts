@@ -140,6 +140,49 @@ async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
   return response.json();
 }
 
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+}
+
+function isProcessAlive(pid: number | undefined): boolean {
+  if (!Number.isInteger(pid) || (pid ?? 0) <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid as number, 0);
+    return true;
+  } catch (error) {
+    return errorCode(error) === "EPERM";
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return true;
+    }
+    await sleep(50);
+  }
+  return !isProcessAlive(pid);
+}
+
+function killProcessBestEffort(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if (errorCode(error) !== "ESRCH") {
+      // Shutdown is best-effort; callers still continue with lexical fallback if needed.
+    }
+  }
+}
+
 function resolveLocalModel(config: EmbeddingConfig): string {
   return config.model?.trim() || DEFAULT_LOCAL_MODEL;
 }
@@ -216,6 +259,8 @@ class LocalSentenceTransformerWorker {
       token,
       "--state-file",
       stateFile,
+      "--parent-pid",
+      String(process.pid),
     ];
     if (this.config.localCacheDir?.trim()) {
       args.push("--cache-dir", this.config.localCacheDir.trim());
@@ -331,6 +376,14 @@ class LocalSentenceTransformerWorker {
       // The daemon may already be gone; shutdown is best-effort.
     } finally {
       clearTimeout(timer);
+    }
+    if (!server.pid || !(await waitForProcessExit(server.pid, 1_500))) {
+      if (server.pid && isProcessAlive(server.pid)) {
+        killProcessBestEffort(server.pid, "SIGTERM");
+        if (!(await waitForProcessExit(server.pid, 1_000)) && isProcessAlive(server.pid)) {
+          killProcessBestEffort(server.pid, "SIGKILL");
+        }
+      }
     }
   }
 }

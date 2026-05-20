@@ -103,6 +103,36 @@ async function fetchJson(url, init) {
 	if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
 	return response.json();
 }
+function errorCode(error) {
+	return typeof error === "object" && error !== null && "code" in error ? String(error.code) : void 0;
+}
+function isProcessAlive(pid) {
+	if (!Number.isInteger(pid) || (pid ?? 0) <= 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return errorCode(error) === "EPERM";
+	}
+}
+async function sleep(ms) {
+	await new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function waitForProcessExit(pid, timeoutMs) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (!isProcessAlive(pid)) return true;
+		await sleep(50);
+	}
+	return !isProcessAlive(pid);
+}
+function killProcessBestEffort(pid, signal) {
+	try {
+		process.kill(pid, signal);
+	} catch (error) {
+		if (errorCode(error) !== "ESRCH") {}
+	}
+}
 function resolveLocalModel(config) {
 	return config.model?.trim() || DEFAULT_LOCAL_MODEL;
 }
@@ -161,7 +191,9 @@ var LocalSentenceTransformerWorker = class {
 			"--token",
 			token,
 			"--state-file",
-			stateFile
+			stateFile,
+			"--parent-pid",
+			String(process.pid)
 		];
 		if (this.config.localCacheDir?.trim()) args.push("--cache-dir", this.config.localCacheDir.trim());
 		const result = await runCommandWithTimeout([resolveLocalPythonBin(this.config), ...args], {
@@ -235,6 +267,12 @@ var LocalSentenceTransformerWorker = class {
 			});
 		} catch {} finally {
 			clearTimeout(timer);
+		}
+		if (!server.pid || !await waitForProcessExit(server.pid, 1500)) {
+			if (server.pid && isProcessAlive(server.pid)) {
+				killProcessBestEffort(server.pid, "SIGTERM");
+				if (!await waitForProcessExit(server.pid, 1e3) && isProcessAlive(server.pid)) killProcessBestEffort(server.pid, "SIGKILL");
+			}
 		}
 	}
 };

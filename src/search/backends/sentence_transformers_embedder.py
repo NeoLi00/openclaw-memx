@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", default=None)
     parser.add_argument("--state-file", default=None)
+    parser.add_argument("--parent-pid", type=int, default=0)
     return parser.parse_args()
 
 
@@ -83,6 +84,34 @@ def write_state(state_file: str | None, payload: dict):
     tmp_path.replace(state_path)
 
 
+def process_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return True
+
+
+def start_parent_watchdog(server: ThreadingHTTPServer, parent_pid: int):
+    if parent_pid <= 0:
+        return
+
+    def watch_parent():
+        while True:
+            if not process_is_alive(parent_pid):
+                Thread(target=server.shutdown, daemon=True).start()
+                return
+            time.sleep(0.25)
+
+    Thread(target=watch_parent, daemon=True).start()
+
+
 def launch_server(args):
     if not args.token:
         raise RuntimeError("--token is required with --launch-server")
@@ -107,6 +136,8 @@ def launch_server(args):
         "--state-file",
         state_file,
     ]
+    if args.parent_pid:
+        command.extend(["--parent-pid", str(args.parent_pid)])
     if args.cache_dir:
         command.extend(["--cache-dir", args.cache_dir])
     creation_kwargs = {}
@@ -186,6 +217,7 @@ def serve(args):
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     host, port = server.server_address[:2]
     write_state(args.state_file, {"url": f"http://{host}:{port}", "token": args.token})
+    start_parent_watchdog(server, args.parent_pid)
     server.serve_forever()
 
 
