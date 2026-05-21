@@ -599,6 +599,7 @@ async function writeHostConfig(options, commandConfig, codexPlugin, claudePlugin
 	return null;
 }
 function redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin, mcpTools) {
+	const lifecycleNotes = buildLifecycleNotes(options, mcpTools);
 	return {
 		target: options.target,
 		configPath: options.configPath,
@@ -617,9 +618,19 @@ function redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin,
 		runtimeDir: options.runtimeDir,
 		codexPlugin,
 		claudePlugin,
+		lifecycleNotes,
 		steps,
 		mcpConfig: options.target === "mcp" ? buildGenericMcpConfig(options.memxUrl, options.memxSecret ?? "", commandConfig, mcpTools) : void 0
 	};
+}
+function buildLifecycleNotes(options, mcpTools) {
+	const notes = [];
+	if (options.target === "codex" && !options.skipCodexPluginInstall) {
+		notes.push("Codex may ask you to trust the memX plugin on first launch; this is the host trust gate and quickstart cannot bypass it.");
+		notes.push("Use an interactive Codex TUI session to validate lifecycle hooks; codex exec can follow a different host path and is not a reliable lifecycle acceptance test.");
+	}
+	if (options.target === "codex" && !options.skipCodexPluginInstall || options.target === "claude-code" && !options.skipClaudePluginInstall) notes.push(mcpTools === "none" ? "Native hooks are installed and MCP memory tools are hidden by default to avoid duplicate recall/write." : "MCP memory tools are exposed because --mcp-tools was explicitly set.");
+	return notes;
 }
 function defaultMcpToolsForOptions(options) {
 	if (options.mcpTools) return options.mcpTools;
@@ -655,7 +666,7 @@ async function runStandaloneMemxQuickstart(rawOptions, deps = {}) {
 		dryRun: Boolean(options.dryRun),
 		...redactSummary(options, steps, commandConfig, codexPlugin, claudePlugin, mcpTools),
 		hostConfig,
-		nextStep: "Start memx-server with this config, then use the configured MCP client or native plugin."
+		nextStep: "Start memx-server with this config, then use the configured host."
 	};
 }
 //#endregion

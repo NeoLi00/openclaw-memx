@@ -157,6 +157,9 @@ test("standalone quickstart can configure Codex in one command", async () => {
   ]);
   assert.equal(result.codexPlugin.installed, true);
   assert.equal(result.hostConfig.path, undefined);
+  assert.ok(Array.isArray(result.lifecycleNotes));
+  assert.match(result.lifecycleNotes.join("\n"), /trust/i);
+  assert.match(result.lifecycleNotes.join("\n"), /codex exec/i);
   assert.doesNotMatch(JSON.stringify(result), /sk-standalone/);
 });
 

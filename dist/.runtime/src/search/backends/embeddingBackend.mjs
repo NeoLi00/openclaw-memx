@@ -25,6 +25,7 @@ const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 12e4;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 3e5;
 const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
+const QUERY_EMBEDDING_CACHE_LIMIT = 128;
 const LOCAL_WORKER_PATH = fileURLToPath(new URL("../../../sentence_transformers_embedder.py", import.meta.url));
 async function runCommandWithTimeout(commandAndArgs, options) {
 	const [command, ...args] = commandAndArgs;
@@ -369,6 +370,7 @@ var OptionalEmbeddingBackend = class {
 	lexical;
 	localWorkerLease;
 	localWorker;
+	queryEmbeddingCache = /* @__PURE__ */ new Map();
 	warnedUnavailable = false;
 	acceptingUpserts = true;
 	localUnavailableForProcess = false;
@@ -417,6 +419,7 @@ var OptionalEmbeddingBackend = class {
 	async close() {
 		if (this.closed) return;
 		this.acceptingUpserts = false;
+		this.queryEmbeddingCache.clear();
 		await this.flushPendingUpserts();
 		await this.localPrewarm?.catch(() => {});
 		this.closed = true;
@@ -435,7 +438,7 @@ var OptionalEmbeddingBackend = class {
 			return [];
 		}
 		try {
-			const [queryEmbedding] = await this.embedTexts([params.query], "query", "similarity-search");
+			const queryEmbedding = await this.getCachedQueryEmbedding(params.query);
 			if (!queryEmbedding || queryEmbedding.length === 0) return [];
 			const rows = this.repo.listEmbeddings({
 				agentId: params.agentId,
@@ -494,12 +497,29 @@ var OptionalEmbeddingBackend = class {
 	}
 	handleEmbeddingFailure(error, message) {
 		this.warnOnce(message);
+		this.queryEmbeddingCache.clear();
 		if (this.embedding.provider !== "sentence-transformers-local" || error instanceof LocalEmbeddingTimeoutError) return;
 		this.localUnavailableForProcess = true;
 		this.acceptingUpserts = false;
 		this.localWorkerLease?.invalidate().catch((error) => {
 			this.logger.debug?.(`memx: failed to close unavailable local embedding worker (${String(error)})`);
 		});
+	}
+	async getCachedQueryEmbedding(query) {
+		const cacheKey = query.normalize("NFKC").replace(/\s+/gu, " ").trim();
+		if (!cacheKey) return [];
+		const existing = this.queryEmbeddingCache.get(cacheKey);
+		if (existing) return existing;
+		const pending = this.embedTexts([cacheKey], "query", "similarity-search").then(([embedding]) => embedding ?? []).catch((error) => {
+			this.queryEmbeddingCache.delete(cacheKey);
+			throw error;
+		});
+		this.queryEmbeddingCache.set(cacheKey, pending);
+		if (this.queryEmbeddingCache.size > QUERY_EMBEDDING_CACHE_LIMIT) {
+			const oldest = this.queryEmbeddingCache.keys().next().value;
+			if (oldest && oldest !== cacheKey) this.queryEmbeddingCache.delete(oldest);
+		}
+		return pending;
 	}
 	warnOnce(message) {
 		if (this.warnedUnavailable) return;

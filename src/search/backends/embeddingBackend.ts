@@ -56,6 +56,7 @@ const DEFAULT_LOCAL_DEVICE = "auto";
 const LOCAL_EMBEDDING_REQUEST_TIMEOUT_MS = 120_000;
 const LOCAL_EMBEDDING_COLD_START_TIMEOUT_MS = 300_000;
 const LOCAL_EMBEDDING_PREWARM_TEXT = "memx local embedding warmup";
+const QUERY_EMBEDDING_CACHE_LIMIT = 128;
 const LOCAL_WORKER_PATH = fileURLToPath(
   new URL("../../../sentence_transformers_embedder.py", import.meta.url),
 );
@@ -521,6 +522,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
   private readonly lexical: SqliteFtsBackend;
   private readonly localWorkerLease: LocalEmbeddingWorkerLease | null;
   private readonly localWorker: LocalSentenceTransformerWorker | null;
+  private readonly queryEmbeddingCache = new Map<string, Promise<number[]>>();
   private warnedUnavailable = false;
   private acceptingUpserts = true;
   private localUnavailableForProcess = false;
@@ -603,6 +605,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
       return;
     }
     this.acceptingUpserts = false;
+    this.queryEmbeddingCache.clear();
     await this.flushPendingUpserts();
     await this.localPrewarm?.catch(() => {});
     this.closed = true;
@@ -628,7 +631,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
       return [];
     }
     try {
-      const [queryEmbedding] = await this.embedTexts([params.query], "query", "similarity-search");
+      const queryEmbedding = await this.getCachedQueryEmbedding(params.query);
       if (!queryEmbedding || queryEmbedding.length === 0) {
         return [];
       }
@@ -722,6 +725,7 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
 
   private handleEmbeddingFailure(error: unknown, message: string): void {
     this.warnOnce(message);
+    this.queryEmbeddingCache.clear();
     if (
       this.embedding.provider !== "sentence-transformers-local" ||
       error instanceof LocalEmbeddingTimeoutError
@@ -735,6 +739,31 @@ export class OptionalEmbeddingBackend implements RetrievalBackend {
         `memx: failed to close unavailable local embedding worker (${String(error)})`,
       );
     });
+  }
+
+  private async getCachedQueryEmbedding(query: string): Promise<number[]> {
+    const cacheKey = query.normalize("NFKC").replace(/\s+/gu, " ").trim();
+    if (!cacheKey) {
+      return [];
+    }
+    const existing = this.queryEmbeddingCache.get(cacheKey);
+    if (existing) {
+      return existing;
+    }
+    const pending = this.embedTexts([cacheKey], "query", "similarity-search")
+      .then(([embedding]) => embedding ?? [])
+      .catch((error) => {
+        this.queryEmbeddingCache.delete(cacheKey);
+        throw error;
+      });
+    this.queryEmbeddingCache.set(cacheKey, pending);
+    if (this.queryEmbeddingCache.size > QUERY_EMBEDDING_CACHE_LIMIT) {
+      const oldest = this.queryEmbeddingCache.keys().next().value;
+      if (oldest && oldest !== cacheKey) {
+        this.queryEmbeddingCache.delete(oldest);
+      }
+    }
+    return pending;
   }
 
   private warnOnce(message: string): void {

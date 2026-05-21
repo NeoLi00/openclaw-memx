@@ -207,6 +207,16 @@ function formatEvidenceRows(
   ];
 }
 
+function graphPathText(path: unknown): string {
+  if (typeof path === "string") {
+    return path;
+  }
+  if (isRecord(path) && typeof path.summary === "string") {
+    return path.summary;
+  }
+  return "";
+}
+
 function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
   const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
   const evidenceLines = [
@@ -216,7 +226,7 @@ function formatRecallContext(bundle: EvidenceBundle, limit: number): string {
     ...formatEvidenceRows("Events", bundle.events, limit),
     ...formatEvidenceRows(
       "Graph",
-      graphPaths.map((path) => ({ text: path.summary })),
+      graphPaths.map((path) => ({ text: graphPathText(path) })),
       Math.min(limit, 4),
     ),
   ].filter((line) => line.trim().length > 0);
@@ -274,6 +284,98 @@ function packetMentionsSuppressedEntity(packet: EvidencePacket, queryAnalysis: Q
     const normalizedEntity = normalizeName(entity.name);
     return normalizedEntity.length >= 2 && normalizedPacketText.includes(normalizedEntity);
   });
+}
+
+function entityFocusTerms(queryAnalysis: Pick<QueryCompileResult, "queryEntities">): string[] {
+  const terms = new Set<string>();
+  for (const entity of queryAnalysis.queryEntities ?? []) {
+    const normalized = normalizeName(entity.name);
+    if (normalized.length >= 2) {
+      terms.add(normalized);
+    }
+  }
+  return [...terms];
+}
+
+function textMentionsFocusEntity(text: string | undefined, terms: string[]): boolean {
+  if (!text || terms.length === 0) {
+    return false;
+  }
+  const normalized = normalizeName(text);
+  return terms.some((term) => normalized.includes(term));
+}
+
+function packetMentionsFocusEntity(packet: EvidencePacket, terms: string[]): boolean {
+  return textMentionsFocusEntity(packetTextForSuppression(packet), terms);
+}
+
+function focusEvidenceRows<T extends { text?: string }>(rows: T[], terms: string[]): T[] {
+  return rows.filter((row) => textMentionsFocusEntity(row.text, terms));
+}
+
+function hasFocusedEvidence(bundle: EvidenceBundle): boolean {
+  return (
+    bundle.states.length > 0 ||
+    bundle.tasks.length > 0 ||
+    bundle.facts.length > 0 ||
+    bundle.events.length > 0 ||
+    bundle.graph.paths.length > 0 ||
+    bundle.behavioralGuidance.length > 0 ||
+    bundle.promptEvidence.length > 0 ||
+    bundle.evidencePackets.length > 0
+  );
+}
+
+export function focusRecallBundleForQueryEntities(
+  queryAnalysis: Pick<QueryCompileResult, "queryEntities">,
+  bundle: EvidenceBundle,
+): EvidenceBundle {
+  const terms = entityFocusTerms(queryAnalysis);
+  if (terms.length === 0) {
+    return bundle;
+  }
+  const focusedGraphNodes = bundle.graph.nodes.filter((node) =>
+    textMentionsFocusEntity(`${node.name} ${node.type}`, terms),
+  );
+  const focusedNodeIds = new Set(focusedGraphNodes.map((node) => node.nodeId));
+  const focused: EvidenceBundle = {
+    ...bundle,
+    states: focusEvidenceRows(bundle.states, terms),
+    tasks: focusEvidenceRows(bundle.tasks, terms),
+    facts: focusEvidenceRows(bundle.facts, terms),
+    events: focusEvidenceRows(bundle.events, terms),
+    alternates: focusEvidenceRows(bundle.alternates, terms),
+    graph: {
+      ...bundle.graph,
+      nodes: focusedGraphNodes,
+      edges:
+        focusedNodeIds.size > 0
+          ? bundle.graph.edges.filter(
+              (edge) => focusedNodeIds.has(edge.srcNodeId) || focusedNodeIds.has(edge.dstNodeId),
+            )
+          : [],
+      pathCandidates: bundle.graph.pathCandidates.filter((candidate) =>
+        textMentionsFocusEntity(JSON.stringify(candidate), terms),
+      ),
+      paths: bundle.graph.paths.filter((path) => textMentionsFocusEntity(graphPathText(path), terms)),
+    },
+    behavioralGuidance: bundle.behavioralGuidance.filter((text) =>
+      textMentionsFocusEntity(text, terms),
+    ),
+    recalledChunkTexts: bundle.recalledChunkTexts.filter((text) =>
+      textMentionsFocusEntity(text, terms),
+    ),
+    promptEvidence: bundle.promptEvidence.filter((candidate) =>
+      textMentionsFocusEntity(
+        [candidate.text, candidate.rawText, candidate.scoringText].filter(Boolean).join("\n"),
+        terms,
+      ),
+    ),
+    evidencePackets: bundle.evidencePackets.filter((packet) =>
+      packetMentionsFocusEntity(packet, terms),
+    ),
+  };
+  return hasFocusedEvidence(focused) ? focused : bundle;
 }
 
 export function assessNativeContextEligibility(
@@ -401,25 +503,26 @@ export class MemxHostService {
     const bundle = await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, {
       queryAnalysis: compiled,
     });
+    const focusedBundle = focusRecallBundleForQueryEntities(compiled, bundle);
     const limit = Math.max(1, Math.min(Math.trunc(request.limit ?? 6), 24));
-    const contextEligibility = assessNativeContextEligibility(request.query, compiled, bundle);
-    const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
-    const graphEdges = Array.isArray(bundle.graph?.edges) ? bundle.graph.edges : [];
+    const contextEligibility = assessNativeContextEligibility(request.query, compiled, focusedBundle);
+    const graphPaths = Array.isArray(focusedBundle.graph?.paths) ? focusedBundle.graph.paths : [];
+    const graphEdges = Array.isArray(focusedBundle.graph?.edges) ? focusedBundle.graph.edges : [];
     return {
       ok: true,
-      routeType: bundle.routeType,
-      routeConfidence: bundle.routeConfidence,
+      routeType: focusedBundle.routeType,
+      routeConfidence: focusedBundle.routeConfidence,
       focusedQuery: compiled.focusedQuery,
-      context: formatRecallContext(bundle, limit),
+      context: formatRecallContext(focusedBundle, limit),
       contextEligibility,
-      states: bundle.states.slice(0, limit),
-      facts: bundle.facts.slice(0, limit),
-      events: bundle.events.slice(0, limit),
+      states: focusedBundle.states.slice(0, limit),
+      facts: focusedBundle.facts.slice(0, limit),
+      events: focusedBundle.events.slice(0, limit),
       graph: {
         paths: graphPaths.slice(0, Math.min(limit, 6)),
         edges: graphEdges.slice(0, Math.min(limit, 12)),
       },
-      diagnostics: bundle.diagnostics,
+      diagnostics: focusedBundle.diagnostics,
     };
   }
 

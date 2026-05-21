@@ -246,6 +246,81 @@ process.stdout.write(JSON.stringify({
   assert.equal(shutdownCount, 1);
 });
 
+test("embedding similarity search reuses the same query embedding across retrieval fan-out", async () => {
+  let embeddingRequests = 0;
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/embeddings") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      embeddingRequests++;
+      const payload = JSON.parse(body);
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(
+          JSON.stringify({
+            data: payload.input.map(() => ({ embedding: [1, 0, 0] })),
+          }),
+        );
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  const repo = {
+    listEmbeddings: () => [
+      {
+        docId: "doc-1",
+        embedding: [1, 0, 0],
+      },
+    ],
+    getDoc: (docId) => ({
+      docId,
+      text: "ClaudeProbe 默认输出格式是 Parquet",
+      metadataJson: {},
+    }),
+  };
+  const backend = new OptionalEmbeddingBackend(
+    repo,
+    {
+      provider: "openai-compatible",
+      baseURL: `http://127.0.0.1:${address.port}`,
+      model: "fake-embedding-model",
+      apiKey: "sk-test",
+    },
+    createLogger(),
+  );
+
+  try {
+    const first = await backend.similaritySearch({
+      query: "ClaudeProbe default format",
+      agentId: "agent",
+      scopes: ["agent:agent"],
+      limit: 4,
+      docKinds: ["fact"],
+    });
+    const second = await backend.similaritySearch({
+      query: "  ClaudeProbe   default format  ",
+      agentId: "agent",
+      scopes: ["agent:agent"],
+      limit: 4,
+      docKinds: ["event"],
+    });
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    assert.equal(embeddingRequests, 1);
+  } finally {
+    await backend.close();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("local embedding similarity search skips a cold worker in the prompt hot path", async () => {
   const tempDir = await mkdtemp(join(tmpdir(), "memx-local-cold-skip-"));
   const startCountPath = join(tempDir, "starts.txt");

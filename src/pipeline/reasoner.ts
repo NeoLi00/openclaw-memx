@@ -2827,7 +2827,7 @@ export class MemxReasoner {
     fallback: QueryCompileResult,
     options: ReasonerCallAuditOptions = {},
   ): Promise<Partial<QueryCompileResult> | null> {
-    const result = await this.callJson<Partial<QueryCompileResult>>(
+    let result = await this.callJson<Partial<QueryCompileResult>>(
       "query-compile",
       buildQueryCompilePrompt(query, fallback),
       "degraded",
@@ -2838,6 +2838,19 @@ export class MemxReasoner {
         temperature: 0,
       },
     );
+    if (!result && !options.signal?.aborted) {
+      result = await this.callJson<Partial<QueryCompileResult>>(
+        "query-compile-retry",
+        buildQueryCompilePrompt(query, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 560, 700),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
     if (!result) {
       return null;
     }

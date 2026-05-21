@@ -109,6 +109,78 @@ test("query compiler honors request hot-path budget before the global config tim
   });
 });
 
+test("query compiler retries one unparsable LLM JSON response before degrading", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const responses = [
+    "this is not json",
+    JSON.stringify({
+      focusedQuery: "ClaudeProbe default format",
+      queryEntities: [{ name: "ClaudeProbe", type: "project", role: "subject" }],
+      queryShape: {
+        timeframe: "timeless",
+        granularity: "detail",
+        referentialMode: "anchored",
+        evidenceNeed: "canonical_state",
+      },
+      primaryRoute: "factual",
+      answerGranularity: "detail",
+      evidenceFidelity: "high",
+      routeWeights: { factual: 1 },
+      anchors: ["ClaudeProbe", "default format"],
+      candidateSurfaces: ["fact", "state", "graph"],
+      evidenceGoals: [],
+      detailNeedScore: 0.9,
+      supportNeed: 0.7,
+      ambiguityLevel: 0.1,
+      turnMode: "memory_qa",
+    }),
+  ];
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    const content = responses[fetchCalls] ?? responses.at(-1);
+    fetchCalls += 1;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const config = minimalConfig();
+  config.advanced.llmClassifierEnabled = true;
+  config.advanced.llmProvider = "openai-compatible";
+  config.advanced.llmBaseURL = "https://llm.example.com/v1";
+  config.advanced.llmClassifierModel = "fast-memory-model";
+  config.advanced.llmApiKey = "sk-test";
+  const reasoner = new MemxReasoner(config, {
+    debug() {},
+    info() {},
+    warn() {},
+  });
+  const fallback = compileQueryWithoutSemanticFallback(
+    "ClaudeProbe 的默认格式是什么？",
+    "test-fallback",
+  );
+
+  const result = await reasoner.compileQuerySemantics(
+    "ClaudeProbe 的默认格式是什么？",
+    fallback,
+    { stage: "query_hot_path" },
+  );
+
+  assert.equal(fetchCalls, 2);
+  assert.equal(result?.focusedQuery, "ClaudeProbe default format");
+  assert.equal(result?.compilerProvenance?.source, "llm");
+  assert.equal(
+    reasoner.getTrace().some((entry) => entry.label === "query-compile-retry"),
+    true,
+  );
+});
+
 test("turn semantic fallback does not synthesize deterministic entity hints or relation drafts", async () => {
   const frame = await compileTurnSemantics({
     messages: [

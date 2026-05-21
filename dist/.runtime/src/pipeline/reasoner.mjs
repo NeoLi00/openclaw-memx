@@ -1508,10 +1508,16 @@ var MemxReasoner = class {
 		};
 	}
 	async compileQuerySemantics(query, fallback, options = {}) {
-		const result = await this.callJson("query-compile", buildQueryCompilePrompt(query, fallback), "degraded", {
+		let result = await this.callJson("query-compile", buildQueryCompilePrompt(query, fallback), "degraded", {
 			...options,
 			maxTokens: Math.min(options.maxTokens ?? 560, 700),
 			jsonMode: true,
+			temperature: 0
+		});
+		if (!result && !options.signal?.aborted) result = await this.callJson("query-compile-retry", buildQueryCompilePrompt(query, fallback), "degraded", {
+			...options,
+			maxTokens: Math.min(options.maxTokens ?? 560, 700),
+			jsonMode: false,
 			temperature: 0
 		});
 		if (!result) return null;

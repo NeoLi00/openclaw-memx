@@ -22,6 +22,7 @@ type NativeContextEligibility = {
   reason: string;
   bestScore: number;
 };
+declare function focusRecallBundleForQueryEntities(queryAnalysis: Pick<QueryCompileResult, "queryEntities">, bundle: EvidenceBundle): EvidenceBundle;
 declare function assessNativeContextEligibility(_query: string, queryAnalysis: QueryCompileResult, bundle: EvidenceBundle): NativeContextEligibility;
 declare class MemxHostService {
   private readonly config;
@@ -39,4 +40,4 @@ declare class MemxHostService {
 }
 declare function stableHostTurnId(envelope: MemxTurnEnvelope): string;
 //#endregion
-export { MemxHostService, MemxRecallRequest, MemxServiceOptions, assessNativeContextEligibility, createServiceConfigFromEnv, stableHostTurnId };
+export { MemxHostService, MemxRecallRequest, MemxServiceOptions, assessNativeContextEligibility, createServiceConfigFromEnv, focusRecallBundleForQueryEntities, stableHostTurnId };
