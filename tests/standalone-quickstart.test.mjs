@@ -56,6 +56,29 @@ test("standalone service config resolves LLM without OpenClaw config", async () 
   assert.equal(judge.apiKey, "sk-standalone");
 });
 
+test("standalone quickstart migrates old query compiler timeout settings to the native hook budget", async () => {
+  const { applyStandaloneMemxQuickstartConfig } = await import(
+    "../dist/.runtime/src/host/standaloneQuickstart.mjs"
+  );
+
+  const next = applyStandaloneMemxQuickstartConfig(
+    {
+      advanced: {
+        queryCompilerHotPathTimeoutMs: 5500,
+      },
+    },
+    {
+      llmProvider: "openai-compatible",
+      llmBaseUrl: "https://llm.example.com/v1",
+      llmModel: "fast-memory-model",
+      llmApiKey: "sk-standalone",
+      homeDir: "/tmp/home",
+    },
+  );
+
+  assert.equal(next.advanced.queryCompilerHotPathTimeoutMs, 8000);
+});
+
 test("standalone quickstart can configure Codex in one command", async () => {
   const { runStandaloneMemxQuickstart } = await import("../dist/.runtime/src/host/standaloneQuickstart.mjs");
   const dir = mkdtempSync(join(tmpdir(), "memx-codex-"));
@@ -105,6 +128,11 @@ test("standalone quickstart can configure Codex in one command", async () => {
     join(dir, ".memx", "codex-marketplace", "plugins", "memx", "hooks", "hooks.codex.json"),
     "utf8",
   );
+  const rootHookJson = readFileSync(
+    join(dir, ".memx", "codex-marketplace", "plugins", "memx", "hooks.json"),
+    "utf8",
+  );
+  assert.equal(rootHookJson, hookJson, "root hooks.json should mirror the compatibility hook file");
   assert.match(hookJson, new RegExp(join(dir, ".memx", "runtime", "src", "bin", "memx-hook.mjs").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   const hookConfig = JSON.parse(hookJson);
   const userPromptHook = hookConfig.hooks.UserPromptSubmit[0].hooks[0];
@@ -115,6 +143,9 @@ test("standalone quickstart can configure Codex in one command", async () => {
   );
   assert.equal("mcpServers" in pluginManifest, false);
   assert.equal("skills" in pluginManifest, false);
+  assert.equal(pluginManifest.hooks, "./hooks.json");
+  assert.equal(pluginManifest.interface.displayName, "memX");
+  assert.equal(pluginManifest.interface.shortDescription, "Local semantic memory for coding agents.");
   assert.deepEqual(calls, [
     { command: "codex", args: ["plugin", "remove", "memx@memx"] },
     { command: "codex", args: ["plugin", "marketplace", "remove", "memx"] },

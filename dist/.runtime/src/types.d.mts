@@ -745,6 +745,11 @@ type QueryEntityHint = {
   type?: EntityType;
   role?: QueryEntityRole;
 };
+type QuerySuppressedEntityHint = {
+  name: string;
+  type?: EntityType;
+  reason?: string;
+};
 type CandidateSurface = "state" | "fact" | "event" | "task" | "chunk" | "graph" | "entity_alias";
 type QueryEvidenceGoal = {
   goal: string;
@@ -804,6 +809,7 @@ type QueryCompileResult = {
   shouldRecall: boolean;
   focusedQuery: string;
   queryEntities: QueryEntityHint[];
+  suppressedEntities: QuerySuppressedEntityHint[];
   queryShape: RecallQueryShape;
   primaryRoute?: MemoryPrimaryRouteType;
   answerGranularity: AnswerGranularity;
@@ -1763,4 +1769,4 @@ type MemxLogger = {
   error?: (message: string) => void;
 };
 //#endregion
-export { EvidenceBundle, MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig, MemxLogger, QueryCompileResult };
+export { AbstractionCandidateRecord, AbstractionCandidateStage, ConversationChunk, ConversationTask, EvidenceBundle, MemoryAction, MemoryCallProvenance, MemoryCandidate, MemoryCandidateDecisionHint, MemoryCandidatePreferenceHint, MemoryCandidateRelationHint, MemoryCandidateWorkflowHint, MemoryEmbeddingProvider, MemoryLlmBudgetAudit, MemoryLlmCallStage, MemoryLlmProvider, MemoryOperationContext, MemoryPluginConfig, MemoryPrimaryRouteType, MemoryRecallPlan, MemxLogger, NormalizedEvent, QueryCompileResult, RouteDecision, RouteEvidenceCandidate, RouteEvidenceDecision, RoutePriorDecision, SearchHit, SourceSegmentRecord, SynthesizedTaskEvent, TaskAssignmentDecision, TaskAssignmentSnapshot, TurnCaptureMessage, TurnSemanticFrame, TurnSemanticReferenceContext, TurnSemanticTaskProposal };

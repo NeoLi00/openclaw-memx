@@ -8,5 +8,23 @@
   "license": "MIT",
   "homepage": "https://github.com/NeoLi00/memX",
   "repository": "https://github.com/NeoLi00/memX",
-  "hooks": "./hooks/hooks.codex.json"
+  "hooks": "./hooks.json",
+  "interface": {
+    "displayName": "memX",
+    "shortDescription": "Local semantic memory for coding agents.",
+    "longDescription": "memX adds local-first lifecycle memory through native hooks. It recalls relevant context before each turn and writes completed turns after the agent responds.",
+    "developerName": "Neo Li",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/NeoLi00/memX",
+    "privacyPolicyURL": "https://github.com/NeoLi00/memX",
+    "termsOfServiceURL": "https://github.com/NeoLi00/memX",
+    "defaultPrompt": [
+      "Use memX automatic memory hooks."
+    ],
+    "brandColor": "#2563EB"
+  }
 }

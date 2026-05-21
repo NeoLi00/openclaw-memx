@@ -1,9 +1,10 @@
+import { MEMX_NATIVE_HOOK_TIMEOUT_MS } from "../timeouts.mjs";
 import { MemxHostService } from "./service.mjs";
 import { URL } from "node:url";
 import { createServer } from "node:http";
 //#region src/host/httpServer.ts
 const DEFAULT_PORT = 3878;
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 3e3;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = MEMX_NATIVE_HOOK_TIMEOUT_MS;
 function json(res, status, payload) {
 	res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
 	res.end(JSON.stringify(payload));

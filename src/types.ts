@@ -985,6 +985,11 @@ export type QueryEntityHint = {
   type?: EntityType;
   role?: QueryEntityRole;
 };
+export type QuerySuppressedEntityHint = {
+  name: string;
+  type?: EntityType;
+  reason?: string;
+};
 export type CandidateSurface =
   | "state"
   | "fact"
@@ -1097,6 +1102,7 @@ export type QueryCompileResult = {
   shouldRecall: boolean;
   focusedQuery: string;
   queryEntities: QueryEntityHint[];
+  suppressedEntities: QuerySuppressedEntityHint[];
   queryShape: RecallQueryShape;
   primaryRoute?: MemoryPrimaryRouteType;
   answerGranularity: AnswerGranularity;

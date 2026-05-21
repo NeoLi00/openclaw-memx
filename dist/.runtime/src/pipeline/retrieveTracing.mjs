@@ -117,6 +117,7 @@ function buildRecallAuditPayload(options = {}) {
 			evidenceCoverage: options.queryAnalysis.evidenceCoverage,
 			candidateSurfaces: options.queryAnalysis.candidateSurfaces,
 			evidenceGoals: options.queryAnalysis.evidenceGoals,
+			suppressedEntities: options.queryAnalysis.suppressedEntities,
 			supportNeed: options.queryAnalysis.supportNeed,
 			ambiguityLevel: options.queryAnalysis.ambiguityLevel,
 			compilerProvenance: options.queryAnalysis.compilerProvenance

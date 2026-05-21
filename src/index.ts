@@ -845,4 +845,6 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
 
 const memoryMemxPlugin = createMemoryMemxPlugin();
 
+export { sanitizeChunkSummaryResult } from "./pipeline/reasoner.js";
+
 export default memoryMemxPlugin;

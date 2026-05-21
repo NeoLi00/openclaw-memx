@@ -11,6 +11,7 @@ import {
   type EmbeddingConfig,
   type MemoryPluginConfig,
 } from "./types.js";
+import { MEMX_NATIVE_HOOK_TIMEOUT_MS } from "./timeouts.js";
 
 const DEFAULT_DB_PATH = join(
   homedir(),
@@ -59,7 +60,7 @@ const DEFAULT_ADVANCED: AdvancedMemoryConfig = {
   recallProbeContinuationEscalateThreshold: 0.68,
   enableTurnSemanticCompiler: true,
   enableQueryCompiler: true,
-  queryCompilerHotPathTimeoutMs: 2200,
+  queryCompilerHotPathTimeoutMs: MEMX_NATIVE_HOOK_TIMEOUT_MS,
   enableEmbeddingCandidates: true,
   enableEmbeddingClustering: true,
   enableHotPathChunkSummaryLlm: false,
@@ -667,6 +668,25 @@ function parseConfigInternal(input: unknown): {
     enableMaintenanceJobs: asBoolean(
       rawAdvanced.enableMaintenanceJobs,
       DEFAULT_MEMORY_CONFIG.advanced.enableMaintenanceJobs,
+    ),
+    maintenanceTriggerMode:
+      rawAdvanced.maintenanceTriggerMode === "batched" ||
+      rawAdvanced.maintenanceTriggerMode === "per_turn"
+        ? rawAdvanced.maintenanceTriggerMode
+        : DEFAULT_MEMORY_CONFIG.advanced.maintenanceTriggerMode,
+    maintenanceBatchTurns: asNumber(
+      rawAdvanced.maintenanceBatchTurns,
+      DEFAULT_MEMORY_CONFIG.advanced.maintenanceBatchTurns,
+      issues,
+      "advanced.maintenanceBatchTurns",
+      { min: 1, max: 32 },
+    ),
+    maintenanceIdleFlushMinutes: asNumber(
+      rawAdvanced.maintenanceIdleFlushMinutes,
+      DEFAULT_MEMORY_CONFIG.advanced.maintenanceIdleFlushMinutes,
+      issues,
+      "advanced.maintenanceIdleFlushMinutes",
+      { min: 0, max: 24 * 60 },
     ),
     enableGraphPromotion: asBoolean(
       rawAdvanced.enableGraphPromotion,

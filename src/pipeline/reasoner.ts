@@ -76,6 +76,10 @@ type ReasonerCallAuditOptions = {
   signal?: AbortSignal;
 };
 
+function shouldRetrySemanticCompile(options: ReasonerCallAuditOptions): boolean {
+  return options.stage === "maintenance_async" && !options.signal?.aborted;
+}
+
 export type DedupDecision = {
   action: "NEW" | "DUPLICATE" | "UPDATE";
   targetIndex?: number;
@@ -593,6 +597,22 @@ function localChunkPreview(content: string): string {
   return truncateText(flattened, 180);
 }
 
+export function sanitizeChunkSummaryResult(
+  text: string,
+  role: ConversationChunk["role"] = "user",
+  result?: ChunkSummaryJudgeResult | null,
+): string {
+  const fallback = localChunkPreview(text);
+  const summary = result?.summary?.trim();
+  if (!summary) {
+    return fallback;
+  }
+  if (role === "user" && result?.summaryKind === "answer" && result.answerSupported !== true) {
+    return fallback;
+  }
+  return truncateText(summary, 180);
+}
+
 function conservativeDedupDecision(
   newSummary: string,
   candidates?: Array<{ index: number; summary: string; text?: string }>,
@@ -786,13 +806,19 @@ function sanitizeResolvedTaskPhase(
   return fallbackPhase;
 }
 
+type ChunkSummaryJudgeResult = {
+  summary?: string;
+  summaryKind?: "question" | "instruction" | "statement" | "answer" | "mixed";
+  answerSupported?: boolean;
+};
+
 function buildChunkPrompt(
   text: string,
   role: ConversationChunk["role"] = "user",
 ): { system: string; user: string } {
   return {
     system:
-      '你负责为记忆存储总结一段对话片段。请只返回严格 JSON：{"summary": string}。summary 必须简短、客观、可检索，且不超过 180 个字符。若片段来自 assistant，优先概括可验证结论、决策或结果，不要复述长教程、示例代码或文件操作细节。',
+      '你负责为记忆存储总结一段对话片段。请只返回严格 JSON：{"summary": string, "summaryKind": "question"|"instruction"|"statement"|"answer"|"mixed", "answerSupported": boolean}。summary 必须简短、客观、可检索，且不超过 180 个字符。若片段是用户提问，只能总结“用户问了什么”，不能替用户回答；除非答案文本已在同一片段中明确出现，否则 summaryKind 不得为 "answer"，answerSupported 必须为 false。若片段来自 assistant，优先概括可验证结论、决策或结果，不要复述长教程、示例代码或文件操作细节。',
     user: `片段角色：${role}\n\n对话片段：\n${truncateText(text, 5000)}`,
   };
 }
@@ -1179,28 +1205,32 @@ function buildQueryCompilePrompt(
   fallback: QueryCompileResult,
 ): { system: string; user: string } {
   const promptInput = buildQueryCompilerPromptInput(query, fallback);
+  const promptPayload = {
+    visibleQuery: promptInput.envelope.windows.map((window) => ({
+      kind: window.kind,
+      text: truncateText(window.text, 700),
+    })),
+    omittedChars: promptInput.envelope.omittedChars,
+    scaffold: {
+      focusedQuery: truncateText(promptInput.scaffold.focusedQuery, 160),
+      primaryRoute: promptInput.scaffold.primaryRoute,
+      queryShape: promptInput.scaffold.queryShape,
+      queryEntities: promptInput.scaffold.queryEntities.slice(0, 8),
+    },
+  };
   return {
     system: [
-      "你负责把用户最新请求编译成轻量记忆检索计划。",
-      "你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
-      "顶层字段只能是：focusedQuery、queryEntities、queryShape、primaryRoute。",
-      '返回格式：{"focusedQuery": string, "queryEntities": [{"name": string, "type"?: "person"|"project"|"tool"|"service"|"language"|"framework"|"concept"|"organization"|"unknown", "role"?: "subject"|"object"|"context"|"resource"}], "queryShape": {"timeframe": "current"|"historical"|"compare"|"timeless", "granularity": "summary"|"exact_detail", "referentialMode": "anchored"|"deictic", "evidenceNeed": "workflow_context"|"canonical_state"|"factual_history"|"event_history"|"relation"|"chunk"}, "primaryRoute": "workflow"|"factual"|"temporal"|"explanatory"}。',
-      "你的职责只是把当前请求压缩成短检索语句、抽取可稳定匹配到记忆库实体的名字，并给出粗粒度路由。",
-      "不要判断是否应该召回，也不要输出任何召回开关或跳过判断字段；是否有可用记忆由检索结果和后续过滤决定。",
-      "如果当前请求是独立解题、通用知识、纯代码执行、全新数学题、全新写作题，只做保守检索计划：focusedQuery 压缩当前请求，queryEntities 为空数组，queryShape 使用 timeless/summary/anchored/chunk，primaryRoute 选择 factual 或 temporal 中更接近的一项。",
-      "focusedQuery 只能保守压缩当前请求，最长 160 字符；不能加入当前请求没有的事实、答案、时间或实体。",
-      "queryEntities 是 query 侧唯一实体抽取入口。只输出稳定具名实体：项目、工具、服务、框架、语言、人、组织，或明确作为长期记忆对象的命名概念。",
-      "不要把数学变量、临时符号、代词、泛指词、完整句子、题目主题、学科名、解题对象当作 queryEntities。例如 n、P、Q、k、Number Theory、this problem 都不要输出。",
-      "queryEntities 只用于匹配已有实体；不要输出你不确定是否稳定存在于记忆库中的实体。",
-      'queryShape 必须是对象，且只能包含：timeframe("current"|"historical"|"compare"|"timeless")、granularity("summary"|"exact_detail")、referentialMode("anchored"|"deictic")、evidenceNeed("workflow_context"|"canonical_state"|"factual_history"|"event_history"|"relation"|"chunk")。',
-      "primaryRoute 只决定优先查哪类记忆：workflow 查当前任务/状态，factual 查稳定事实/配置，temporal 查过去事件/turn，explanatory 查原因/修复/关系。",
-      "不要输出召回开关字段、evidencePlan、semanticBridges、evidenceGoals、routeWeights、anchors、candidateSurfaces、compilerProvenance 或其他字段；运行时会根据这四个字段生成并校验下游 retrieval contract。",
-      "输入里的 queryEnvelope 是对当前请求的机械窗口视图；rawHash 只用于审计，omittedChars 表示没有展示给你的原文。",
-      "不要根据 omitted 内容臆测事实；只根据可见窗口生成检索计划。",
-      "保守策略：不确定时输出泛化但短的 focusedQuery、空 queryEntities、默认 queryShape，不要输出拒绝召回的决定。",
-      "只输出 JSON。",
+      "把用户最新请求编译成轻量记忆检索计划；只输出严格 JSON。",
+      "顶层字段只能是：focusedQuery、queryEntities、suppressedEntities、queryShape、primaryRoute。",
+      '返回格式：{"focusedQuery": string, "queryEntities": [{"name": string, "type"?: "person"|"project"|"tool"|"service"|"language"|"framework"|"concept"|"organization"|"unknown", "role"?: "subject"|"object"|"context"|"resource"}], "suppressedEntities"?: [{"name": string, "type"?: "person"|"project"|"tool"|"service"|"language"|"framework"|"concept"|"organization"|"unknown", "reason"?: string}], "queryShape": {"timeframe": "current"|"historical"|"compare"|"timeless", "granularity": "summary"|"exact_detail", "referentialMode": "anchored"|"deictic", "evidenceNeed": "workflow_context"|"canonical_state"|"factual_history"|"event_history"|"relation"|"chunk"}, "primaryRoute": "workflow"|"factual"|"temporal"|"explanatory"}。',
+      "focusedQuery 最长 160 字，只压缩当前请求，不加入不存在的事实。",
+      "queryEntities 只输出稳定具名实体，如项目、工具、服务、框架、语言、人、组织；不要输出代词、泛指词、数学变量、完整句子或学科名。",
+      "suppressedEntities 只在用户明确说不谈、不考虑、排除某个具名实体或主题时输出；它表示这些实体不应触发 native context 注入，不是 recall 开关。",
+      "primaryRoute：workflow=任务/状态，factual=稳定事实/配置，temporal=过去事件，explanatory=原因/关系。",
+      "是否有可用记忆由检索和过滤决定；不要输出 no-recall/skip/shouldRecall/use/avoid 等字段。",
+      "只根据 visibleQuery 生成计划；不要根据 omittedChars 臆测。",
     ].join("\n"),
-    user: `当前查询 queryEnvelope：\n${JSON.stringify(promptInput.envelope, null, 2)}\n\n当前非语义 compact scaffold：\n${JSON.stringify(promptInput.scaffold, null, 2)}`,
+    user: JSON.stringify(promptPayload),
   };
 }
 
@@ -1261,10 +1291,10 @@ function buildLongTurnSemanticScanPrompt(
   const compactFallback = summarizeTurnSemanticFallback(fallback);
   return {
     system: [
-      "你负责扫描超长对话轮次的机械分段视图，补足 compact turn compiler 可能看不到的语义草案。",
+      "你负责在维护链路扫描对话轮次的机械分段视图，输出 LLM-only 语义草案。",
       "你只能返回严格 JSON，不得输出任何解释文字，不得输出 markdown。",
       "顶层字段只能是：sourceRefs、chunkDrafts、taskProposal、assertionDrafts、correctionDrafts、relationDrafts、resourceAssertions、adviceSignals、supportSpans、compilerProvenance。",
-      "这些 segments 是当前轮消息的机械切片，不是旧记忆。你不能输出 final action、classification、owner、supersede、slotReplacement。",
+      "这些 segments 是待维护的源消息机械切片，不是旧记忆。你不能输出 final action、classification、owner、supersede、slotReplacement。",
       "semantic 字段必须由你显式输出；运行时不会把本地 regex 语义自动补回来。",
       'entityHints 是唯一实体抽取入口；如果当前 segment 有稳定、可复现的具名实体，请在相关 assertionDrafts 上返回 entityHints，格式为 {"name":"...","type":"person|project|tool|service|language|framework|concept|organization|unknown"}。',
       "不要把代词、泛指词、完整句子、临时变量、数学符号、代码局部变量或只在本句临时成立的描述当 entity。",
@@ -1272,6 +1302,8 @@ function buildLongTurnSemanticScanPrompt(
       "resourceAssertions 只用于用户明确拥有、使用、刚获得、正在考虑的具体资源、工具、账号、服务、能力或约束。",
       "adviceSignals 只用于同一轮中可复用的用户问题上下文、用户资源、assistant 建议或建议上下文。",
       "sourceRefs 必须引用输入里已有的 sourceRef，不能发明新的 sourceRef。",
+      "输入里的 recentReferenceContext 是只读的最近对话焦点，只能用于解析“这个/那个/它/that/it”等指代；它不是可写事实来源。",
+      "所有 sourceRefs、resourceAssertions.sourceRef、adviceSignals.sourceRefs 和 relationDrafts.sourceRef 都只能引用 longTurnSegmentScan.messages 里的 sourceRef，不能引用 recentReferenceContext 里的 sourceRef。",
       "不要复制大段 segment 文本；supportText/supportSpans 只允许很短的原文依据。",
       "如果 segments 只是长材料、日志、代码、题目或 assistant 长答案，且没有值得长期使用的用户事实/偏好/关系/资源/任务状态，可以返回 {}。",
       "保守策略：不确定是否值得写入时，不输出对应 semantic 字段。",
@@ -2080,7 +2112,7 @@ type ClusterValidationResult = {
   reason?: string;
 };
 
-const QUERY_COMPILE_PROMPT_VERSION = "query-compile/v5";
+const QUERY_COMPILE_PROMPT_VERSION = "query-compile/v6";
 const TURN_SEMANTIC_COMPILE_PROMPT_VERSION = "turn-semantic-compile/v3";
 
 function buildStrategyClusterValidationPrompt(
@@ -2307,13 +2339,13 @@ export class MemxReasoner {
       });
       return fallback;
     }
-    const result = await this.callJson<{ summary?: string }>(
+    const result = await this.callJson<ChunkSummaryJudgeResult>(
       "chunk-summary",
       buildChunkPrompt(text, role),
       "degraded",
       options,
     );
-    return truncateText(result?.summary?.trim() || "", 180);
+    return sanitizeChunkSummaryResult(text, role, result);
   }
 
   async summarizeTask(
@@ -2801,7 +2833,7 @@ export class MemxReasoner {
       "degraded",
       {
         ...options,
-        maxTokens: Math.min(options.maxTokens ?? 600, 600),
+        maxTokens: Math.min(options.maxTokens ?? 560, 700),
         jsonMode: true,
         temperature: 0,
       },
@@ -2825,7 +2857,7 @@ export class MemxReasoner {
     fallback: TurnSemanticFrame,
     options: ReasonerCallAuditOptions = {},
   ): Promise<Partial<TurnSemanticFrame> | null> {
-    const result = await this.callJson<Partial<TurnSemanticFrame>>(
+    let result = await this.callJson<Partial<TurnSemanticFrame>>(
       "turn-semantic-compile",
       buildTurnSemanticCompilePrompt(messages, fallback),
       "degraded",
@@ -2836,6 +2868,19 @@ export class MemxReasoner {
         temperature: 0,
       },
     );
+    if (!result && shouldRetrySemanticCompile(options)) {
+      result = await this.callJson<Partial<TurnSemanticFrame>>(
+        "turn-semantic-compile-retry",
+        buildTurnSemanticCompilePrompt(messages, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 1200, 1200),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
     if (!result) {
       return null;
     }
@@ -2859,7 +2904,7 @@ export class MemxReasoner {
     fallback: TurnSemanticFrame,
     options: ReasonerCallAuditOptions = {},
   ): Promise<Partial<TurnSemanticFrame> | null> {
-    const result = await this.callJson<Partial<TurnSemanticFrame>>(
+    let result = await this.callJson<Partial<TurnSemanticFrame>>(
       "turn-semantic-long-scan",
       buildLongTurnSemanticScanPrompt(input, fallback),
       "degraded",
@@ -2870,6 +2915,19 @@ export class MemxReasoner {
         temperature: 0,
       },
     );
+    if (!result && shouldRetrySemanticCompile(options)) {
+      result = await this.callJson<Partial<TurnSemanticFrame>>(
+        "turn-semantic-long-scan-retry",
+        buildLongTurnSemanticScanPrompt(input, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
     if (!result) {
       return null;
     }

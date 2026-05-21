@@ -5,6 +5,7 @@ import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_MEMORY_CONFIG } from "../config.js";
+import { MEMX_NATIVE_HOOK_TIMEOUT_SECONDS } from "../timeouts.js";
 import type { MemoryEmbeddingProvider, MemoryLlmProvider, MemoryPluginConfig } from "../types.js";
 import {
   applyClaudeJsonConnect,
@@ -280,6 +281,14 @@ export function applyStandaloneMemxQuickstartConfig(
 ): MemoryPluginConfig {
   const options = normalizeOptions(rawOptions);
   const next = deepMerge(baseStandaloneConfig(), input);
+  const currentQueryTimeout = next.advanced.queryCompilerHotPathTimeoutMs;
+  if (
+    typeof currentQueryTimeout !== "number" ||
+    currentQueryTimeout < DEFAULT_MEMORY_CONFIG.advanced.queryCompilerHotPathTimeoutMs
+  ) {
+    next.advanced.queryCompilerHotPathTimeoutMs =
+      DEFAULT_MEMORY_CONFIG.advanced.queryCompilerHotPathTimeoutMs;
+  }
   next.advanced.llmProvider = options.llmProvider;
   next.advanced.llmBaseURL = options.llmBaseUrl;
   next.advanced.llmClassifierModel = options.llmModel;
@@ -433,7 +442,7 @@ function hookEntry(
       {
         type: "command",
         command: hookCommandLine(commandConfig, host, eventName),
-        timeout: 5,
+        timeout: MEMX_NATIVE_HOOK_TIMEOUT_SECONDS,
         ...(statusMessage ? { statusMessage } : {}),
       },
     ],
@@ -472,7 +481,21 @@ function codexPluginManifest(includeMcp = false): Record<string, unknown> {
     license: "MIT",
     homepage: "https://github.com/NeoLi00/memX",
     repository: "https://github.com/NeoLi00/memX",
-    hooks: "./hooks/hooks.codex.json",
+    hooks: "./hooks.json",
+    interface: {
+      displayName: "memX",
+      shortDescription: "Local semantic memory for coding agents.",
+      longDescription:
+        "memX adds local-first lifecycle memory through native hooks. It recalls relevant context before each turn and writes completed turns after the agent responds.",
+      developerName: "Neo Li",
+      category: "Productivity",
+      capabilities: ["Read", "Write"],
+      websiteURL: "https://github.com/NeoLi00/memX",
+      privacyPolicyURL: "https://github.com/NeoLi00/memX",
+      termsOfServiceURL: "https://github.com/NeoLi00/memX",
+      defaultPrompt: ["Use memX automatic memory hooks."],
+      brandColor: "#2563EB",
+    },
   };
   if (includeMcp) {
     manifest.mcpServers = "./.mcp.json";
@@ -500,6 +523,9 @@ function claudePluginManifest(includeMcp = false): Record<string, unknown> {
 function codexMarketplaceManifest(): Record<string, unknown> {
   return {
     name: "memx",
+    interface: {
+      displayName: "memX",
+    },
     plugins: [
       {
         name: "memx",
@@ -536,7 +562,7 @@ function claudeHooksConfig(): Record<string, unknown> {
       {
         type: "command",
         command: `node "\${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs" claude-code ${eventName}`,
-        timeout: 5,
+        timeout: MEMX_NATIVE_HOOK_TIMEOUT_SECONDS,
       },
     ],
   });
@@ -638,6 +664,7 @@ async function installCodexMarketplaceSnapshot(
   await mkdir(join(tmp, ".agents", "plugins"), { recursive: true });
   await mkdir(join(tmp, "plugins", "memx", ".codex-plugin"), { recursive: true });
   await mkdir(join(tmp, "plugins", "memx", "hooks"), { recursive: true });
+  const hooksJson = `${JSON.stringify(codexHooksConfig(hookCommandConfig), null, 2)}\n`;
   await writeFile(
     join(tmp, ".agents", "plugins", "marketplace.json"),
     `${JSON.stringify(codexMarketplaceManifest(), null, 2)}\n`,
@@ -657,7 +684,12 @@ async function installCodexMarketplaceSnapshot(
   }
   await writeFile(
     join(tmp, "plugins", "memx", "hooks", "hooks.codex.json"),
-    `${JSON.stringify(codexHooksConfig(hookCommandConfig), null, 2)}\n`,
+    hooksJson,
+    "utf8",
+  );
+  await writeFile(
+    join(tmp, "plugins", "memx", "hooks.json"),
+    hooksJson,
     "utf8",
   );
   await rm(marketplaceDir, { recursive: true, force: true });

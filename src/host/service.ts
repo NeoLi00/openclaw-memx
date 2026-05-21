@@ -7,7 +7,7 @@ import { retrieveEvidence } from "../pipeline/retrieve.js";
 import { captureAgentEndTurn } from "../pipeline/turnCapture.js";
 import { buildOperationContext, MemxRuntimeManager, type MemxStoreBundle } from "../runtime.js";
 import { resolveDefaultScope } from "../security/scopes.js";
-import { normalizeText, nowIso, randomId, stableHash, truncateText } from "../support.js";
+import { normalizeName, nowIso, randomId, stableHash, truncateText } from "../support.js";
 import type {
   EvidenceBundle,
   EvidencePacket,
@@ -34,6 +34,7 @@ export type MemxRecallRequest = {
   sessionId?: string;
   workspaceDir?: string;
   project?: string;
+  hotPathTimeoutMs?: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -239,17 +240,6 @@ function injectedPackets(bundle: EvidenceBundle): EvidencePacket[] {
   return bundle.evidencePackets.filter((packet) => packet.injected && !packet.dropReason);
 }
 
-function packetPromptText(packet: EvidencePacket): string {
-  return [
-    packet.primaryText,
-    ...(packet.displayLines ?? []),
-    ...packet.supportingTexts,
-    ...(packet.entityAliases ?? []),
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 function bestInjectedPacketScore(packets: EvidencePacket[]): number {
   return packets.reduce(
     (best, packet) =>
@@ -258,45 +248,36 @@ function bestInjectedPacketScore(packets: EvidencePacket[]): number {
   );
 }
 
-function hasExplicitMemoryIntent(query: string): boolean {
-  const normalized = normalizeText(query);
-  return (
-    /\b(remember|recall|previous|previously|earlier|last time|what did i|what was my|what were my|my .{0,40}(preference|preferences|config|configuration|requirement|requirements|constraint|constraints|command|field|account|token|key))\b/iu.test(
-      normalized,
-    ) ||
-    /(之前|上次|刚才|曾经|以前|历史|记得|记住|我说过|我提到|我提过|还记得|回忆|记忆)/u.test(
-      normalized,
-    ) ||
-    /我的.{0,24}(偏好|配置|要求|约束|命令|字段|账号|地址|密钥|是什么|有哪些|多少)/u.test(
-      normalized,
-    )
-  );
+function packetTextForSuppression(packet: EvidencePacket): string {
+  return [
+    packet.primaryText,
+    ...packet.supportingTexts,
+    ...(packet.displayLines ?? []),
+    ...(packet.entityAliases ?? []),
+    packet.answerCandidate?.text,
+    ...(packet.contextCandidates ?? []).map((candidate) => candidate.text),
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
 }
 
-function distinctiveQueryAnchors(query: string): string[] {
-  const anchors = new Set<string>();
-  for (const match of query.matchAll(/[A-Za-z][A-Za-z0-9_:-]{3,}/gu)) {
-    const token = match[0];
-    if (/[A-Z]/u.test(token) || /[_:-]|\d/u.test(token) || token.length >= 8) {
-      anchors.add(token.toLowerCase());
-    }
-  }
-  return [...anchors].slice(0, 8);
-}
-
-function hasDistinctivePacketAnchor(query: string, packets: EvidencePacket[]): boolean {
-  const anchors = distinctiveQueryAnchors(query);
-  if (anchors.length === 0) {
+function packetMentionsSuppressedEntity(packet: EvidencePacket, queryAnalysis: QueryCompileResult): boolean {
+  const suppressed = queryAnalysis.suppressedEntities ?? [];
+  if (suppressed.length === 0) {
     return false;
   }
-  return packets.some((packet) => {
-    const haystack = packetPromptText(packet).toLowerCase();
-    return anchors.some((anchor) => haystack.includes(anchor));
+  const normalizedPacketText = normalizeName(packetTextForSuppression(packet));
+  if (!normalizedPacketText) {
+    return false;
+  }
+  return suppressed.some((entity) => {
+    const normalizedEntity = normalizeName(entity.name);
+    return normalizedEntity.length >= 2 && normalizedPacketText.includes(normalizedEntity);
   });
 }
 
 export function assessNativeContextEligibility(
-  query: string,
+  _query: string,
   queryAnalysis: QueryCompileResult,
   bundle: EvidenceBundle,
 ): NativeContextEligibility {
@@ -305,25 +286,27 @@ export function assessNativeContextEligibility(
     return { eligible: false, reason: "no-injected-packets", bestScore: 0 };
   }
   const bestScore = bestInjectedPacketScore(packets);
-  const explicitMemoryIntent = hasExplicitMemoryIntent(query);
-  const distinctiveAnchor = hasDistinctivePacketAnchor(query, packets);
+  if (packets.some((packet) => packetMentionsSuppressedEntity(packet, queryAnalysis))) {
+    return { eligible: false, reason: "suppressed-entity-anchor", bestScore };
+  }
   const enoughEvidence =
     bestScore >= 0.62 ||
     bundle.routeConfidence >= 0.68 ||
     packets.some((packet) => packet.coverage.filled && packet.coverage.confidence >= 0.58);
-  if (!enoughEvidence && !explicitMemoryIntent && !distinctiveAnchor) {
-    return { eligible: false, reason: "weak-evidence", bestScore };
+  if (enoughEvidence) {
+    return {
+      eligible: true,
+      reason: queryAnalysis.queryEntities.length > 0 ? "llm-query-entities" : "strong-evidence",
+      bestScore,
+    };
   }
-  if (explicitMemoryIntent) {
-    return { eligible: true, reason: "explicit-memory-intent", bestScore };
+  if (
+    queryAnalysis.queryEntities.length > 0 &&
+    packets.some((packet) => packet.coverage.filled || (packet.coverage.confidence ?? 0) >= 0.35)
+  ) {
+    return { eligible: true, reason: "entity-supported-evidence", bestScore };
   }
-  if (distinctiveAnchor) {
-    return { eligible: true, reason: "distinctive-query-anchor", bestScore };
-  }
-  if (queryAnalysis.queryEntities.length > 0) {
-    return { eligible: true, reason: "llm-query-entities", bestScore };
-  }
-  return { eligible: false, reason: "no-memory-intent-or-anchor", bestScore };
+  return { eligible: false, reason: "weak-evidence", bestScore };
 }
 
 export class MemxHostService {
@@ -413,6 +396,7 @@ export class MemxHostService {
       query: request.query,
       ctx: recallCtx,
       reasoner: store.reasoner,
+      hotPathTimeoutMs: request.hotPathTimeoutMs,
     });
     const bundle = await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, {
       queryAnalysis: compiled,
@@ -526,14 +510,66 @@ export class MemxHostService {
   async context(request: MemxRecallRequest): Promise<Record<string, unknown>> {
     const recalled = await this.recall(request);
     const eligibility = recalled.contextEligibility as NativeContextEligibility | undefined;
+    const candidateContext = typeof recalled.context === "string" ? recalled.context : "";
+    const prependContext = eligibility?.eligible === false ? "" : candidateContext;
     if (eligibility && !eligibility.eligible) {
       this.logger.info?.(
         `memx: native context withheld reason=${eligibility.reason} best=${eligibility.bestScore.toFixed(2)} query="${request.query.slice(0, 80)}"`,
       );
     }
+    try {
+      const envelope: MemxTurnEnvelope = {
+        hostId: request.hostId === "codex" || request.hostId === "claude-code" ? request.hostId : "generic",
+        actorId: request.actorId || process.env["MEMX_ACTOR_ID"] || "memx-shared",
+        sessionId: request.sessionId || "mcp",
+        workspaceDir: request.workspaceDir || process.cwd(),
+        project: request.project,
+        eventName: "context",
+        observedAt: nowIso(),
+        messages: [{ role: "user", content: request.query }],
+      };
+      const ctx = asEnvelopeContext(this.config, envelope);
+      const store = await this.manager.getStore(ctx);
+      store.auditRepo.annotateLatestRetrievalInjection({
+        agentId: ctx.agentId,
+        queryText: request.query,
+        candidateChars: candidateContext.length,
+        actualInjectedChars: prependContext.length,
+        eligible: eligibility?.eligible ?? true,
+        reason: eligibility?.reason,
+        finalizedAt: ctx.now,
+      });
+      store.auditRepo.recordSignal({
+        signalId: randomId("signal"),
+        agentId: ctx.agentId,
+        scope: ctx.scopes[0] ?? `agent:${ctx.agentId}`,
+        sessionKey: ctx.sessionKey,
+        signalType: "retrieval_support",
+        memoryKind: "chunk",
+        semanticKey: "native_context_injection",
+        value: prependContext ? 1 : 0,
+        sourceRef: `native_context:${stableHash([request.query, ctx.sessionKey, ctx.now])}`,
+        metadataJson: {
+          eligible: eligibility?.eligible ?? true,
+          reason: eligibility?.reason,
+          bestScore: eligibility?.bestScore,
+          candidateChars: candidateContext.length,
+          actualInjectedChars: prependContext.length,
+        },
+        createdAt: ctx.now,
+      });
+    } catch (error) {
+      this.logger.debug?.(`memx: native context audit failed (${String(error)})`);
+    }
     return {
       ok: true,
-      prependContext: eligibility?.eligible === false ? "" : recalled.context,
+      prependContext,
+      nativeContext: {
+        eligible: eligibility?.eligible ?? true,
+        reason: eligibility?.reason,
+        candidateChars: candidateContext.length,
+        actualInjectedChars: prependContext.length,
+      },
       recall: recalled,
     };
   }

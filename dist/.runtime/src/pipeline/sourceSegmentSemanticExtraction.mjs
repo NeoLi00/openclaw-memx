@@ -16,9 +16,14 @@ function emptyStats() {
 function sourceRefsForSegments(segments) {
 	return [...new Set(segments.map((segment) => segment.parentSourceRef).filter(Boolean))];
 }
-function fallbackTurnFrame(sourceRefs) {
+const MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS = 4;
+const MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN = 4;
+const MAINTENANCE_REFERENCE_SUMMARY_CHARS = 160;
+const MAINTENANCE_REFERENCE_TEXT_CHARS = 360;
+function fallbackTurnFrame(sourceRefs, referenceContext) {
 	return {
 		sourceRefs,
+		...referenceContext ? { referenceContext } : {},
 		chunkDrafts: [],
 		assertionDrafts: [],
 		correctionDrafts: [],
@@ -31,6 +36,44 @@ function fallbackTurnFrame(sourceRefs) {
 			mode: "fallback",
 			reasons: ["maintenance-source-segment-scaffold"]
 		}
+	};
+}
+function referenceMessageForChunk(chunk) {
+	const text = (chunk.summary || chunk.content).trim();
+	if (!text) return null;
+	return {
+		role: chunk.role,
+		turnId: chunk.turnId,
+		sourceRef: chunk.sourceRef,
+		summary: chunk.summary ? truncateText(chunk.summary, MAINTENANCE_REFERENCE_SUMMARY_CHARS) : void 0,
+		textExcerpt: truncateText(text, MAINTENANCE_REFERENCE_TEXT_CHARS)
+	};
+}
+function buildMaintenanceReferenceContext(store, ctx, sessionKey) {
+	const chunks = store.chunkRepo.listRecentActive({
+		agentId: ctx.agentId,
+		scopes: ctx.scopes,
+		sessionKey,
+		limit: MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS * MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN * 2
+	}).sort((left, right) => {
+		const timeDelta = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+		return timeDelta !== 0 ? timeDelta : left.seq - right.seq;
+	});
+	const byTurn = /* @__PURE__ */ new Map();
+	for (const chunk of chunks) {
+		const group = byTurn.get(chunk.turnId) ?? [];
+		group.push(chunk);
+		byTurn.set(chunk.turnId, group);
+	}
+	const turns = [...byTurn.entries()].slice(-MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS).map(([turnId, turnChunks]) => ({
+		turnId,
+		messages: turnChunks.sort((left, right) => left.seq - right.seq).slice(0, MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN).map((chunk) => referenceMessageForChunk(chunk)).filter((entry) => Boolean(entry))
+	})).filter((turn) => turn.messages.length > 0);
+	if (turns.length === 0) return;
+	return {
+		purpose: "deictic_reference_resolution",
+		maxTurns: MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS,
+		turns
 	};
 }
 function mergeMaintenanceFrame(fallback, patch) {
@@ -161,10 +204,11 @@ async function runSourceSegmentSemanticExtraction(store, ctx, params) {
 	});
 	const grouped = segmentsBySourceRef(segments);
 	stats.sourceGroupsConsidered = grouped.size;
-	const scanInput = buildLongTurnSemanticScanInputFromSegments(segments);
+	const referenceContext = buildMaintenanceReferenceContext(store, ctx, params.sessionKey);
+	const scanInput = buildLongTurnSemanticScanInputFromSegments(segments, referenceContext);
 	stats.sourceGroupsScanned = scanInput.messages.length;
 	if (scanInput.messages.length === 0) return stats;
-	const fallback = fallbackTurnFrame(sourceRefsForSegments(segments));
+	const fallback = fallbackTurnFrame(sourceRefsForSegments(segments), referenceContext);
 	const patch = await store.reasoner.compileLongTurnSemantics(scanInput, fallback, {
 		stage: "maintenance_async",
 		audit: ctx.llmBudgetAudit

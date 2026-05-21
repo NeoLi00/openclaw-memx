@@ -14,6 +14,7 @@ type MemxRecallRequest = {
   sessionId?: string;
   workspaceDir?: string;
   project?: string;
+  hotPathTimeoutMs?: number;
 };
 declare function createServiceConfigFromEnv(env?: NodeJS.ProcessEnv): MemoryPluginConfig;
 type NativeContextEligibility = {
@@ -21,7 +22,7 @@ type NativeContextEligibility = {
   reason: string;
   bestScore: number;
 };
-declare function assessNativeContextEligibility(query: string, queryAnalysis: QueryCompileResult, bundle: EvidenceBundle): NativeContextEligibility;
+declare function assessNativeContextEligibility(_query: string, queryAnalysis: QueryCompileResult, bundle: EvidenceBundle): NativeContextEligibility;
 declare class MemxHostService {
   private readonly config;
   private readonly logger;

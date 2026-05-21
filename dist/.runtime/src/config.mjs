@@ -1,4 +1,5 @@
 import { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_LLM_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES } from "./types.mjs";
+import { MEMX_NATIVE_HOOK_TIMEOUT_MS } from "./timeouts.mjs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 //#region src/config.ts
@@ -40,7 +41,7 @@ const DEFAULT_ADVANCED = {
 	recallProbeContinuationEscalateThreshold: .68,
 	enableTurnSemanticCompiler: true,
 	enableQueryCompiler: true,
-	queryCompilerHotPathTimeoutMs: 2200,
+	queryCompilerHotPathTimeoutMs: MEMX_NATIVE_HOOK_TIMEOUT_MS,
 	enableEmbeddingCandidates: true,
 	enableEmbeddingClustering: true,
 	enableHotPathChunkSummaryLlm: false,
@@ -830,6 +831,15 @@ function parseConfigInternal(input) {
 		llmApiKey: asSecretLikeString(rawAdvanced.llmApiKey),
 		llmHeaders: isRecord(rawAdvanced.llmHeaders) ? Object.fromEntries(Object.entries(rawAdvanced.llmHeaders).filter(([, value]) => typeof value === "string").map(([key, value]) => [key, String(value)])) : void 0,
 		enableMaintenanceJobs: asBoolean(rawAdvanced.enableMaintenanceJobs, DEFAULT_MEMORY_CONFIG.advanced.enableMaintenanceJobs),
+		maintenanceTriggerMode: rawAdvanced.maintenanceTriggerMode === "batched" || rawAdvanced.maintenanceTriggerMode === "per_turn" ? rawAdvanced.maintenanceTriggerMode : DEFAULT_MEMORY_CONFIG.advanced.maintenanceTriggerMode,
+		maintenanceBatchTurns: asNumber(rawAdvanced.maintenanceBatchTurns, DEFAULT_MEMORY_CONFIG.advanced.maintenanceBatchTurns, issues, "advanced.maintenanceBatchTurns", {
+			min: 1,
+			max: 32
+		}),
+		maintenanceIdleFlushMinutes: asNumber(rawAdvanced.maintenanceIdleFlushMinutes, DEFAULT_MEMORY_CONFIG.advanced.maintenanceIdleFlushMinutes, issues, "advanced.maintenanceIdleFlushMinutes", {
+			min: 0,
+			max: 1440
+		}),
 		enableGraphPromotion: asBoolean(rawAdvanced.enableGraphPromotion, DEFAULT_MEMORY_CONFIG.advanced.enableGraphPromotion),
 		enableFactPromotion: asBoolean(rawAdvanced.enableFactPromotion, DEFAULT_MEMORY_CONFIG.advanced.enableFactPromotion),
 		enableTelemetryAudit: asBoolean(rawAdvanced.enableTelemetryAudit, DEFAULT_MEMORY_CONFIG.advanced.enableTelemetryAudit),

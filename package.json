@@ -17,6 +17,7 @@
     ".codex-plugin",
     ".claude-plugin",
     ".mcp.json",
+    "hooks.json",
     "hooks",
     "skills",
     "openclaw.plugin.json",

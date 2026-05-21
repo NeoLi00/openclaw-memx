@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
+import { MEMX_NATIVE_HOOK_TIMEOUT_MS } from "../timeouts.js";
 import { MemxHostService, type MemxRecallRequest } from "./service.js";
 
 const DEFAULT_PORT = 3878;
-const DEFAULT_SHUTDOWN_TIMEOUT_MS = 3000;
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = MEMX_NATIVE_HOOK_TIMEOUT_MS;
 
 function json(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });

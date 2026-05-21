@@ -2938,6 +2938,7 @@ async function retrieveEvidence(store, ctx, query, searchQuery = query, auditOpt
 				evidenceCoverage: queryAnalysis.evidenceCoverage,
 				candidateSurfaces: queryAnalysis.candidateSurfaces,
 				evidenceGoals: queryAnalysis.evidenceGoals,
+				suppressedEntities: queryAnalysis.suppressedEntities,
 				evidencePlan: queryAnalysis.evidencePlan,
 				semanticBridges: queryAnalysis.semanticBridges,
 				supportNeed: queryAnalysis.supportNeed,

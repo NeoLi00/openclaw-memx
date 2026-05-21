@@ -2,7 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  deriveNativeHookHttpTimeoutMs,
+  deriveNativeHookQueryCompilerTimeoutMs,
+  MEMX_NATIVE_HOOK_TIMEOUT_MS,
+} from "../timeouts.js";
 import { normalizeHookPayload, type MemxHostId, type MemxTurnEnvelope } from "./hookPayload.js";
+import { completeEnvelopeFromTranscript } from "./transcript.js";
 
 const DEFAULT_URL = "http://127.0.0.1:3878";
 const CONTEXT_INJECTION_EVENTS = new Set(["UserPromptSubmit"]);
@@ -54,7 +60,7 @@ function hookShouldStorePending(eventName: string): boolean {
 }
 
 function hookShouldFlushPending(eventName: string): boolean {
-  return eventName === "Stop";
+  return eventName === "Stop" || eventName === "SessionEnd";
 }
 
 function userQueryFromEnvelope(envelope: ReturnType<typeof normalizeHookPayload>): string | null {
@@ -62,7 +68,10 @@ function userQueryFromEnvelope(envelope: ReturnType<typeof normalizeHookPayload>
   return userMessage?.content.trim() || null;
 }
 
-function contextRequestFromEnvelope(envelope: ReturnType<typeof normalizeHookPayload>): Record<string, unknown> | null {
+function contextRequestFromEnvelope(
+  envelope: ReturnType<typeof normalizeHookPayload>,
+  hotPathTimeoutMs: number,
+): Record<string, unknown> | null {
   const query = userQueryFromEnvelope(envelope);
   if (!query) {
     return null;
@@ -75,6 +84,7 @@ function contextRequestFromEnvelope(envelope: ReturnType<typeof normalizeHookPay
     workspaceDir: envelope.workspaceDir,
     project: envelope.project,
     limit: 6,
+    hotPathTimeoutMs,
   };
 }
 
@@ -159,6 +169,12 @@ function mergePendingTurn(current: MemxTurnEnvelope, pending: MemxTurnEnvelope |
   };
 }
 
+function hasAssistantMessage(envelope: MemxTurnEnvelope): boolean {
+  return envelope.messages.some(
+    (message) => message.role === "assistant" && message.content.trim().length > 0,
+  );
+}
+
 function debug(message: string): void {
   if (process.env["MEMX_HOOK_DEBUG"] === "1") {
     console.error(message);
@@ -169,13 +185,23 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
   const host = (argv[0] || process.env["MEMX_HOOK_HOST"] || "generic") as MemxHostId;
   const eventName = argv[1] || process.env["MEMX_HOOK_EVENT"] || "observe";
   const payload = await readStdinJson();
-  const timeoutMs = parsePositiveInt(process.env["MEMX_HOOK_TIMEOUT_MS"], 3000);
-  const contextTimeoutMs = parsePositiveInt(process.env["MEMX_HOOK_CONTEXT_TIMEOUT_MS"], timeoutMs);
-  const observeTimeoutMs = parsePositiveInt(process.env["MEMX_HOOK_OBSERVE_TIMEOUT_MS"], timeoutMs);
+  const timeoutMs = parsePositiveInt(process.env["MEMX_HOOK_TIMEOUT_MS"], MEMX_NATIVE_HOOK_TIMEOUT_MS);
+  const contextTimeoutMs = parsePositiveInt(
+    process.env["MEMX_HOOK_CONTEXT_TIMEOUT_MS"],
+    deriveNativeHookHttpTimeoutMs(timeoutMs),
+  );
+  const observeTimeoutMs = parsePositiveInt(
+    process.env["MEMX_HOOK_OBSERVE_TIMEOUT_MS"],
+    deriveNativeHookHttpTimeoutMs(timeoutMs),
+  );
+  const queryCompilerTimeoutMs = deriveNativeHookQueryCompilerTimeoutMs(contextTimeoutMs);
   try {
     const envelope = normalizeHookPayload(host, eventName, payload);
+    if (hookShouldStorePending(eventName)) {
+      await writePendingTurn(envelope);
+    }
     const contextRequest = hookCanInjectContext(envelope.hostId, eventName)
-      ? contextRequestFromEnvelope(envelope)
+      ? contextRequestFromEnvelope(envelope, queryCompilerTimeoutMs)
       : null;
     if (contextRequest) {
       // Recall must read the previous memory epoch. The current prompt is only staged locally
@@ -201,13 +227,20 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
     }
 
     if (hookShouldStorePending(eventName)) {
-      await writePendingTurn(envelope);
       return;
     }
 
-    const observeEnvelope = hookShouldFlushPending(eventName)
-      ? mergePendingTurn(envelope, await readPendingTurn(envelope))
+    const pending = hookShouldFlushPending(eventName) ? await readPendingTurn(envelope) : null;
+    const completedEnvelope = hookShouldFlushPending(eventName)
+      ? await completeEnvelopeFromTranscript(envelope, pending)
       : envelope;
+    const observeEnvelope = hookShouldFlushPending(eventName)
+      ? mergePendingTurn(completedEnvelope, pending)
+      : completedEnvelope;
+    if (hookShouldFlushPending(eventName) && pending && !hasAssistantMessage(observeEnvelope)) {
+      debug("memx hook observe deferred: assistant output is not available yet");
+      return;
+    }
     if (observeEnvelope.messages.length === 0) {
       return;
     }

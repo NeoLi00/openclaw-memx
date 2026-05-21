@@ -34,6 +34,7 @@ export type RetrievalAuditOptions = {
     evidenceFidelity?: QueryCompileResult["evidenceFidelity"];
     candidateSurfaces?: QueryCompileResult["candidateSurfaces"];
     evidenceGoals?: QueryCompileResult["evidenceGoals"];
+    suppressedEntities?: QueryCompileResult["suppressedEntities"];
     supportNeed?: number;
     ambiguityLevel?: number;
     compilerProvenance?: QueryCompileResult["compilerProvenance"];
@@ -263,6 +264,7 @@ export function buildRecallAuditPayload(
           evidenceCoverage: options.queryAnalysis.evidenceCoverage,
           candidateSurfaces: options.queryAnalysis.candidateSurfaces,
           evidenceGoals: options.queryAnalysis.evidenceGoals,
+          suppressedEntities: options.queryAnalysis.suppressedEntities,
           supportNeed: options.queryAnalysis.supportNeed,
           ambiguityLevel: options.queryAnalysis.ambiguityLevel,
           compilerProvenance: options.queryAnalysis.compilerProvenance,

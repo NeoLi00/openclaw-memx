@@ -15,6 +15,28 @@ var AuditRepo = class {
           audit_id, agent_id, scope, route_type, query_text, query_hash, selected_items_json, injected_chars, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(audit.auditId, audit.agentId, audit.scope, audit.routeType, audit.queryText, audit.queryHash, JSON.stringify(audit.selectedItemsJson), audit.injectedChars, audit.createdAt);
 	}
+	annotateLatestRetrievalInjection(params) {
+		const queryHash = stableHash([params.queryText]);
+		const row = this.db.prepare(`SELECT audit_id, selected_items_json, injected_chars
+           FROM retrieval_audit
+          WHERE agent_id = ?
+            AND query_hash = ?
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1`).get(params.agentId, queryHash);
+		if (!row) return;
+		const selectedItems = safeJsonParse(row.selected_items_json, {});
+		selectedItems.nativeContextInjection = {
+			candidateChars: params.candidateChars,
+			actualInjectedChars: params.actualInjectedChars,
+			eligible: params.eligible,
+			reason: params.reason,
+			finalizedAt: params.finalizedAt
+		};
+		this.db.prepare(`UPDATE retrieval_audit
+            SET selected_items_json = ?,
+                injected_chars = ?
+          WHERE audit_id = ?`).run(JSON.stringify(selectedItems), params.actualInjectedChars, row.audit_id);
+	}
 	recordSignal(signal) {
 		this.db.prepare(`INSERT OR IGNORE INTO memory_signal_events(
           signal_id, agent_id, scope, session_key, signal_type, memory_kind, content_ref, semantic_key, value, source_ref, metadata_json, created_at

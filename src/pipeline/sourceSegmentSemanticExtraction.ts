@@ -2,11 +2,14 @@ import type { MemxStoreBundle } from "../runtime.js";
 import { normalizeText, randomId, truncateText } from "../support.js";
 import type {
   ClassifiedCandidate,
+  ConversationChunk,
   MemoryCandidate,
   MemoryCandidateStructuredHints,
   MemoryOperationContext,
   SourceSegmentRecord,
   TurnSemanticFrame,
+  TurnSemanticReferenceContext,
+  TurnSemanticReferenceContextMessage,
 } from "../types.js";
 import { classifyAction } from "./classify.js";
 import { computeConfidence } from "./normalize.js";
@@ -37,9 +40,18 @@ function sourceRefsForSegments(segments: SourceSegmentRecord[]): string[] {
   return [...new Set(segments.map((segment) => segment.parentSourceRef).filter(Boolean))];
 }
 
-function fallbackTurnFrame(sourceRefs: string[]): TurnSemanticFrame {
+const MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS = 4;
+const MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN = 4;
+const MAINTENANCE_REFERENCE_SUMMARY_CHARS = 160;
+const MAINTENANCE_REFERENCE_TEXT_CHARS = 360;
+
+function fallbackTurnFrame(
+  sourceRefs: string[],
+  referenceContext?: TurnSemanticReferenceContext,
+): TurnSemanticFrame {
   return {
     sourceRefs,
+    ...(referenceContext ? { referenceContext } : {}),
     chunkDrafts: [],
     assertionDrafts: [],
     correctionDrafts: [],
@@ -52,6 +64,63 @@ function fallbackTurnFrame(sourceRefs: string[]): TurnSemanticFrame {
       mode: "fallback",
       reasons: ["maintenance-source-segment-scaffold"],
     },
+  };
+}
+
+function referenceMessageForChunk(chunk: ConversationChunk): TurnSemanticReferenceContextMessage | null {
+  const text = (chunk.summary || chunk.content).trim();
+  if (!text) {
+    return null;
+  }
+  return {
+    role: chunk.role,
+    turnId: chunk.turnId,
+    sourceRef: chunk.sourceRef,
+    summary: chunk.summary ? truncateText(chunk.summary, MAINTENANCE_REFERENCE_SUMMARY_CHARS) : undefined,
+    textExcerpt: truncateText(text, MAINTENANCE_REFERENCE_TEXT_CHARS),
+  };
+}
+
+function buildMaintenanceReferenceContext(
+  store: MemxStoreBundle,
+  ctx: MemoryOperationContext,
+  sessionKey?: string,
+): TurnSemanticReferenceContext | undefined {
+  const chunks = store.chunkRepo
+    .listRecentActive({
+      agentId: ctx.agentId,
+      scopes: ctx.scopes,
+      sessionKey,
+      limit: MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS * MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN * 2,
+    })
+    .sort((left, right) => {
+      const timeDelta = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      return timeDelta !== 0 ? timeDelta : left.seq - right.seq;
+    });
+  const byTurn = new Map<string, ConversationChunk[]>();
+  for (const chunk of chunks) {
+    const group = byTurn.get(chunk.turnId) ?? [];
+    group.push(chunk);
+    byTurn.set(chunk.turnId, group);
+  }
+  const turns = [...byTurn.entries()]
+    .slice(-MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS)
+    .map(([turnId, turnChunks]) => ({
+      turnId,
+      messages: turnChunks
+        .sort((left, right) => left.seq - right.seq)
+        .slice(0, MAINTENANCE_REFERENCE_CONTEXT_MAX_MESSAGES_PER_TURN)
+        .map((chunk) => referenceMessageForChunk(chunk))
+        .filter((entry): entry is TurnSemanticReferenceContextMessage => Boolean(entry)),
+    }))
+    .filter((turn) => turn.messages.length > 0);
+  if (turns.length === 0) {
+    return undefined;
+  }
+  return {
+    purpose: "deictic_reference_resolution",
+    maxTurns: MAINTENANCE_REFERENCE_CONTEXT_MAX_TURNS,
+    turns,
   };
 }
 
@@ -231,13 +300,14 @@ export async function runSourceSegmentSemanticExtraction(
   });
   const grouped = segmentsBySourceRef(segments);
   stats.sourceGroupsConsidered = grouped.size;
-  const scanInput = buildLongTurnSemanticScanInputFromSegments(segments);
+  const referenceContext = buildMaintenanceReferenceContext(store, ctx, params.sessionKey);
+  const scanInput = buildLongTurnSemanticScanInputFromSegments(segments, referenceContext);
   stats.sourceGroupsScanned = scanInput.messages.length;
   if (scanInput.messages.length === 0) {
     return stats;
   }
 
-  const fallback = fallbackTurnFrame(sourceRefsForSegments(segments));
+  const fallback = fallbackTurnFrame(sourceRefsForSegments(segments), referenceContext);
   const patch = await store.reasoner.compileLongTurnSemantics(scanInput, fallback, {
     stage: "maintenance_async",
     audit: ctx.llmBudgetAudit,

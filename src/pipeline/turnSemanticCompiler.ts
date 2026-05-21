@@ -79,6 +79,7 @@ export type LongTurnSemanticScanMessage = {
 
 export type LongTurnSemanticScanInput = {
   messages: LongTurnSemanticScanMessage[];
+  recentReferenceContext?: TurnSemanticReferenceContext;
 };
 
 type TurnSemanticCompilerReasonerOptions = {
@@ -355,6 +356,7 @@ function selectedSegmentIndexes(segmentCount: number, maxSegments: number): numb
 
 export function buildLongTurnSemanticScanInputFromSegments(
   segments: SourceSegmentRecord[],
+  recentReferenceContext?: TurnSemanticReferenceContext,
 ): LongTurnSemanticScanInput {
   const bySourceRef = new Map<string, SourceSegmentRecord[]>();
   for (const segment of segments) {
@@ -365,9 +367,6 @@ export function buildLongTurnSemanticScanInputFromSegments(
   const messages: LongTurnSemanticScanMessage[] = [];
   for (const [sourceRef, group] of bySourceRef) {
     const ordered = [...group].sort((left, right) => left.segmentIndex - right.segmentIndex);
-    if (ordered.length <= 1) {
-      continue;
-    }
     const indexes = new Set(
       selectedSegmentIndexes(ordered.length, LONG_TURN_SCAN_MAX_SEGMENTS_PER_MESSAGE),
     );
@@ -399,7 +398,7 @@ export function buildLongTurnSemanticScanInputFromSegments(
       }),
     });
   }
-  return { messages };
+  return { messages, ...(recentReferenceContext ? { recentReferenceContext } : {}) };
 }
 
 function compileStage(messages: TurnCaptureMessage[]): MemoryLlmCallStage {

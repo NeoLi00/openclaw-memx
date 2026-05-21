@@ -412,14 +412,13 @@ var MemxTurnScheduler = class {
 			includeSkipped: false
 		});
 		const recentChunksByTask = Object.fromEntries(recentTasks.map((task) => [task.taskId, this.store.chunkRepo.listByTask(task.taskId)]));
-		const turnSemanticFrame = await compileTurnSemantics({
-			messages: safeMessages,
-			ctx,
-			activeTask,
-			activeChunks,
-			recentTasks,
-			recentChunksByTask,
-			reasoner: this.store.reasoner
+		const turnSemanticFrame = void 0;
+		recordMemoryLlmBudgetCall(ctx.llmBudgetAudit, {
+			label: "turn-semantic-compile",
+			stage: safeMessages.some((message) => message.role === "assistant") ? "post_answer_writeback" : "write_hot_path",
+			provenance: "deterministic",
+			mode: "deferred",
+			detail: compileTurnSemantics ? "turn semantic extraction is deferred to maintenance source-segment LLM scanning" : "turn semantic extraction is unavailable"
 		});
 		const assignment = await decideTaskAssignment({
 			activeTask,

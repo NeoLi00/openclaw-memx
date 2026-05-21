@@ -6,7 +6,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SessionStart",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -17,7 +17,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code UserPromptSubmit",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -29,7 +29,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PreToolUse",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -40,7 +40,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PostToolUse",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -51,7 +51,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PostToolUseFailure",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -62,7 +62,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code PreCompact",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -73,7 +73,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SubagentStart",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -84,7 +84,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SubagentStop",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -95,7 +95,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code Notification",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -106,7 +106,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code TaskCompleted",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -117,7 +117,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code Stop",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }
@@ -128,7 +128,7 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/.runtime/src/bin/memx-hook.mjs\" claude-code SessionEnd",
-            "timeout": 5
+            "timeout": 8
           }
         ]
       }

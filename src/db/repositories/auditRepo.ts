@@ -58,6 +58,49 @@ export class AuditRepo {
       );
   }
 
+  annotateLatestRetrievalInjection(params: {
+    agentId: string;
+    queryText: string;
+    actualInjectedChars: number;
+    candidateChars: number;
+    eligible: boolean;
+    reason?: string;
+    finalizedAt: string;
+  }): void {
+    const queryHash = stableHash([params.queryText]);
+    const row = this.db
+      .prepare(
+        `SELECT audit_id, selected_items_json, injected_chars
+           FROM retrieval_audit
+          WHERE agent_id = ?
+            AND query_hash = ?
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1`,
+      )
+      .get(params.agentId, queryHash) as
+      | { audit_id: string; selected_items_json: string; injected_chars: number }
+      | undefined;
+    if (!row) {
+      return;
+    }
+    const selectedItems = safeJsonParse<Record<string, unknown>>(row.selected_items_json, {});
+    selectedItems.nativeContextInjection = {
+      candidateChars: params.candidateChars,
+      actualInjectedChars: params.actualInjectedChars,
+      eligible: params.eligible,
+      reason: params.reason,
+      finalizedAt: params.finalizedAt,
+    };
+    this.db
+      .prepare(
+        `UPDATE retrieval_audit
+            SET selected_items_json = ?,
+                injected_chars = ?
+          WHERE audit_id = ?`,
+      )
+      .run(JSON.stringify(selectedItems), params.actualInjectedChars, row.audit_id);
+  }
+
   recordSignal(signal: MemorySignalEventRecord): void {
     this.db
       .prepare(

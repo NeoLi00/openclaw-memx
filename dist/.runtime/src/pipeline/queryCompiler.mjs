@@ -1,4 +1,5 @@
 import { clamp01, isValidEntityName, normalizeName, normalizeText, normalizedTerms, stableHash, truncateText } from "../support.mjs";
+import { MEMX_NATIVE_HOOK_TIMEOUT_MS } from "../timeouts.mjs";
 import { recordMemoryLlmBudgetCall } from "./llmBudgetAudit.mjs";
 //#region src/pipeline/queryCompiler.ts
 const QUERY_ENVELOPE_LONG_THRESHOLD_CHARS = 2400;
@@ -275,6 +276,28 @@ function looksLikeLocalSymbolEntity(name, type) {
 	if (type === "concept" && /^[a-z][0-9]?$/iu.test(compact)) return true;
 	return false;
 }
+function looksLikeDeicticEntity(name) {
+	const normalized = normalizeName(name);
+	return new Set([
+		"this",
+		"that",
+		"it",
+		"these",
+		"those",
+		"thing",
+		"topic",
+		"这个",
+		"那个",
+		"它",
+		"这",
+		"那",
+		"上面",
+		"前面",
+		"刚才",
+		"这件事",
+		"那个问题"
+	]).has(normalized);
+}
 function sanitizeQueryEntities(value, limit = 8) {
 	if (!Array.isArray(value)) return [];
 	const seen = /* @__PURE__ */ new Set();
@@ -284,7 +307,7 @@ function sanitizeQueryEntities(value, limit = 8) {
 		const record = entry;
 		const name = typeof record.name === "string" ? record.name.trim() : "";
 		const type = sanitizeQueryEntityType(record.type);
-		if (!name || !isValidEntityName(name) || looksLikeLocalSymbolEntity(name, type)) continue;
+		if (!name || !isValidEntityName(name) || looksLikeLocalSymbolEntity(name, type) || looksLikeDeicticEntity(name)) continue;
 		const key = `${type ?? "unknown"}:${normalizeName(name)}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
@@ -293,6 +316,29 @@ function sanitizeQueryEntities(value, limit = 8) {
 			name,
 			...type ? { type } : {},
 			...role ? { role } : {}
+		});
+		if (entities.length >= limit) break;
+	}
+	return entities;
+}
+function sanitizeSuppressedEntities(value, limit = 8) {
+	if (!Array.isArray(value)) return [];
+	const seen = /* @__PURE__ */ new Set();
+	const entities = [];
+	for (const entry of value) {
+		if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+		const record = entry;
+		const name = typeof record.name === "string" ? record.name.trim() : "";
+		const type = sanitizeQueryEntityType(record.type);
+		if (!name || !isValidEntityName(name) || looksLikeLocalSymbolEntity(name, type) || looksLikeDeicticEntity(name)) continue;
+		const key = `${type ?? "unknown"}:${normalizeName(name)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const reason = typeof record.reason === "string" ? truncateText(record.reason.trim(), 160) : "";
+		entities.push({
+			name,
+			...type ? { type } : {},
+			...reason ? { reason } : {}
 		});
 		if (entities.length >= limit) break;
 	}
@@ -1158,6 +1204,7 @@ function applyQueryCompileGuards(query, compiled) {
 	const llmSemantic = guarded.compilerProvenance.source === "llm";
 	guarded.shouldRecall = true;
 	guarded.queryEntities = sanitizeQueryEntities(compiled.queryEntities);
+	guarded.suppressedEntities = sanitizeSuppressedEntities(compiled.suppressedEntities);
 	guarded.primaryRoute = sanitizePrimaryRoute(compiled.primaryRoute) ?? primaryRouteFromWeights(compiled.routeWeights);
 	guarded.answerMode = compiled.answerMode ? sanitizeAnswerMode(compiled.answerMode, query, guarded.queryShape) : void 0;
 	guarded.anchors = uniqueNonEmpty([...guarded.anchors.map(normalizeCompilerHint).filter(usefulQueryHint)], 8);
@@ -1230,6 +1277,7 @@ function compileQueryWithoutSemanticFallback(query, reason = "llm-only-query-com
 		shouldRecall: true,
 		focusedQuery,
 		queryEntities: [],
+		suppressedEntities: [],
 		queryShape,
 		primaryRoute: primaryRouteFromWeights(routeWeights),
 		answerGranularity,
@@ -1250,27 +1298,31 @@ function compileQueryWithoutSemanticFallback(query, reason = "llm-only-query-com
 	};
 }
 function mergeCompiledQuery(fallback, compiled) {
+	const { memoryUseIntent: _discardedMemoryUseIntent, shouldRecall: _discardedShouldRecall, ...compiledFields } = compiled;
+	const safeCompiled = compiledFields;
 	const shouldRecall = true;
-	const queryShape = compiled.queryShape ?? fallback.queryShape;
-	const compilerProvenance = compiled.compilerProvenance ?? fallback.compilerProvenance;
+	const queryShape = safeCompiled.queryShape ?? fallback.queryShape;
+	const compilerProvenance = safeCompiled.compilerProvenance ?? fallback.compilerProvenance;
 	const hasLlmSemanticContract = compilerProvenance.source === "llm" || compilerProvenance.source === "hybrid" || compilerProvenance.mode === "llm";
-	const focusedQuery = typeof compiled.focusedQuery === "string" && compiled.focusedQuery.trim() ? protectFocusedQuery(fallback.queryText, compiled.focusedQuery) : fallback.focusedQuery;
-	const anchors = compiled.anchors ? compiled.anchors : fallback.anchors;
-	const queryEntities = sanitizeQueryEntities(compiled.queryEntities);
-	const primaryRoute = sanitizePrimaryRoute(compiled.primaryRoute) ?? primaryRouteFromWeights(compiled.routeWeights ?? {}) ?? primaryRouteFromWeights(deriveRouteWeights(queryShape));
-	const answerGranularity = compiled.answerGranularity ?? deriveAnswerGranularity(queryShape);
-	const evidenceFidelity = compiled.evidenceFidelity ?? deriveEvidenceFidelity(queryShape, anchors);
-	const routeWeights = compiled.routeWeights ? normalizeRouteWeights(compiled.routeWeights) : routeWeightsFromPrimaryRoute(primaryRoute, queryShape);
+	const focusedQuery = typeof safeCompiled.focusedQuery === "string" && safeCompiled.focusedQuery.trim() ? protectFocusedQuery(fallback.queryText, safeCompiled.focusedQuery) : fallback.focusedQuery;
+	const anchors = safeCompiled.anchors ? safeCompiled.anchors : fallback.anchors;
+	const queryEntities = sanitizeQueryEntities(safeCompiled.queryEntities);
+	const suppressedEntities = sanitizeSuppressedEntities(safeCompiled.suppressedEntities);
+	const primaryRoute = sanitizePrimaryRoute(safeCompiled.primaryRoute) ?? primaryRouteFromWeights(safeCompiled.routeWeights ?? {}) ?? primaryRouteFromWeights(deriveRouteWeights(queryShape));
+	const answerGranularity = safeCompiled.answerGranularity ?? deriveAnswerGranularity(queryShape);
+	const evidenceFidelity = safeCompiled.evidenceFidelity ?? deriveEvidenceFidelity(queryShape, anchors);
+	const routeWeights = safeCompiled.routeWeights ? normalizeRouteWeights(safeCompiled.routeWeights) : routeWeightsFromPrimaryRoute(primaryRoute, queryShape);
 	const derivedSurfaces = deriveCandidateSurfaces(queryShape, answerGranularity, evidenceFidelity);
 	if (queryEntities.length > 0) derivedSurfaces.push("entity_alias", "graph");
-	const candidateSurfaces = sanitizeCandidateSurfaces(compiled.candidateSurfaces, [...new Set(derivedSurfaces)]);
+	const candidateSurfaces = sanitizeCandidateSurfaces(safeCompiled.candidateSurfaces, [...new Set(derivedSurfaces)]);
 	const sanitizerFallback = {
 		...fallback,
-		...compiled,
+		...safeCompiled,
 		queryText: fallback.queryText,
 		shouldRecall,
 		focusedQuery,
 		queryEntities,
+		suppressedEntities,
 		queryShape,
 		primaryRoute,
 		answerGranularity,
@@ -1280,20 +1332,21 @@ function mergeCompiledQuery(fallback, compiled) {
 		routeWeights,
 		compilerProvenance
 	};
-	const sanitizedPlan = compiled.evidencePlan ? sanitizeEvidencePlan(sanitizerFallback, compiled.evidencePlan) : hasLlmSemanticContract ? sanitizeEvidencePlan(sanitizerFallback, void 0) : void 0;
+	const sanitizedPlan = safeCompiled.evidencePlan ? sanitizeEvidencePlan(sanitizerFallback, safeCompiled.evidencePlan) : hasLlmSemanticContract ? sanitizeEvidencePlan(sanitizerFallback, void 0) : void 0;
 	const bridgeFallback = {
 		...sanitizerFallback,
 		evidencePlan: sanitizedPlan
 	};
-	const evidenceGoals = compiled.evidenceGoals ? sanitizeEvidenceGoals(sanitizerFallback, compiled.evidenceGoals, candidateSurfaces, evidenceFidelity) : hasLlmSemanticContract ? sanitizeEvidenceGoals(sanitizerFallback, void 0, candidateSurfaces, evidenceFidelity) : [];
-	const semanticBridges = compiled.semanticBridges ? sanitizeSemanticBridges(bridgeFallback, compiled.semanticBridges) : hasLlmSemanticContract && sanitizedPlan ? sanitizeSemanticBridges(bridgeFallback, void 0) : void 0;
+	const evidenceGoals = safeCompiled.evidenceGoals ? sanitizeEvidenceGoals(sanitizerFallback, safeCompiled.evidenceGoals, candidateSurfaces, evidenceFidelity) : hasLlmSemanticContract ? sanitizeEvidenceGoals(sanitizerFallback, void 0, candidateSurfaces, evidenceFidelity) : [];
+	const semanticBridges = safeCompiled.semanticBridges ? sanitizeSemanticBridges(bridgeFallback, safeCompiled.semanticBridges) : hasLlmSemanticContract && sanitizedPlan ? sanitizeSemanticBridges(bridgeFallback, void 0) : void 0;
 	return {
 		...fallback,
-		...compiled,
+		...safeCompiled,
 		queryText: fallback.queryText,
 		shouldRecall,
 		focusedQuery,
 		queryEntities,
+		suppressedEntities,
 		queryShape,
 		primaryRoute,
 		answerGranularity,
@@ -1304,16 +1357,19 @@ function mergeCompiledQuery(fallback, compiled) {
 		evidenceGoals,
 		evidencePlan: sanitizedPlan,
 		semanticBridges,
-		detailNeedScore: typeof compiled.detailNeedScore === "number" && Number.isFinite(compiled.detailNeedScore) ? clamp01(compiled.detailNeedScore) : fallback.detailNeedScore,
-		supportNeed: typeof compiled.supportNeed === "number" && Number.isFinite(compiled.supportNeed) ? clamp01(compiled.supportNeed) : fallback.supportNeed,
-		ambiguityLevel: typeof compiled.ambiguityLevel === "number" && Number.isFinite(compiled.ambiguityLevel) ? clamp01(compiled.ambiguityLevel) : fallback.ambiguityLevel,
-		turnMode: compiled.turnMode ?? fallback.turnMode,
+		detailNeedScore: typeof safeCompiled.detailNeedScore === "number" && Number.isFinite(safeCompiled.detailNeedScore) ? clamp01(safeCompiled.detailNeedScore) : fallback.detailNeedScore,
+		supportNeed: typeof safeCompiled.supportNeed === "number" && Number.isFinite(safeCompiled.supportNeed) ? clamp01(safeCompiled.supportNeed) : fallback.supportNeed,
+		ambiguityLevel: typeof safeCompiled.ambiguityLevel === "number" && Number.isFinite(safeCompiled.ambiguityLevel) ? clamp01(safeCompiled.ambiguityLevel) : fallback.ambiguityLevel,
+		turnMode: safeCompiled.turnMode ?? fallback.turnMode,
 		compilerProvenance
 	};
 }
-function queryCompilerTimeoutMs(ctx) {
-	const raw = ctx.config.advanced.queryCompilerHotPathTimeoutMs;
-	return Number.isFinite(raw) && raw > 0 ? Math.max(250, Math.min(15e3, raw)) : 2200;
+function queryCompilerTimeoutMs(params) {
+	const configured = params.ctx.config.advanced.queryCompilerHotPathTimeoutMs;
+	const configuredTimeout = Number.isFinite(configured) && configured > 0 ? Math.max(250, Math.min(15e3, configured)) : MEMX_NATIVE_HOOK_TIMEOUT_MS;
+	const requested = params.hotPathTimeoutMs;
+	if (Number.isFinite(requested) && requested !== void 0 && requested > 0) return Math.max(250, Math.min(configuredTimeout, requested));
+	return configuredTimeout;
 }
 function timedQueryCompile(start, timeoutMs) {
 	const controller = new AbortController();
@@ -1362,7 +1418,7 @@ async function compileQuery(params) {
 		stage: "query_hot_path",
 		audit: params.ctx.llmBudgetAudit,
 		signal
-	}), queryCompilerTimeoutMs(params.ctx));
+	}), queryCompilerTimeoutMs(params));
 	if (compiledResult.status === "timeout") {
 		recordMemoryLlmBudgetCall(params.ctx.llmBudgetAudit, {
 			label: "query-compile",

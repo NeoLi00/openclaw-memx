@@ -20,6 +20,7 @@ import type {
   MemoryLlmCallStage,
   SynthesizedTaskEvent,
   TurnCaptureMessage,
+  TurnSemanticFrame,
 } from "../types.js";
 import type { MemxLogger } from "../types.js";
 import { eligibleForLlmRefinement } from "./abstractionRefinement.js";
@@ -646,14 +647,17 @@ export class MemxTurnScheduler {
     const recentChunksByTask = Object.fromEntries(
       recentTasks.map((task) => [task.taskId, this.store.chunkRepo.listByTask(task.taskId)]),
     );
-    const turnSemanticFrame = await compileTurnSemantics({
-      messages: safeMessages,
-      ctx,
-      activeTask,
-      activeChunks,
-      recentTasks,
-      recentChunksByTask,
-      reasoner: this.store.reasoner,
+    const turnSemanticFrame: TurnSemanticFrame | undefined = undefined;
+    recordMemoryLlmBudgetCall(ctx.llmBudgetAudit, {
+      label: "turn-semantic-compile",
+      stage: safeMessages.some((message) => message.role === "assistant")
+        ? "post_answer_writeback"
+        : "write_hot_path",
+      provenance: "deterministic",
+      mode: "deferred",
+      detail: compileTurnSemantics
+        ? "turn semantic extraction is deferred to maintenance source-segment LLM scanning"
+        : "turn semantic extraction is unavailable",
     });
     const assignment = await decideTaskAssignment({
       activeTask,
@@ -762,7 +766,7 @@ export class MemxTurnScheduler {
     message: TurnCaptureMessage,
     index: number,
     createdChunks: ConversationChunk[],
-    turnSemanticFrame?: Awaited<ReturnType<typeof compileTurnSemantics>>,
+    turnSemanticFrame?: TurnSemanticFrame,
   ): Promise<void> {
     const contentHash = stableHash([
       ctx.agentId,
@@ -974,7 +978,7 @@ export class MemxTurnScheduler {
     ctx: MemoryOperationContext,
     activeTask: ConversationTask,
     messages: TurnCaptureMessage[],
-    turnSemanticFrame?: Awaited<ReturnType<typeof compileTurnSemantics>>,
+    turnSemanticFrame?: TurnSemanticFrame,
   ): Promise<void> {
     const taskChunks = this.store.chunkRepo.listByTask(activeTask.taskId);
     const taskSummaryStage = messages.some(

@@ -197,7 +197,7 @@ function selectedSegmentIndexes(segmentCount, maxSegments) {
 	}
 	return [...selected].sort((left, right) => left - right);
 }
-function buildLongTurnSemanticScanInputFromSegments(segments) {
+function buildLongTurnSemanticScanInputFromSegments(segments, recentReferenceContext) {
 	const bySourceRef = /* @__PURE__ */ new Map();
 	for (const segment of segments) {
 		const group = bySourceRef.get(segment.parentSourceRef) ?? [];
@@ -207,7 +207,6 @@ function buildLongTurnSemanticScanInputFromSegments(segments) {
 	const messages = [];
 	for (const [sourceRef, group] of bySourceRef) {
 		const ordered = [...group].sort((left, right) => left.segmentIndex - right.segmentIndex);
-		if (ordered.length <= 1) continue;
 		const indexes = new Set(selectedSegmentIndexes(ordered.length, LONG_TURN_SCAN_MAX_SEGMENTS_PER_MESSAGE));
 		const selected = ordered.filter((segment, index) => indexes.has(index));
 		const first = ordered[0];
@@ -237,7 +236,10 @@ function buildLongTurnSemanticScanInputFromSegments(segments) {
 			})
 		});
 	}
-	return { messages };
+	return {
+		messages,
+		...recentReferenceContext ? { recentReferenceContext } : {}
+	};
 }
 function compileStage(messages) {
 	return messages.some((message) => message.role === "user" || message.role === "tool") ? "write_hot_path" : "post_answer_writeback";

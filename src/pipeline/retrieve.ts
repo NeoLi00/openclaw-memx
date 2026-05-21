@@ -6240,6 +6240,7 @@ export async function retrieveEvidence(
         evidenceCoverage: queryAnalysis.evidenceCoverage,
         candidateSurfaces: queryAnalysis.candidateSurfaces,
         evidenceGoals: queryAnalysis.evidenceGoals,
+        suppressedEntities: queryAnalysis.suppressedEntities,
         evidencePlan: queryAnalysis.evidencePlan,
         semanticBridges: queryAnalysis.semanticBridges,
         supportNeed: queryAnalysis.supportNeed,

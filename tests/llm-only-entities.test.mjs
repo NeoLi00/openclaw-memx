@@ -7,7 +7,7 @@ import {
   compileQueryWithoutSemanticFallback,
 } from "../dist/.runtime/src/pipeline/queryCompiler.mjs";
 import { normalizeCandidate } from "../dist/.runtime/src/pipeline/normalize.mjs";
-import { MemxReasoner } from "../dist/.runtime/src/pipeline/reasoner.mjs";
+import { MemxReasoner, sanitizeChunkSummaryResult } from "../dist/.runtime/src/pipeline/reasoner.mjs";
 import * as semantics from "../dist/.runtime/src/pipeline/semantics.mjs";
 import {
   buildLongTurnSemanticScanInputFromSegments,
@@ -81,6 +81,32 @@ test("legacy deterministic semantic extractors are not exported", () => {
   ]) {
     assert.equal(name in semantics, false, `${name} should not remain on semantics surface`);
   }
+});
+
+test("query compiler honors request hot-path budget before the global config timeout", async () => {
+  const ctx = minimalCtx();
+  ctx.config.advanced.queryCompilerHotPathTimeoutMs = 8000;
+  const startedAt = Date.now();
+
+  const result = await compileQuery({
+    query: "PendingFirstProbe 的默认格式是什么？",
+    ctx,
+    hotPathTimeoutMs: 25,
+    reasoner: {
+      isEnabled: () => true,
+      compileQuerySemantics: async (_query, _fallback, options = {}) =>
+        new Promise((resolve) => {
+          options.signal?.addEventListener("abort", () => resolve(null), { once: true });
+        }),
+    },
+  });
+
+  assert.ok(Date.now() - startedAt < 1000);
+  assert.deepEqual(result.compilerProvenance, {
+    source: "deterministic",
+    mode: "fallback",
+    reasons: ["query-compile-llm-timeout"],
+  });
 });
 
 test("turn semantic fallback does not synthesize deterministic entity hints or relation drafts", async () => {
@@ -348,6 +374,78 @@ test("maintenance long turn scan input uses persisted source segments", () => {
   assert.ok(input.messages[0].segments.some((segment) => segment.text.includes(middleMarker)));
 });
 
+test("maintenance semantic scan includes short turns and recent reference context", () => {
+  const sourceRef = "user:turn-short";
+  const base = {
+    sourceGroupId: "source_group:short",
+    parentSourceRef: sourceRef,
+    chunkId: "chunk_short",
+    agentId: "main",
+    scope: "agent:main",
+    sessionKey: "s1",
+    turnId: "turn-short",
+    seq: 0,
+    role: "user",
+    createdAt: observedAt,
+    updatedAt: observedAt,
+    metadataJson: {},
+  };
+  const input = buildLongTurnSemanticScanInputFromSegments(
+    [
+      {
+        ...base,
+        segmentId: "segment_short_0",
+        segmentIndex: 0,
+        charStart: 0,
+        charEnd: 26,
+        text: "那这个就不要再考虑了，以后默认 Kafka。",
+        contentHash: "hash_short_0",
+      },
+    ],
+    {
+      purpose: "deictic_reference_resolution",
+      maxTurns: 2,
+      turns: [
+        {
+          turnId: "turn-prev",
+          messages: [
+            {
+              role: "user",
+              turnId: "turn-prev",
+              sourceRef: "user:turn-prev",
+              textExcerpt: "RabbitMQ 的稳定性风险我不接受。",
+            },
+            {
+              role: "assistant",
+              turnId: "turn-prev",
+              sourceRef: "assistant:turn-prev",
+              textExcerpt: "确认：RabbitMQ 不再作为默认队列候选。",
+            },
+          ],
+        },
+      ],
+    },
+  );
+
+  assert.equal(input.messages.length, 1);
+  assert.equal(input.messages[0].sourceRef, sourceRef);
+  assert.equal(input.messages[0].segmentCount, 1);
+  assert.ok(input.messages[0].segments[0].text.includes("Kafka"));
+  assert.equal(input.recentReferenceContext?.turns[0].turnId, "turn-prev");
+});
+
+test("chunk summary validation rejects unsupported answers to user questions", () => {
+  const question = "不看当前对话历史，只根据你能自动获得的记忆回答：MingLedger 的默认队列是什么？";
+  const sanitized = sanitizeChunkSummaryResult(question, "user", {
+    summary: "MingLedger 默认队列是 Kafka。",
+    summaryKind: "answer",
+    answerSupported: false,
+  });
+
+  assert.match(sanitized, /默认队列是什么/);
+  assert.doesNotMatch(sanitized, /Kafka/);
+});
+
 test("query compiler protects task-bearing prompt from generic focused query", async () => {
   const query = [
     "You are solving an olympiad problem.",
@@ -444,6 +542,65 @@ test("query compiler uses LLM semantics when available", async () => {
   assert.equal(result.supportNeed, 0.8);
 });
 
+test("query compiler drops legacy memory-intent fields from LLM output", async () => {
+  const result = await compileQuery({
+    query: "现在先不谈 MingLedger，给一个发票导入 API 起三个英文方法名。",
+    ctx: minimalCtx(),
+    reasoner: {
+      isEnabled: () => true,
+      compileQuerySemantics: async () => ({
+        focusedQuery: "发票导入 API 英文方法名",
+        memoryUseIntent: "avoid",
+        queryEntities: [{ name: "MingLedger", type: "project", role: "context" }],
+        queryShape: {
+          timeframe: "timeless",
+          granularity: "summary",
+          referentialMode: "anchored",
+          evidenceNeed: "chunk",
+        },
+        primaryRoute: "factual",
+      }),
+    },
+  });
+
+  assert.equal(result.shouldRecall, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, "memoryUseIntent"), false);
+  assert.deepEqual(result.queryEntities, [
+    { name: "MingLedger", type: "project", role: "context" },
+  ]);
+});
+
+test("query compiler preserves LLM-only suppressed entity constraints for negative anchors", async () => {
+  const result = await compileQuery({
+    query: "现在先不谈 MingLedger，给一个发票导入 API 起三个英文方法名。",
+    ctx: minimalCtx(),
+    reasoner: {
+      isEnabled: () => true,
+      compileQuerySemantics: async () => ({
+        focusedQuery: "发票导入 API 英文方法名",
+        queryEntities: [],
+        suppressedEntities: [
+          { name: "MingLedger", type: "project", reason: "user explicitly excluded this context" },
+          { name: "这个", type: "unknown", reason: "pronoun should be dropped" },
+        ],
+        queryShape: {
+          timeframe: "timeless",
+          granularity: "summary",
+          referentialMode: "anchored",
+          evidenceNeed: "chunk",
+        },
+        primaryRoute: "factual",
+      }),
+    },
+  });
+
+  assert.equal(result.shouldRecall, true);
+  assert.deepEqual(result.queryEntities, []);
+  assert.deepEqual(result.suppressedEntities, [
+    { name: "MingLedger", type: "project", reason: "user explicitly excluded this context" },
+  ]);
+});
+
 test("query compiler falls back to raw-query retrieval when LLM exceeds hot-path deadline", async () => {
   const started = Date.now();
   let aborted = false;
@@ -513,6 +670,7 @@ test("query compiler accepts lightweight query intent and derives entity recall 
   });
 
   assert.equal(result.shouldRecall, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, "memoryUseIntent"), false);
   assert.deepEqual(result.queryEntities, [
     { name: "memx", type: "project", role: "subject" },
   ]);
@@ -722,7 +880,7 @@ test("reasoner summaries and topic judgments do not rebuild semantics without LL
     "DeepSeek provider config",
   );
 
-  assert.equal(chunkSummary, "");
+  assert.equal(chunkSummary, "记住：DeepSeek 是当前 provider，OpenClaw 是项目。");
   assert.equal(taskSummary.title, "Conversation task");
   assert.equal(taskSummary.summary, "");
   assert.equal(taskSummary.metadataJson.summarySource, "llm_unavailable");

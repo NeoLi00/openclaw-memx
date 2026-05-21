@@ -5,6 +5,7 @@ import { EvidenceBundle } from "./types.mjs";
 import { OpenClawQuickstartOptions, QuickstartCommandResult, QuickstartCommandStep, QuickstartDeps, applyOpenClawQuickstartConfig, buildOpenClawQuickstartSteps, resolveCurrentPackageRoot, runOpenClawQuickstart } from "./host/quickstart.mjs";
 import { StandaloneMemxQuickstartOptions, StandaloneQuickstartCommandResult, StandaloneQuickstartCommandStep, StandaloneQuickstartDeps, StandaloneQuickstartTarget, applyStandaloneMemxQuickstartConfig, buildStandaloneMemxQuickstartSteps, runStandaloneMemxQuickstart } from "./host/standaloneQuickstart.mjs";
 import { MemxHostService, MemxRecallRequest, MemxServiceOptions, assessNativeContextEligibility, createServiceConfigFromEnv, stableHostTurnId } from "./host/service.mjs";
+import { sanitizeChunkSummaryResult } from "./pipeline/reasoner.mjs";
 import { OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
 
 //#region src/index.d.ts

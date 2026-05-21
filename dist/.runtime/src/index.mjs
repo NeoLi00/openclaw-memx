@@ -16,6 +16,7 @@ import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security
 import { readMessageText, stripInboundMetadata } from "./pipeline/messageText.mjs";
 import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.mjs";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.mjs";
+import "./pipeline/reasoner.mjs";
 import { resolveDefaultScope } from "./security/scopes.mjs";
 import { MemxRuntimeManager, buildOperationContext } from "./runtime.mjs";
 import "./host/service.mjs";
