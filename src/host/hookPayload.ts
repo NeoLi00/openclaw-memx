@@ -157,7 +157,7 @@ export function normalizeObservePayload(input: unknown): MemxTurnEnvelope {
         .filter((message): message is Record<string, unknown> =>
           Boolean(message && typeof message === "object"),
         )
-        .map((message) => ({
+        .map((message): MemxHostMessage => ({
           role:
             message.role === "assistant" || message.role === "tool" || message.role === "user"
               ? message.role

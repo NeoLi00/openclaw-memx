@@ -277,8 +277,10 @@ function idAfterPrefix(value, prefix) {
 	return separator >= 0 ? rest.slice(0, separator) : rest;
 }
 function canonicalOrSourceId(entry, kind) {
-	if (entry.lineage?.canonicalKind === kind && entry.lineage.canonicalId) return entry.lineage.canonicalId;
-	if (entry.lineage?.sourceKind === kind && entry.lineage.sourceId) return entry.lineage.sourceId;
+	const lineage = entry.lineage;
+	if (!lineage) return;
+	if (lineage.canonicalKind === kind && lineage.canonicalId) return lineage.canonicalId;
+	if (lineage.sourceKind === kind && lineage.sourceId) return lineage.sourceId;
 }
 function signalTargetForPromptEvidence(store, ctx, entry) {
 	const factId = canonicalOrSourceId(entry, "fact") ?? idAfterPrefix(entry.id, "fact:") ?? (entry.surface === "fact" ? entry.id : void 0);

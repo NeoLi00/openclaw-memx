@@ -43,7 +43,7 @@ function buildEntityProfileDoc(store, ctx, entity) {
 	const supportRefs = [...new Set([
 		...mentions.map((mention) => mention.sourceRef),
 		...aliasSources.map((entry) => entry.sourceRef),
-		...graph.edges.map((edge) => edge.evidenceRef).filter(Boolean)
+		...graph.edges.map((edge) => edge.evidenceRef).filter((sourceRef) => Boolean(sourceRef))
 	])];
 	const relationNeighborIds = [...new Set(graph.edges.flatMap((edge) => [edge.srcEntityId, edge.dstEntityId]).filter((entityId) => Boolean(entityId) && entityId !== entity.entityId))];
 	const metadata = {

@@ -537,9 +537,10 @@ function aggregateBeliefs(store, ctx, options = {}) {
 			semanticKey: belief.semanticKey
 		}));
 	}
-	const rawSignals = options.signalWindow && touchedTargets.length > 0 ? store.auditRepo.listSignalsForTargets({
+	const signalTargets = touchedTargets.filter((target) => target.memoryKind !== "strategy");
+	const rawSignals = options.signalWindow && signalTargets.length > 0 ? store.auditRepo.listSignalsForTargets({
 		agentId: ctx.agentId,
-		targets: touchedTargets,
+		targets: signalTargets,
 		...options.signalWindow.until ? { until: options.signalWindow.until } : {}
 	}) : deltaSignals;
 	const signalsById = new Map(canonicalizeSignalEntityTargets(store, ctx, resolverScope, rawSignals).map((signal) => [signal.signalId, signal]));

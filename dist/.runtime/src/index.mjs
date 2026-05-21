@@ -16,6 +16,7 @@ import { formatMemxContextBlock, stripInjectedHistoricalBlock } from "./security
 import { readMessageText, stripInboundMetadata } from "./pipeline/messageText.mjs";
 import { shouldSkipMemxForHeartbeat } from "./pipeline/heartbeatFilter.mjs";
 import { captureAgentEndTurn } from "./pipeline/turnCapture.mjs";
+import "./pipeline/turnSemanticCompiler.mjs";
 import "./pipeline/reasoner.mjs";
 import { resolveDefaultScope } from "./security/scopes.mjs";
 import { MemxRuntimeManager, buildOperationContext } from "./runtime.mjs";
@@ -180,13 +181,14 @@ function buildBackgroundRecallPrompt(config, bundle, query, queryAnalysis, maxCh
 		"Auto-recall found background memory, but no final packet-qualified evidence was selected for prompt injection.",
 		"Use the background memory below only when it directly fits the current turn."
 	];
-	const sections = [bundle.behavioralGuidance.length > 0 ? {
+	const sections = [];
+	if (bundle.behavioralGuidance.length > 0) sections.push({
 		title: "Reply Guidance",
 		lines: bundle.behavioralGuidance.slice(0, 4).map((line) => `- ${line}`),
 		maxChars: 520,
 		priority: 80,
 		minLines: 1
-	} : null].filter((section) => Boolean(section));
+	});
 	const followUpLines = shouldSuggestExplicitRecallTool(config) ? [`- Auto-recall found no final evidence packet. If prior context still matters, call memory_recall with a focused query such as "${truncateText(queryAnalysis.focusedQuery || "user preferences", 120)}".`] : ["- Auto-recall found no final evidence packet. Answer conservatively from the current turn and the background memory above instead of speculating about missing prior context."];
 	return packPromptSections({
 		instructionBlock: instructions.join("\n"),

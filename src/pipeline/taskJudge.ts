@@ -6,6 +6,7 @@ import type {
   TurnSemanticTaskProposal,
   TurnCaptureMessage,
 } from "../types.js";
+import type { MemxReasoner } from "./reasoner.js";
 
 type TaskJudgeParams = {
   activeTask: ConversationTask | null;

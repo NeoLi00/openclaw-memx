@@ -1,10 +1,10 @@
-import { clamp01, objectRecord } from "../support";
+import { clamp01, objectRecord } from "../support.js";
 import type {
   MemoryWorkflowStateKind,
   MemxStateLifecycleKind,
   NormalizedState,
   StateCurrentness,
-} from "../types";
+} from "../types.js";
 
 type StateLikeInput = {
   key: string;
@@ -60,7 +60,7 @@ export function classifyStateLifecycle(input: StateLikeInput): MemxStateLifecycl
   if (SESSION_WORKING_PREFIXES.some((prefix) => input.key.startsWith(prefix))) {
     return "session_working";
   }
-  return input.stateKind === "durable" ? "durable_profile" : "session_working";
+  return "session_working";
 }
 
 export function evaluateStateCurrentness(
@@ -274,6 +274,7 @@ function lifecycleBaseScore(kind: MemxStateLifecycleKind, durable: boolean): num
     case "derived_maintenance":
       return 0.44;
   }
+  return durable ? 0.68 : 0.44;
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -2678,7 +2678,7 @@ function packetDistinctKey(packet: EvidencePacket): string {
 }
 
 function packetAnswerDisplayKey(packet: EvidencePacket): string {
-  const primaryLine = packet.displayLines[0] ?? packet.primaryText;
+  const primaryLine = packet.displayLines?.[0] ?? packet.primaryText;
   return exactDisplayKey(primaryLine.replace(/\s+\|\s+\[context\].*$/u, ""));
 }
 
@@ -2726,7 +2726,7 @@ function packetHasAnswerDisplayForQuery(
 ): boolean {
   const aggregateMode =
     queryAnalysis.answerMode === "count_aggregate" || operationType(queryAnalysis) === "aggregate";
-  return packet.displayLines.some(
+  return (packet.displayLines ?? []).some(
     (line) =>
       line.startsWith("[answer]") ||
       line.startsWith("[resource]") ||
@@ -2751,7 +2751,7 @@ function selectInjectedPackets(
     (packet) =>
       !packetHasSoftPenalty(packet, "negative-contrast-without-query-context") &&
       ((packet.grade?.answerScore ?? 0) > 0.08 ||
-        packet.displayLines.some((line) => line.startsWith("[answer]"))),
+        (packet.displayLines ?? []).some((line) => line.startsWith("[answer]"))),
   );
   const rankedForSelection = nonContrastAnswerAvailable
     ? ranked.filter(
@@ -2781,7 +2781,9 @@ function selectInjectedPackets(
   if (slotCoverageMode) {
     const bySlot = new Map<string, EvidencePacket[]>();
     for (const packet of selectablePackets) {
-      for (const slotId of packet.slotIds.length > 0 ? packet.slotIds : [packet.slotId]) {
+      const packetSlotIds =
+        packet.slotIds && packet.slotIds.length > 0 ? packet.slotIds : [packet.slotId];
+      for (const slotId of packetSlotIds) {
         const slotPackets = bySlot.get(slotId) ?? [];
         slotPackets.push(packet);
         bySlot.set(slotId, slotPackets);

@@ -302,7 +302,7 @@ type LineageRef = {
   sourceRef?: string;
   materializedEpoch?: number;
 };
-type CompilerExecutionMode = "llm" | "deterministic" | "fallback";
+type CompilerExecutionMode = "llm" | "deterministic" | "fallback" | "deferred" | "degraded" | "disabled" | "semantic-compiler-authoritative";
 type MemoryCallProvenance = "deterministic" | "llm" | "embedding" | "hybrid";
 type MaintenanceAuthoritySource = "deterministic_aggregated" | "llm_confirmed" | "llm_upgrade" | "embedding_clustered";
 type MaintenanceSemanticSource = "upstream_structured" | "embedding_clustered" | "llm_upgrade" | "deterministic_lifecycle" | "lexical_fallback";
@@ -750,7 +750,7 @@ type QuerySuppressedEntityHint = {
   type?: EntityType;
   reason?: string;
 };
-type CandidateSurface = "state" | "fact" | "event" | "task" | "chunk" | "graph" | "entity_alias";
+type CandidateSurface = "state" | "fact" | "event" | "task" | "chunk" | "snippet" | "graph" | "entity_alias";
 type QueryEvidenceGoal = {
   goal: string;
   positiveQueries: string[];
@@ -1769,4 +1769,4 @@ type MemxLogger = {
   error?: (message: string) => void;
 };
 //#endregion
-export { AbstractionCandidateRecord, AbstractionCandidateStage, ConversationChunk, ConversationTask, EvidenceBundle, MemoryAction, MemoryCallProvenance, MemoryCandidate, MemoryCandidateDecisionHint, MemoryCandidatePreferenceHint, MemoryCandidateRelationHint, MemoryCandidateWorkflowHint, MemoryEmbeddingProvider, MemoryLlmBudgetAudit, MemoryLlmCallStage, MemoryLlmProvider, MemoryOperationContext, MemoryPluginConfig, MemoryPrimaryRouteType, MemoryRecallPlan, MemxLogger, NormalizedEvent, QueryCompileResult, RouteDecision, RouteEvidenceCandidate, RouteEvidenceDecision, RoutePriorDecision, SearchHit, SourceSegmentRecord, SynthesizedTaskEvent, TaskAssignmentDecision, TaskAssignmentSnapshot, TurnCaptureMessage, TurnSemanticFrame, TurnSemanticReferenceContext, TurnSemanticTaskProposal };
+export { AbstractionCandidateRecord, AbstractionCandidateStage, ConversationChunk, ConversationTask, EvidenceBundle, MemoryAction, MemoryCallProvenance, MemoryCandidate, MemoryCandidateDecisionHint, MemoryCandidatePreferenceHint, MemoryCandidateRelationHint, MemoryCandidateStructuredHints, MemoryCandidateWorkflowHint, MemoryEmbeddingProvider, MemoryLlmBudgetAudit, MemoryLlmCallStage, MemoryLlmProvider, MemoryOperationContext, MemoryPluginConfig, MemoryPrimaryRouteType, MemoryRecallPlan, MemxLogger, NormalizedEvent, QueryCompileResult, RouteDecision, RouteEvidenceCandidate, RouteEvidenceDecision, RoutePriorDecision, SearchHit, SourceSegmentRecord, SynthesizedTaskEvent, TaskAssignmentDecision, TaskAssignmentSnapshot, TurnCaptureMessage, TurnSemanticFrame, TurnSemanticReferenceContext, TurnSemanticTaskProposal };

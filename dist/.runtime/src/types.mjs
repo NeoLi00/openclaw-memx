@@ -1,3 +1,14 @@
+const ENTITY_TYPES = [
+	"person",
+	"project",
+	"tool",
+	"service",
+	"language",
+	"framework",
+	"concept",
+	"organization",
+	"unknown"
+];
 const MEMORY_SCOPE_TEMPLATES = [
 	"global",
 	"agent:{agentId}",
@@ -27,4 +38,4 @@ const MEMORY_LLM_PROVIDERS = [
 	"ollama"
 ];
 //#endregion
-export { MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_LLM_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES };
+export { ENTITY_TYPES, MEMORY_CONSENT_MODES, MEMORY_EMBEDDING_PROVIDERS, MEMORY_LLM_PROVIDERS, MEMORY_PII_MODES, MEMORY_SCOPE_TEMPLATES };

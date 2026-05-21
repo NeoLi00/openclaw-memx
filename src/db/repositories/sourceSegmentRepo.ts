@@ -140,7 +140,7 @@ export class SourceSegmentRepo {
     }
     const scopePlaceholders = params.scopes.map(() => "?").join(", ");
     const turnPlaceholders = params.turnIds.map(() => "?").join(", ");
-    const values: unknown[] = [params.agentId, ...params.scopes, ...params.turnIds];
+    const values: Array<string | number> = [params.agentId, ...params.scopes, ...params.turnIds];
     let sessionClause = "";
     if (params.sessionKey) {
       sessionClause = " AND session_key = ?";

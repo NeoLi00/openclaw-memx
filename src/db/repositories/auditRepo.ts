@@ -132,7 +132,7 @@ export class AuditRepo {
     until?: string;
     limit?: number;
   }): MemorySignalEventRecord[] {
-    const values: Array<string | number> = [params.agentId];
+    const values: Array<string | number | null> = [params.agentId];
     let sql = `
       SELECT signal_id, agent_id, scope, session_key, signal_type, memory_kind, content_ref, semantic_key, value,
              source_ref, metadata_json, created_at
@@ -206,7 +206,7 @@ export class AuditRepo {
     if (params.targets.length === 0) {
       return [];
     }
-    const values: Array<string | number> = [params.agentId];
+    const values: Array<string | number | null> = [params.agentId];
     const targetClauses = params.targets.map((target) => {
       values.push(target.memoryKind, target.contentRef ?? null, target.semanticKey);
       return `(

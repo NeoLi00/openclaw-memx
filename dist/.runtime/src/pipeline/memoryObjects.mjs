@@ -275,8 +275,9 @@ function baseStateRows(store, ctx) {
 			now: ctx.now
 		});
 		if (currentness.hardExclusions.length > 0) return [];
+		const stateRef = `${state.scope}:${state.key}`;
 		return [toEvidenceRow({
-			id: `${state.scope}:${state.key}`,
+			id: stateRef,
 			text: `${canonicalStateKey(state.key)}: ${describeStateValue(state.key, state.valueJson)}`,
 			score: Math.max(.18, currentness.currentnessScore * .76 + state.confidence * .16 - index * .04),
 			scope: state.scope,
@@ -285,9 +286,9 @@ function baseStateRows(store, ctx) {
 			observedAt: state.updatedAt,
 			lineage: {
 				canonicalKind: "state",
-				canonicalId: state.stateId,
+				canonicalId: stateRef,
 				sourceKind: "state",
-				sourceId: state.stateId,
+				sourceId: stateRef,
 				sourceRef: state.sourceRef,
 				materializedEpoch: state.materializedEpoch
 			}

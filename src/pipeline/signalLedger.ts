@@ -461,11 +461,15 @@ function canonicalOrSourceId(
   entry: PromptEvidenceCandidate,
   kind: NonNullable<PromptEvidenceCandidate["lineage"]>["canonicalKind"],
 ): string | undefined {
-  if (entry.lineage?.canonicalKind === kind && entry.lineage.canonicalId) {
-    return entry.lineage.canonicalId;
+  const lineage = entry.lineage;
+  if (!lineage) {
+    return undefined;
   }
-  if (entry.lineage?.sourceKind === kind && entry.lineage.sourceId) {
-    return entry.lineage.sourceId;
+  if (lineage.canonicalKind === kind && lineage.canonicalId) {
+    return lineage.canonicalId;
+  }
+  if (lineage.sourceKind === kind && lineage.sourceId) {
+    return lineage.sourceId;
   }
   return undefined;
 }

@@ -7,6 +7,8 @@ declare module "openclaw/plugin-sdk/core" {
     runId?: string;
     toolName?: string;
     toolCallId?: string;
+    trigger?: string;
+    messageProvider?: string;
   };
 
   export type OpenClawConfig = {

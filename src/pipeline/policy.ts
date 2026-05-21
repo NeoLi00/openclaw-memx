@@ -291,12 +291,16 @@ function semanticDraftFamilies(candidate: MemoryCandidate): TurnSemanticAssertio
   const draft = semanticDraft(candidate);
   const draftFamilies = draft?.assertionDrafts.map((entry) => entry.familyHint) ?? [];
   if ((draft?.relationDrafts?.length ?? 0) > 0) {
-    return [...new Set([...draftFamilies, "relation_like"])];
+    return [
+      ...new Set<TurnSemanticAssertionFamilyHint>([...draftFamilies, "relation_like"]),
+    ];
   }
   if (draftFamilies.length > 0) {
-    return [...new Set(draftFamilies)];
+    return [...new Set<TurnSemanticAssertionFamilyHint>(draftFamilies)];
   }
-  return [...new Set(candidate.structuredHints?.semanticFamilies ?? [])];
+  return [
+    ...new Set<TurnSemanticAssertionFamilyHint>(candidate.structuredHints?.semanticFamilies ?? []),
+  ];
 }
 
 function semanticDraftTimeframes(candidate: MemoryCandidate): string[] {
@@ -470,7 +474,7 @@ function chooseSemanticDraftAction(
     };
   }
   if (candidate.source.kind === "tool") {
-    if (materializationHint?.preferEvent || Boolean(correction) || primaryFamily === "event_like") {
+    if (materializationHint?.preferEvent || Boolean(correction)) {
       reasons.push("semantic-draft-adapter:tool-event");
       return {
         action: "episodic_event",

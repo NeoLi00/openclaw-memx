@@ -921,7 +921,7 @@ function ensureTailorAdviceSlots(plan, fallback) {
 	if (plan.operation.type !== "tailor_advice") return plan;
 	const existingHints = uniqueNonEmpty(plan.slots.flatMap((slot) => [
 		...slot.subjectHints,
-		...slot.relationHints,
+		...slot.relationHints ?? [],
 		slot.description
 	]), 12);
 	const queryHints = uniqueNonEmpty(usefulQueryHints([
@@ -938,7 +938,7 @@ function ensureTailorAdviceSlots(plan, fallback) {
 			requiredRole: existing.requiredRole ?? slot.requiredRole,
 			description: existing.description || slot.description,
 			subjectHints: uniqueNonEmpty([...existing.subjectHints, ...slot.subjectHints], 8),
-			relationHints: uniqueNonEmpty([...existing.relationHints, ...slot.relationHints], 10),
+			relationHints: uniqueNonEmpty([...existing.relationHints ?? [], ...slot.relationHints ?? []], 10),
 			capabilityQueries: uniqueNonEmpty([...existing.capabilityQueries ?? [], ...slot.capabilityQueries ?? []], 10),
 			negativeHints: uniqueNonEmpty([...existing.negativeHints ?? [], ...slot.negativeHints ?? []], 8),
 			requiredFields: uniqueNonEmpty([...existing.requiredFields, ...slot.requiredFields], 6),

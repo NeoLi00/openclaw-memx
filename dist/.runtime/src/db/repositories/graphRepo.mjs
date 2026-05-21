@@ -1,8 +1,12 @@
 import { normalizeName, randomId, safeJsonParse, stableHash } from "../../support.mjs";
+import { ENTITY_TYPES } from "../../types.mjs";
 import { normalizeGraphRelationType } from "../../pipeline/semantic/heuristics.mjs";
 import { projectAliasVariants, projectIdentityKey } from "../../pipeline/projectIdentity.mjs";
 import { buildGraphPathCandidates } from "../../pipeline/graphPathEngine.mjs";
 //#region src/db/repositories/graphRepo.ts
+function entityTypeValue(value) {
+	return ENTITY_TYPES.includes(value) ? value : "unknown";
+}
 function mergeStringArrays(...values) {
 	const out = /* @__PURE__ */ new Set();
 	for (const value of values) {
@@ -42,7 +46,7 @@ var GraphRepo = class {
 		return {
 			entityId: stableHash([normalized]),
 			canonicalName: name.trim(),
-			entityType: entityType ?? "unknown",
+			entityType: entityTypeValue(entityType),
 			normalizedName: normalized,
 			aliases: [],
 			confidence: .6
@@ -412,7 +416,7 @@ var GraphRepo = class {
 		return {
 			entityId: row.entity_id,
 			canonicalName: row.canonical_name,
-			entityType: row.entity_type,
+			entityType: entityTypeValue(row.entity_type),
 			normalizedName: row.normalized_name,
 			aliases: safeJsonParse(row.aliases_json, []),
 			confidence: row.confidence

@@ -3,6 +3,7 @@ import type {
   ConversationChunk,
   ConversationTask,
   MemoryAdviceSignalHint,
+  MemoryCandidateStructuredHints,
   MemoryLlmBudgetAudit,
   MemoryLlmCallStage,
   MemoryCandidateMaterializationHint,

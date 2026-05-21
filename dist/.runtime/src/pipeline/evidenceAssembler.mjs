@@ -1246,7 +1246,7 @@ function packetDistinctKey(packet) {
 	return packet.sourceRefs[0] ?? packet.allSourceRefs?.[0] ?? packet.answerCandidate?.id ?? packet.packetId;
 }
 function packetAnswerDisplayKey(packet) {
-	return exactDisplayKey((packet.displayLines[0] ?? packet.primaryText).replace(/\s+\|\s+\[context\].*$/u, ""));
+	return exactDisplayKey((packet.displayLines?.[0] ?? packet.primaryText).replace(/\s+\|\s+\[context\].*$/u, ""));
 }
 function packetHasSoftPenalty(packet, reason) {
 	return (packet.softPenalties ?? []).some((penalty) => penalty === reason);
@@ -1266,7 +1266,7 @@ function packetEligibleForPromptInjection(queryAnalysis, packet, floor) {
 }
 function packetHasAnswerDisplayForQuery(queryAnalysis, packet) {
 	const aggregateMode = queryAnalysis.answerMode === "count_aggregate" || operationType(queryAnalysis) === "aggregate";
-	return packet.displayLines.some((line) => line.startsWith("[answer]") || line.startsWith("[resource]") || aggregateMode && line.startsWith("[event]"));
+	return (packet.displayLines ?? []).some((line) => line.startsWith("[answer]") || line.startsWith("[resource]") || aggregateMode && line.startsWith("[event]"));
 }
 function selectInjectedPackets(queryAnalysis, packets) {
 	const limit = packetInjectionBudget(queryAnalysis);
@@ -1275,7 +1275,7 @@ function selectInjectedPackets(queryAnalysis, packets) {
 	const selectedDistinct = /* @__PURE__ */ new Set();
 	const selectedAnswerDisplays = /* @__PURE__ */ new Set();
 	const ranked = packets.filter((packet) => !packet.dropReason && packet.eligibility?.eligible !== false).filter((packet) => packetEligibleForPromptInjection(queryAnalysis, packet, floor)).sort((left, right) => packetSortValue(right) - packetSortValue(left));
-	const rankedForSelection = ranked.some((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context") && ((packet.grade?.answerScore ?? 0) > .08 || packet.displayLines.some((line) => line.startsWith("[answer]")))) ? ranked.filter((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context")) : ranked;
+	const rankedForSelection = ranked.some((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context") && ((packet.grade?.answerScore ?? 0) > .08 || (packet.displayLines ?? []).some((line) => line.startsWith("[answer]")))) ? ranked.filter((packet) => !packetHasSoftPenalty(packet, "negative-contrast-without-query-context")) : ranked;
 	const scoredRankedForSelection = rankedForSelection.some((packet) => packetSortValue(packet) > 0) ? rankedForSelection.filter((packet) => packetSortValue(packet) > 0) : rankedForSelection;
 	const aggregateMode = queryAnalysis.answerMode === "count_aggregate" || operationType(queryAnalysis) === "aggregate";
 	const selectablePackets = scoredRankedForSelection.some((packet) => packetHasAnswerDisplayForQuery(queryAnalysis, packet)) ? scoredRankedForSelection.filter((packet) => packetHasAnswerDisplayForQuery(queryAnalysis, packet)) : scoredRankedForSelection;
@@ -1283,10 +1283,13 @@ function selectInjectedPackets(queryAnalysis, packets) {
 	const effectiveAllowedGap = packetCurveGap(queryAnalysis);
 	if (operationType(queryAnalysis) === "derive" || operationType(queryAnalysis) === "compare") {
 		const bySlot = /* @__PURE__ */ new Map();
-		for (const packet of selectablePackets) for (const slotId of packet.slotIds.length > 0 ? packet.slotIds : [packet.slotId]) {
-			const slotPackets = bySlot.get(slotId) ?? [];
-			slotPackets.push(packet);
-			bySlot.set(slotId, slotPackets);
+		for (const packet of selectablePackets) {
+			const packetSlotIds = packet.slotIds && packet.slotIds.length > 0 ? packet.slotIds : [packet.slotId];
+			for (const slotId of packetSlotIds) {
+				const slotPackets = bySlot.get(slotId) ?? [];
+				slotPackets.push(packet);
+				bySlot.set(slotId, slotPackets);
+			}
 		}
 		for (const slot of queryAnalysis.evidencePlan?.slots ?? []) {
 			if (selected.size >= limit) break;

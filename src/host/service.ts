@@ -125,7 +125,7 @@ function applyServiceEnvOverrides(config: MemoryPluginConfig, env: NodeJS.Proces
   ) {
     next.embedding.localDevice = env["MEMX_EMBEDDING_DEVICE"];
   }
-  return memxConfigSchema.parse(next);
+  return memxConfigSchema.parse!(next) as MemoryPluginConfig;
 }
 
 function loggerOrConsole(logger?: MemxLogger): MemxLogger {
@@ -142,7 +142,7 @@ function loggerOrConsole(logger?: MemxLogger): MemxLogger {
 export function createServiceConfigFromEnv(env: NodeJS.ProcessEnv = process.env): MemoryPluginConfig {
   const configPath = env["MEMX_CONFIG_PATH"]?.trim() || DEFAULT_SERVICE_CONFIG_PATH;
   const raw = deepMerge(serviceDefaultConfig(), readServiceConfigFile(configPath));
-  return applyServiceEnvOverrides(memxConfigSchema.parse(raw), env);
+  return applyServiceEnvOverrides(memxConfigSchema.parse!(raw) as MemoryPluginConfig, env);
 }
 
 function hostSessionKey(envelope: Pick<MemxTurnEnvelope, "hostId" | "sessionId">): string {

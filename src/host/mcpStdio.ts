@@ -12,11 +12,11 @@ type ParseErrorMessage = {
 
 type ReadMessageResult = {
   message: DecodedMessage | ParseErrorMessage;
-  remaining: Buffer;
+  remaining: Buffer<ArrayBufferLike>;
 };
 
 export async function startMcpStdio(): Promise<void> {
-  let buffer = Buffer.alloc(0);
+  let buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
   for await (const chunk of process.stdin) {
     buffer = Buffer.concat([buffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))]);
     while (true) {

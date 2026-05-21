@@ -341,17 +341,16 @@ function buildBackgroundRecallPrompt(
     "Auto-recall found background memory, but no final packet-qualified evidence was selected for prompt injection.",
     "Use the background memory below only when it directly fits the current turn.",
   ];
-  const sections = [
-    bundle.behavioralGuidance.length > 0
-      ? {
-          title: "Reply Guidance",
-          lines: bundle.behavioralGuidance.slice(0, 4).map((line) => `- ${line}`),
-          maxChars: 520,
-          priority: 80,
-          minLines: 1,
-        }
-      : null,
-  ].filter((section): section is PromptSectionSpec => Boolean(section));
+  const sections: PromptSectionSpec[] = [];
+  if (bundle.behavioralGuidance.length > 0) {
+    sections.push({
+      title: "Reply Guidance",
+      lines: bundle.behavioralGuidance.slice(0, 4).map((line) => `- ${line}`),
+      maxChars: 520,
+      priority: 80,
+      minLines: 1,
+    });
+  }
   const followUpLines = shouldSuggestExplicitRecallTool(config)
     ? [
         `- Auto-recall found no final evidence packet. If prior context still matters, call memory_recall with a focused query such as "${truncateText(queryAnalysis.focusedQuery || "user preferences", 120)}".`,
@@ -846,5 +845,6 @@ export function createMemoryMemxPlugin(): OpenClawPluginDefinition {
 const memoryMemxPlugin = createMemoryMemxPlugin();
 
 export { sanitizeChunkSummaryResult } from "./pipeline/reasoner.js";
+export { compileTurnSemantics } from "./pipeline/turnSemanticCompiler.js";
 
 export default memoryMemxPlugin;

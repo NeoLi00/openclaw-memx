@@ -642,7 +642,7 @@ function conservativeDedupDecision(
         const jaccard = union > 0 ? intersection / union : 0;
         if (jaccard >= 0.7) {
           return {
-            action: "MERGE",
+            action: "UPDATE",
             targetIndex: candidate.index,
             mergedSummary: truncateText(newSummary.trim(), 220) || undefined,
             reason: `local dedup: Jaccard=${jaccard.toFixed(2)} merge with existing chunk`,
@@ -2704,10 +2704,9 @@ export class MemxReasoner {
       return fallback;
     }
 
-    const resolvedPrior = isRouteType(result.primaryRoute) ? null : fallback;
     const primaryRoute = isRouteType(result.primaryRoute)
       ? result.primaryRoute
-      : resolvedPrior.primaryRoute;
+      : fallback.primaryRoute;
     const secondaryRoutes = Array.isArray(result.secondaryRoutes)
       ? result.secondaryRoutes.filter((route): route is MemoryPrimaryRouteType =>
           isPrimaryRouteType(route),
@@ -2719,7 +2718,7 @@ export class MemxReasoner {
       const next =
         typeof value === "string" && value.trim()
           ? truncateText(value.trim(), 180)
-          : (resolvedPrior?.focusedQueries[route] ?? fallback.focusedQueries[route]);
+          : fallback.focusedQueries[route];
       if (next) {
         focusedQueries[route] = next;
       }
@@ -2731,9 +2730,9 @@ export class MemxReasoner {
       confidence:
         typeof result.confidence === "number" && Number.isFinite(result.confidence)
           ? clamp01(result.confidence)
-          : (resolvedPrior?.confidence ?? fallback.confidence),
+          : fallback.confidence,
       focusedQueries,
-      reason: result.reason?.trim() || resolvedPrior?.reason || fallback.reason,
+      reason: result.reason?.trim() || fallback.reason,
       judgmentMode: "llm",
     };
   }
@@ -2783,10 +2782,9 @@ export class MemxReasoner {
       judgmentMode: "llm",
     };
 
-    const resolvedPrior = isRouteType(result.primaryRoute) ? null : routeFallback;
     const primaryRoute = isRouteType(result.primaryRoute)
       ? (result.primaryRoute as MemoryRouteType)
-      : resolvedPrior.primaryRoute;
+      : routeFallback.primaryRoute;
     const secondaryRoutes = Array.isArray(result.secondaryRoutes)
       ? result.secondaryRoutes.filter((route): route is MemoryPrimaryRouteType =>
           isPrimaryRouteType(route),
@@ -2798,7 +2796,7 @@ export class MemxReasoner {
       const next =
         typeof value === "string" && value.trim()
           ? truncateText(value.trim(), 180)
-          : (resolvedPrior?.focusedQueries[route] ?? routeFallback.focusedQueries[route]);
+          : routeFallback.focusedQueries[route];
       if (next) {
         routeFocusedQueries[route] = next;
       }
@@ -2809,12 +2807,11 @@ export class MemxReasoner {
       confidence:
         typeof result.routeConfidence === "number" && Number.isFinite(result.routeConfidence)
           ? clamp01(result.routeConfidence)
-          : (resolvedPrior?.confidence ?? routeFallback.confidence),
+          : routeFallback.confidence,
       focusedQueries: routeFocusedQueries,
       reason:
         result.routeReason?.trim() ||
         result.reason?.trim() ||
-        resolvedPrior?.reason ||
         routeFallback.reason,
       judgmentMode: "llm",
     };
@@ -2947,7 +2944,7 @@ export class MemxReasoner {
     if (!hasRecognizedTurnSemanticPatch(result)) {
       return null;
     }
-    const messagesBySourceRef = new Map(
+    const messagesBySourceRef = new Map<string, TurnCaptureMessage>(
       fallback.sourceRefs.map((sourceRef) => [
         sourceRef,
         {
@@ -2955,17 +2952,19 @@ export class MemxReasoner {
           content: "",
           scope: "",
           sessionKey: "",
+          agentId: "long-turn-semantic-scan",
           turnId: sourceRef,
           sourceRef,
           observedAt: "",
         },
       ]),
     );
-    const syntheticMessages = input.messages.map((message) => ({
+    const syntheticMessages: TurnCaptureMessage[] = input.messages.map((message) => ({
       role: message.role,
       content: "",
       scope: "",
       sessionKey: "",
+      agentId: "long-turn-semantic-scan",
       turnId: message.turnId,
       sourceRef: message.sourceRef,
       observedAt: "",

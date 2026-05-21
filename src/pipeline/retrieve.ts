@@ -4,6 +4,7 @@ import type {
   BackgroundRecallBundle,
   CandidateHit,
   ConversationChunk,
+  ConversationTask,
   EvidenceBundle,
   EvidencePacket,
   EvidencePlanAudit,
@@ -32,6 +33,7 @@ import type {
   RouteDecision,
   RouteEvidenceCandidate,
   RouteEvidenceDecision,
+  RecallSelectionTraceEntry,
   SearchHit,
   SourceSegmentRecord,
   WorkingProjectionRole,
@@ -377,7 +379,7 @@ function taskProject(task: { metadataJson?: Record<string, unknown> }): string {
   return taskMetadataValue(task, "project");
 }
 
-function uniqueNonEmpty(values: string[]): string[] {
+function uniqueNonEmpty(values: string[], limit = Number.POSITIVE_INFINITY): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const value of values) {
@@ -391,6 +393,9 @@ function uniqueNonEmpty(values: string[]): string[] {
     }
     seen.add(normalized);
     ordered.push(trimmed);
+    if (ordered.length >= limit) {
+      break;
+    }
   }
   return ordered;
 }
@@ -1019,7 +1024,7 @@ function promptEvidenceNonSubjectSlotHitCount(
   const slotById = new Map(
     (queryAnalysis.evidencePlan?.slots ?? []).map((slot) => [slot.id, slot]),
   );
-  const queryAnchors = Array.isArray(queryAnalysis.queryAnchors) ? queryAnalysis.queryAnchors : [];
+  const queryAnchors = queryAnalysis.anchors ?? [];
   const focusAnchors = new Set(
     [...queryAnchors, ...(queryAnalysis.evidenceGoals ?? []).flatMap((goal) => goal.focusAnchors)]
       .map((anchor) => normalizeText(anchor))
@@ -2108,7 +2113,9 @@ function metadataStringArray(metadata: Record<string, unknown> | undefined, key:
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim());
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+  );
 }
 
 function sourceRefsFromCandidateMetadata(metadata: Record<string, unknown> | undefined): string[] {
@@ -3103,9 +3110,10 @@ function buildPromptEvidenceCandidates(params: {
   const selectedWithRoles = ranked.map((candidate, index) => {
     const role =
       index < Math.max(8, injectionLimit) ? ("support" as const) : ("alternate" as const);
+    const candidateMissingRequired = candidate.coverage?.missingRequired;
     const missingRequired =
-      (candidate.coverage?.missingRequired.length ?? 0)
-        ? candidate.coverage.missingRequired
+      candidateMissingRequired && candidateMissingRequired.length > 0
+        ? candidateMissingRequired
         : evidenceCoverageForText(params.queryAnalysis, candidate.text).missingRequired;
     const selectionReason =
       missingRequired.length > 0
@@ -3449,7 +3457,7 @@ function shouldApplyCandidateAuthorityToMainSurface(
     return false;
   }
   return (
-    queryAnalysis.routeWeights.factual >= 0.24 &&
+    (queryAnalysis.routeWeights.factual ?? 0) >= 0.24 &&
     (queryAnalysis.answerGranularity === "detail" || queryAnalysis.evidenceFidelity === "high")
   );
 }
@@ -3633,14 +3641,14 @@ function resolveReferentialQueryAnchors(
       .sort((left, right) => right.score - left.score);
     const best = ranked[0];
     const second = ranked[1];
-    let selectedTask = best?.task;
+    let selectedTask: ConversationTask | undefined = best?.task;
     let selectedReason = best ? `resolved-side-reference:${hint}` : "";
     if (
       !best ||
       (best.score < 0.3 && second && best.score - second.score < 0.08) ||
       best.score < 0.2
     ) {
-      selectedTask = activeTasks.length === 1 ? activeTasks[0] : undefined;
+      selectedTask = activeTasks.length === 1 ? activeTasks[0]! : undefined;
       selectedReason = `resolved-side-reference:fallback-active:${hint}`;
     }
     if (!selectedTask) {
@@ -5738,6 +5746,7 @@ export async function retrieveEvidence(
       nodes: [],
       edges: [],
       paths: [],
+      pathCandidates: [],
     };
     if (!diagnostics.includes("workflow-anchored-task-authority")) {
       diagnostics.push("workflow-anchored-task-authority");

@@ -182,7 +182,11 @@ async function discoverJsonlFiles(root: string, depth = 0): Promise<Array<{ path
   if (depth > MAX_DISCOVERY_DEPTH) {
     return [];
   }
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let entries: Array<{
+    name: string;
+    isDirectory(): boolean;
+    isFile(): boolean;
+  }>;
   try {
     entries = await readdir(root, { withFileTypes: true });
   } catch {

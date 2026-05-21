@@ -627,7 +627,7 @@ function deriveEvidenceFidelity(
 function deriveRouteWeights(
   queryShape: RecallQueryShape,
 ): Partial<Record<MemoryPrimaryRouteType, number>> {
-  const rawWeights: Partial<Record<MemoryPrimaryRouteType, number>> = {
+  const rawWeights: Record<MemoryPrimaryRouteType, number> = {
     workflow: 0.08,
     factual: 0.08,
     temporal: 0.08,
@@ -1564,7 +1564,11 @@ function ensureTailorAdviceSlots(
     return plan;
   }
   const existingHints = uniqueNonEmpty(
-    plan.slots.flatMap((slot) => [...slot.subjectHints, ...slot.relationHints, slot.description]),
+    plan.slots.flatMap((slot) => [
+      ...slot.subjectHints,
+      ...(slot.relationHints ?? []),
+      slot.description,
+    ]),
     12,
   );
   const queryHints = uniqueNonEmpty(
@@ -1582,7 +1586,10 @@ function ensureTailorAdviceSlots(
       requiredRole: existing.requiredRole ?? slot.requiredRole,
       description: existing.description || slot.description,
       subjectHints: uniqueNonEmpty([...existing.subjectHints, ...slot.subjectHints], 8),
-      relationHints: uniqueNonEmpty([...existing.relationHints, ...slot.relationHints], 10),
+      relationHints: uniqueNonEmpty(
+        [...(existing.relationHints ?? []), ...(slot.relationHints ?? [])],
+        10,
+      ),
       capabilityQueries: uniqueNonEmpty(
         [...(existing.capabilityQueries ?? []), ...(slot.capabilityQueries ?? [])],
         10,
@@ -2094,7 +2101,9 @@ function applyQueryCompileGuards(query: string, compiled: QueryCompileResult): Q
     ? sanitizeEvidenceCoverage(query, guarded)
     : undefined;
   if (!llmSemantic && shouldAddEpisodicRecoverySurface(query, guarded)) {
-    guarded.candidateSurfaces = [...new Set([...guarded.candidateSurfaces, "event", "chunk"])];
+    guarded.candidateSurfaces = [
+      ...new Set<CandidateSurface>([...guarded.candidateSurfaces, "event", "chunk"]),
+    ];
     guarded.answerGranularity = "detail";
     guarded.detailNeedScore = Math.max(guarded.detailNeedScore, 0.92);
     guarded.evidenceFidelity = "high";
@@ -2119,7 +2128,9 @@ function applyQueryCompileGuards(query: string, compiled: QueryCompileResult): Q
     guarded.answerGranularity === "detail" &&
     !guarded.candidateSurfaces.includes("chunk")
   ) {
-    guarded.candidateSurfaces = [...new Set([...guarded.candidateSurfaces, "chunk"])];
+    guarded.candidateSurfaces = [
+      ...new Set<CandidateSurface>([...guarded.candidateSurfaces, "chunk"]),
+    ];
     guarded.compilerProvenance = {
       ...guarded.compilerProvenance,
       source:

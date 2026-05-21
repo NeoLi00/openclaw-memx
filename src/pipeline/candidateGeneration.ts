@@ -226,6 +226,7 @@ function retrievalScopeForSurface(surface: CandidateSurface): {
         docTypes: ["task"],
       };
     case "chunk":
+    case "snippet":
       return {
         docKinds: ["event"],
         docTypes: ["chunk", "source_segment"],
@@ -253,6 +254,7 @@ function surfaceTypeMatches(surface: CandidateSurface, hit: SearchHit): boolean 
     case "task":
       return docType === "task";
     case "chunk":
+    case "snippet":
       return docType === "chunk" || docType === "source_segment";
     case "graph":
       return docType === "edge";
@@ -862,6 +864,10 @@ function stateCandidatesForEntity(
           }
         : {}),
     };
+    const stateCurrentnessScore =
+      typeof currentness.stateCurrentnessScore === "number"
+        ? currentness.stateCurrentnessScore
+        : 0.45;
     const hardExclusions = Array.isArray(currentness.stateCurrentnessHardExclusions)
       ? currentness.stateCurrentnessHardExclusions
       : [];
@@ -877,10 +883,7 @@ function stateCandidatesForEntity(
         score: clamp01(
           state.confidence * 0.4 +
             entity.confidence * 0.18 +
-            (typeof enrichedCurrentness.stateCurrentnessScore === "number"
-              ? enrichedCurrentness.stateCurrentnessScore
-              : 0.45) *
-              0.34 +
+            stateCurrentnessScore * 0.34 +
             0.08,
         ),
         retrievalBackend: "repo" as const,
@@ -1114,8 +1117,10 @@ function entityFromProfileHit(
 ): NormalizedEntity | undefined {
   const entityId = typeof hit.metadata.entityId === "string" ? hit.metadata.entityId : undefined;
   const sourceId = typeof hit.metadata.sourceId === "string" ? hit.metadata.sourceId : undefined;
-  return store.graphRepo.getEntityById(
+  return (
+    store.graphRepo.getEntityById(
     entityId ?? sourceId ?? hit.docId.replace(/^entity_profile:/u, ""),
+    ) ?? undefined
   );
 }
 
@@ -2022,7 +2027,7 @@ async function requiredAnchorSearchHits(
         text: doc.text,
         metadata: doc.metadataJson,
         score: evidenceCoverageForText(compiled, doc.text).coverageScore,
-        backend: "keyword",
+        backend: "lexical",
       }),
     )
     .filter((hit) => surfaceTypeMatches(surface, hit))

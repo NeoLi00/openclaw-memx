@@ -2,7 +2,9 @@ import { buildGraphPathCandidates } from "../../pipeline/graphPathEngine.js";
 import { projectAliasVariants, projectIdentityKey } from "../../pipeline/projectIdentity.js";
 import { normalizeGraphRelationType } from "../../pipeline/semantic/heuristics.js";
 import { normalizeName, randomId, safeJsonParse, stableHash } from "../../support.js";
+import { ENTITY_TYPES } from "../../types.js";
 import type {
+  EntityType,
   GraphEvidence,
   GraphEvidenceEdge,
   GraphEvidenceNode,
@@ -24,6 +26,10 @@ type EntityRow = {
   created_at: string;
   updated_at: string;
 };
+
+function entityTypeValue(value: string | undefined): EntityType {
+  return ENTITY_TYPES.includes(value as EntityType) ? (value as EntityType) : "unknown";
+}
 
 type EdgeRow = {
   edge_id: string;
@@ -152,7 +158,7 @@ export class GraphRepo {
     return {
       entityId,
       canonicalName: name.trim(),
-      entityType: entityType ?? "unknown",
+      entityType: entityTypeValue(entityType),
       normalizedName: normalized,
       aliases: [],
       confidence: 0.6,
@@ -857,7 +863,7 @@ export class GraphRepo {
     return {
       entityId: row.entity_id,
       canonicalName: row.canonical_name,
-      entityType: row.entity_type,
+      entityType: entityTypeValue(row.entity_type),
       normalizedName: row.normalized_name,
       aliases: safeJsonParse<string[]>(row.aliases_json, []),
       confidence: row.confidence,

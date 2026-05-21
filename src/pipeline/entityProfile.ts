@@ -72,7 +72,9 @@ export function buildEntityProfileDoc(
     ...new Set([
       ...mentions.map((mention) => mention.sourceRef),
       ...aliasSources.map((entry) => entry.sourceRef),
-      ...graph.edges.map((edge) => edge.evidenceRef).filter(Boolean),
+      ...graph.edges
+        .map((edge) => edge.evidenceRef)
+        .filter((sourceRef): sourceRef is string => Boolean(sourceRef)),
     ]),
   ];
   const relationNeighborIds = [

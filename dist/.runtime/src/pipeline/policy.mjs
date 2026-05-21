@@ -292,7 +292,7 @@ function chooseSemanticDraftAction(candidate) {
 		};
 	}
 	if (candidate.source.kind === "tool") {
-		if (materializationHint?.preferEvent || Boolean(correction) || primaryFamily === "event_like") {
+		if (materializationHint?.preferEvent || Boolean(correction)) {
 			reasons.push("semantic-draft-adapter:tool-event");
 			return {
 				action: "episodic_event",

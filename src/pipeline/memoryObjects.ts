@@ -486,9 +486,10 @@ function baseStateRows(store: MemxStoreBundle, ctx: MemoryOperationContext): Evi
     if (currentness.hardExclusions.length > 0) {
       return [];
     }
+    const stateRef = `${state.scope}:${state.key}`;
     return [
       toEvidenceRow({
-        id: `${state.scope}:${state.key}`,
+        id: stateRef,
         text: `${canonicalStateKey(state.key)}: ${describeStateValue(state.key, state.valueJson)}`,
         score: Math.max(
           0.18,
@@ -500,9 +501,9 @@ function baseStateRows(store: MemxStoreBundle, ctx: MemoryOperationContext): Evi
         observedAt: state.updatedAt,
         lineage: {
           canonicalKind: "state",
-          canonicalId: state.stateId,
+          canonicalId: stateRef,
           sourceKind: "state",
-          sourceId: state.stateId,
+          sourceId: stateRef,
           sourceRef: state.sourceRef,
           materializedEpoch: state.materializedEpoch,
         },

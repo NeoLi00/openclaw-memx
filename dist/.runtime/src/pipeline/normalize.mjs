@@ -1191,7 +1191,7 @@ function normalizeCandidate(candidate, ctx) {
 	const procedureGuidanceFact = buildProcedureGuidanceFact(ctx, candidate);
 	if (procedureGuidanceFact) outputs.facts.push(procedureGuidanceFact);
 	const decision = getDecisionHint(candidate);
-	if (shouldMaterializeDecisionSummary(candidate, decision, preference, relations, correction)) {
+	if (decision && shouldMaterializeDecisionSummary(candidate, decision, preference, relations, correction)) {
 		const guidance = buildDecisionGuidanceFacet(decision);
 		outputs.facts.push(buildFact({
 			ctx,

@@ -25,7 +25,7 @@ function classifyStateLifecycle(input) {
 	if (TASK_CHECKPOINT_KEYS.has(input.key)) return "task_checkpoint";
 	if (input.stateKind === "durable") return "durable_profile";
 	if (SESSION_WORKING_PREFIXES.some((prefix) => input.key.startsWith(prefix))) return "session_working";
-	return input.stateKind === "durable" ? "durable_profile" : "session_working";
+	return "session_working";
 }
 function evaluateStateCurrentness(input) {
 	const lifecycleKind = classifyStateLifecycle(input);
@@ -168,6 +168,7 @@ function lifecycleBaseScore(kind, durable) {
 		case "task_checkpoint": return .48;
 		case "derived_maintenance": return .44;
 	}
+	return durable ? .68 : .44;
 }
 function stringValue(value) {
 	return typeof value === "string" && value.trim() ? value.trim() : void 0;

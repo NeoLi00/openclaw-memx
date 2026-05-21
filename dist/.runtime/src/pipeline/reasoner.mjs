@@ -256,7 +256,7 @@ function conservativeDedupDecision(newSummary, candidates) {
 			const union = new Set([...newTokens, ...candidateTokens]).size;
 			const jaccard = union > 0 ? intersection / union : 0;
 			if (jaccard >= .7) return {
-				action: "MERGE",
+				action: "UPDATE",
 				targetIndex: candidate.index,
 				mergedSummary: truncateText(newSummary.trim(), 220) || void 0,
 				reason: `local dedup: Jaccard=${jaccard.toFixed(2)} merge with existing chunk`
@@ -1447,21 +1447,20 @@ var MemxReasoner = class {
 		const fallback = conservativeRoutePrior(query, this.isEnabled() ? "degraded" : "disabled");
 		const result = await this.callJson("route-prior", buildRoutePriorPrompt(query), "degraded");
 		if (!result) return fallback;
-		const resolvedPrior = isRouteType(result.primaryRoute) ? null : fallback;
-		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : resolvedPrior.primaryRoute;
+		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : fallback.primaryRoute;
 		const secondaryRoutes = Array.isArray(result.secondaryRoutes) ? result.secondaryRoutes.filter((route) => isPrimaryRouteType(route)) : fallback.secondaryRoutes;
 		const focusedQueries = {};
 		for (const route of PRIMARY_ROUTE_TYPES) {
 			const value = result.focusedQueries?.[route];
-			const next = typeof value === "string" && value.trim() ? truncateText(value.trim(), 180) : resolvedPrior?.focusedQueries[route] ?? fallback.focusedQueries[route];
+			const next = typeof value === "string" && value.trim() ? truncateText(value.trim(), 180) : fallback.focusedQueries[route];
 			if (next) focusedQueries[route] = next;
 		}
 		return {
 			primaryRoute,
 			secondaryRoutes,
-			confidence: typeof result.confidence === "number" && Number.isFinite(result.confidence) ? clamp01(result.confidence) : resolvedPrior?.confidence ?? fallback.confidence,
+			confidence: typeof result.confidence === "number" && Number.isFinite(result.confidence) ? clamp01(result.confidence) : fallback.confidence,
 			focusedQueries,
-			reason: result.reason?.trim() || resolvedPrior?.reason || fallback.reason,
+			reason: result.reason?.trim() || fallback.reason,
 			judgmentMode: "llm"
 		};
 	}
@@ -1486,13 +1485,12 @@ var MemxReasoner = class {
 			routeHint: result.routeHint === "workflow" || result.routeHint === "factual" || result.routeHint === "temporal" || result.routeHint === "explanatory" || result.routeHint === "mixed" ? result.routeHint : planFallback.routeHint,
 			judgmentMode: "llm"
 		};
-		const resolvedPrior = isRouteType(result.primaryRoute) ? null : routeFallback;
-		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : resolvedPrior.primaryRoute;
+		const primaryRoute = isRouteType(result.primaryRoute) ? result.primaryRoute : routeFallback.primaryRoute;
 		const secondaryRoutes = Array.isArray(result.secondaryRoutes) ? result.secondaryRoutes.filter((route) => isPrimaryRouteType(route)) : routeFallback.secondaryRoutes;
 		const routeFocusedQueries = {};
 		for (const route of PRIMARY_ROUTE_TYPES) {
 			const value = result.focusedQueries?.[route];
-			const next = typeof value === "string" && value.trim() ? truncateText(value.trim(), 180) : resolvedPrior?.focusedQueries[route] ?? routeFallback.focusedQueries[route];
+			const next = typeof value === "string" && value.trim() ? truncateText(value.trim(), 180) : routeFallback.focusedQueries[route];
 			if (next) routeFocusedQueries[route] = next;
 		}
 		return {
@@ -1500,9 +1498,9 @@ var MemxReasoner = class {
 			routePrior: {
 				primaryRoute,
 				secondaryRoutes,
-				confidence: typeof result.routeConfidence === "number" && Number.isFinite(result.routeConfidence) ? clamp01(result.routeConfidence) : resolvedPrior?.confidence ?? routeFallback.confidence,
+				confidence: typeof result.routeConfidence === "number" && Number.isFinite(result.routeConfidence) ? clamp01(result.routeConfidence) : routeFallback.confidence,
 				focusedQueries: routeFocusedQueries,
-				reason: result.routeReason?.trim() || result.reason?.trim() || resolvedPrior?.reason || routeFallback.reason,
+				reason: result.routeReason?.trim() || result.reason?.trim() || routeFallback.reason,
 				judgmentMode: "llm"
 			}
 		};
@@ -1576,6 +1574,7 @@ var MemxReasoner = class {
 			content: "",
 			scope: "",
 			sessionKey: "",
+			agentId: "long-turn-semantic-scan",
 			turnId: sourceRef,
 			sourceRef,
 			observedAt: ""
@@ -1585,6 +1584,7 @@ var MemxReasoner = class {
 			content: "",
 			scope: "",
 			sessionKey: "",
+			agentId: "long-turn-semantic-scan",
 			turnId: message.turnId,
 			sourceRef: message.sourceRef,
 			observedAt: ""

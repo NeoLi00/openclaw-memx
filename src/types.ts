@@ -481,7 +481,14 @@ export type LineageRef = {
   materializedEpoch?: number;
 };
 
-export type CompilerExecutionMode = "llm" | "deterministic" | "fallback";
+export type CompilerExecutionMode =
+  | "llm"
+  | "deterministic"
+  | "fallback"
+  | "deferred"
+  | "degraded"
+  | "disabled"
+  | "semantic-compiler-authoritative";
 
 export type MemoryCallProvenance = "deterministic" | "llm" | "embedding" | "hybrid";
 export type MaintenanceAuthoritySource =
@@ -996,6 +1003,7 @@ export type CandidateSurface =
   | "event"
   | "task"
   | "chunk"
+  | "snippet"
   | "graph"
   | "entity_alias";
 

@@ -17,7 +17,7 @@ import { computeConfidence } from "./normalize.mjs";
 import { writeCandidate } from "./write.mjs";
 import { classifyAction } from "./classify.mjs";
 import { evaluatePolicy } from "./policy.mjs";
-import { compileTurnSemantics, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
+import { frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
 import { buildCandidate } from "./extract.mjs";
 import { decideTaskAssignment } from "./taskJudge.mjs";
 //#region src/pipeline/turnScheduler.ts
@@ -412,13 +412,14 @@ var MemxTurnScheduler = class {
 			includeSkipped: false
 		});
 		const recentChunksByTask = Object.fromEntries(recentTasks.map((task) => [task.taskId, this.store.chunkRepo.listByTask(task.taskId)]));
+		const taskProposal = void 0;
 		const turnSemanticFrame = void 0;
 		recordMemoryLlmBudgetCall(ctx.llmBudgetAudit, {
 			label: "turn-semantic-compile",
 			stage: safeMessages.some((message) => message.role === "assistant") ? "post_answer_writeback" : "write_hot_path",
 			provenance: "deterministic",
 			mode: "deferred",
-			detail: compileTurnSemantics ? "turn semantic extraction is deferred to maintenance source-segment LLM scanning" : "turn semantic extraction is unavailable"
+			detail: "turn semantic extraction is deferred to maintenance source-segment LLM scanning"
 		});
 		const assignment = await decideTaskAssignment({
 			activeTask,
@@ -427,7 +428,7 @@ var MemxTurnScheduler = class {
 			recentChunksByTask,
 			newMessages: safeMessages,
 			ctx,
-			taskProposal: turnSemanticFrame?.taskProposal
+			taskProposal
 		});
 		if (assignment.decision === "new") {
 			if (activeTask) {

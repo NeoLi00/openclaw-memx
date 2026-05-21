@@ -104,7 +104,8 @@ function retrievalScopeForSurface(surface) {
 			docKinds: ["state"],
 			docTypes: ["task"]
 		};
-		case "chunk": return {
+		case "chunk":
+		case "snippet": return {
 			docKinds: ["event"],
 			docTypes: ["chunk", "source_segment"]
 		};
@@ -122,7 +123,8 @@ function surfaceTypeMatches(surface, hit) {
 		case "fact": return docType === "fact";
 		case "event": return docType === "event";
 		case "task": return docType === "task";
-		case "chunk": return docType === "chunk" || docType === "source_segment";
+		case "chunk":
+		case "snippet": return docType === "chunk" || docType === "source_segment";
 		case "graph": return docType === "edge";
 		case "entity_alias": return false;
 	}
@@ -459,13 +461,14 @@ function stateCandidatesForEntity(store, ctx, entity, limit) {
 				sourceRefsForExpansion: expandedSupportRefs
 			} : {}
 		};
+		const stateCurrentnessScore = typeof currentness.stateCurrentnessScore === "number" ? currentness.stateCurrentnessScore : .45;
 		if ((Array.isArray(currentness.stateCurrentnessHardExclusions) ? currentness.stateCurrentnessHardExclusions : []).length > 0) return [];
 		return [{
 			candidateId: `state:${state.key}:entity-expansion`,
 			surface: "state",
 			tier: "primary",
 			text: `${state.key}: ${describeStateValue(state.key, state.valueJson)}`.trim(),
-			score: clamp01(state.confidence * .4 + entity.confidence * .18 + (typeof enrichedCurrentness.stateCurrentnessScore === "number" ? enrichedCurrentness.stateCurrentnessScore : .45) * .34 + .08),
+			score: clamp01(state.confidence * .4 + entity.confidence * .18 + stateCurrentnessScore * .34 + .08),
 			retrievalBackend: "repo",
 			docId: state.key,
 			scope: state.scope,
@@ -615,7 +618,7 @@ function resolveQueryEntities(store, ctx, compiled, limit) {
 function entityFromProfileHit(store, hit) {
 	const entityId = typeof hit.metadata.entityId === "string" ? hit.metadata.entityId : void 0;
 	const sourceId = typeof hit.metadata.sourceId === "string" ? hit.metadata.sourceId : void 0;
-	return store.graphRepo.getEntityById(entityId ?? sourceId ?? hit.docId.replace(/^entity_profile:/u, ""));
+	return store.graphRepo.getEntityById(entityId ?? sourceId ?? hit.docId.replace(/^entity_profile:/u, "")) ?? void 0;
 }
 async function semanticQueryEntityCandidates(store, ctx, compiled, limit) {
 	const entities = [];
@@ -1150,7 +1153,7 @@ async function requiredAnchorSearchHits(store, ctx, compiled, surface, topN) {
 		text: doc.text,
 		metadata: doc.metadataJson,
 		score: evidenceCoverageForText(compiled, doc.text).coverageScore,
-		backend: "keyword"
+		backend: "lexical"
 	})).filter((hit) => surfaceTypeMatches(surface, hit)).filter((hit) => evidenceCoverageForText(compiled, hit.text).requiredHits.length > 0).map((hit) => attachGoalMatch(hit, goal, queries[0] ?? goal.goal, compiled));
 	hits.push(...coverageDocs);
 	for (const query of queries) {

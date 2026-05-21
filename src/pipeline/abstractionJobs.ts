@@ -2457,8 +2457,8 @@ export async function runAbstractionJobs(
     );
 
     const stages = candidateStageCounts(store, ctx.agentId);
-    const semanticSources = [
-      ...new Set(
+    const semanticSources: MaintenanceSemanticSource[] = [
+      ...new Set<MaintenanceSemanticSource>(
         refinement.candidates.flatMap((candidate) => {
           const primary = stringValue(candidate.metadataJson.semanticSource);
           const secondary = Array.isArray(candidate.metadataJson.semanticSources)
@@ -2493,7 +2493,12 @@ export async function runAbstractionJobs(
           : ["deterministic_aggregated"],
       semanticSources:
         options.refineWithLlm === true
-          ? [...new Set([...semanticSources, "llm_upgrade"])]
+          ? [
+              ...new Set<MaintenanceSemanticSource>([
+                ...semanticSources,
+                "llm_upgrade",
+              ]),
+            ]
           : semanticSources,
       maintenanceContractDiagnostics,
       recallFacingDiagnostics: {

@@ -1,4 +1,4 @@
-import { ConversationChunk, ConversationTask, MemoryLlmBudgetAudit, MemoryLlmCallStage, MemoryOperationContext, SourceSegmentRecord, TurnCaptureMessage, TurnSemanticFrame, TurnSemanticReferenceContext } from "../types.mjs";
+import { ConversationChunk, ConversationTask, MemoryCandidateStructuredHints, MemoryLlmBudgetAudit, MemoryLlmCallStage, MemoryOperationContext, SourceSegmentRecord, TurnCaptureMessage, TurnSemanticFrame, TurnSemanticReferenceContext } from "../types.mjs";
 
 //#region src/pipeline/turnSemanticCompiler.d.ts
 type TurnSemanticMessageWindowKind = "full" | "head" | "tail" | "latest_instruction";
@@ -67,4 +67,4 @@ declare function buildLongTurnSemanticScanInputFromSegments(segments: SourceSegm
 declare function frameHintsForSourceRef(frame: TurnSemanticFrame | undefined, sourceRef: string): Partial<MemoryCandidateStructuredHints> | undefined;
 declare function compileTurnSemantics(params: CompileTurnSemanticsParams): Promise<TurnSemanticFrame | undefined>;
 //#endregion
-export { LongTurnSemanticScanInput };
+export { LongTurnSemanticScanInput, compileTurnSemantics };

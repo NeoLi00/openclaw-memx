@@ -32,6 +32,8 @@ export type RetrievalAuditOptions = {
     turnMode: TurnMode;
     answerGranularity?: QueryCompileResult["answerGranularity"];
     evidenceFidelity?: QueryCompileResult["evidenceFidelity"];
+    answerMode?: QueryCompileResult["answerMode"];
+    evidenceCoverage?: QueryCompileResult["evidenceCoverage"];
     candidateSurfaces?: QueryCompileResult["candidateSurfaces"];
     evidenceGoals?: QueryCompileResult["evidenceGoals"];
     suppressedEntities?: QueryCompileResult["suppressedEntities"];

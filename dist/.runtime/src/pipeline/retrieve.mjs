@@ -42,7 +42,7 @@ function taskMetadataValue(task, key) {
 function taskProject(task) {
 	return taskMetadataValue(task, "project");
 }
-function uniqueNonEmpty(values) {
+function uniqueNonEmpty(values, limit = Number.POSITIVE_INFINITY) {
 	const seen = /* @__PURE__ */ new Set();
 	const ordered = [];
 	for (const value of values) {
@@ -52,6 +52,7 @@ function uniqueNonEmpty(values) {
 		if (!normalized || seen.has(normalized)) continue;
 		seen.add(normalized);
 		ordered.push(trimmed);
+		if (ordered.length >= limit) break;
 	}
 	return ordered;
 }
@@ -368,7 +369,7 @@ function normalizedTextContainsExactPhrase(normalizedText, normalizedPhrase) {
 }
 function promptEvidenceNonSubjectSlotHitCount(queryAnalysis, candidate) {
 	const slotById = new Map((queryAnalysis.evidencePlan?.slots ?? []).map((slot) => [slot.id, slot]));
-	const queryAnchors = Array.isArray(queryAnalysis.queryAnchors) ? queryAnalysis.queryAnchors : [];
+	const queryAnchors = queryAnalysis.anchors ?? [];
 	const focusAnchors = new Set([...queryAnchors, ...(queryAnalysis.evidenceGoals ?? []).flatMap((goal) => goal.focusAnchors)].map((anchor) => normalizeText(anchor)).filter(Boolean));
 	const hits = /* @__PURE__ */ new Set();
 	const slotCoverage = candidate.slotCoverage ?? slotCoverageForText(queryAnalysis, promptEvidenceScoringText(candidate));
@@ -866,7 +867,7 @@ function promptEvidenceFromRow(params) {
 function metadataStringArray(metadata, key) {
 	const value = metadata?.[key];
 	if (!Array.isArray(value)) return [];
-	return value.filter((entry) => typeof entry === "string" && entry.trim());
+	return value.filter((entry) => typeof entry === "string" && entry.trim().length > 0);
 }
 function sourceRefsFromCandidateMetadata(metadata) {
 	const refs = [
@@ -1547,7 +1548,8 @@ function buildPromptEvidenceCandidates(params) {
 	const injectionLimit = promptEvidenceInjectionLimit(params.queryAnalysis, ranked);
 	const selectedWithRoles = ranked.map((candidate, index) => {
 		const role = index < Math.max(8, injectionLimit) ? "support" : "alternate";
-		const missingRequired = candidate.coverage?.missingRequired.length ?? 0 ? candidate.coverage.missingRequired : evidenceCoverageForText(params.queryAnalysis, candidate.text).missingRequired;
+		const candidateMissingRequired = candidate.coverage?.missingRequired;
+		const missingRequired = candidateMissingRequired && candidateMissingRequired.length > 0 ? candidateMissingRequired : evidenceCoverageForText(params.queryAnalysis, candidate.text).missingRequired;
 		const selectionReason = missingRequired.length > 0 ? `candidate-stage-missing-required:${missingRequired.join(",")}` : `candidate-stage-ranked#${index + 1}`;
 		return {
 			...candidate,
@@ -1745,7 +1747,7 @@ function shouldApplyCandidateAuthorityToMainSurface(route, queryAnalysis) {
 	if (route.routeType !== "mixed") return false;
 	if (shouldUseWorkflowMainSurface(queryAnalysis)) return false;
 	if (!queryAnalysis.candidateSurfaces.includes("fact") && !queryAnalysis.candidateSurfaces.includes("state")) return false;
-	return queryAnalysis.routeWeights.factual >= .24 && (queryAnalysis.answerGranularity === "detail" || queryAnalysis.evidenceFidelity === "high");
+	return (queryAnalysis.routeWeights.factual ?? 0) >= .24 && (queryAnalysis.answerGranularity === "detail" || queryAnalysis.evidenceFidelity === "high");
 }
 function isQuestionLikeTask(task) {
 	const candidateResolution = typeof task.metadataJson?.candidateResolution === "string" && task.metadataJson.candidateResolution.trim() ? task.metadataJson.candidateResolution.trim() : "";
@@ -2519,7 +2521,8 @@ async function retrieveEvidence(store, ctx, query, searchQuery = query, auditOpt
 		graph = {
 			nodes: [],
 			edges: [],
-			paths: []
+			paths: [],
+			pathCandidates: []
 		};
 		if (!diagnostics.includes("workflow-anchored-task-authority")) diagnostics.push("workflow-anchored-task-authority");
 	}

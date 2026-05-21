@@ -6,6 +6,7 @@ import type {
   MemoryBeliefStage,
   MemoryOperationContext,
   MemorySignalEventRecord,
+  MemorySignalTargetKind,
 } from "../types.js";
 import {
   FALLBACK_PRIOR_CONFIDENCE,
@@ -935,11 +936,18 @@ export function aggregateBeliefs(
     );
   }
 
+  const signalTargets = touchedTargets.filter(
+    (
+      target,
+    ): target is BeliefAggregationTarget & {
+      memoryKind: MemorySignalTargetKind;
+    } => target.memoryKind !== "strategy",
+  );
   const rawSignals =
-    options.signalWindow && touchedTargets.length > 0
+    options.signalWindow && signalTargets.length > 0
       ? store.auditRepo.listSignalsForTargets({
           agentId: ctx.agentId,
-          targets: touchedTargets,
+          targets: signalTargets,
           ...(options.signalWindow.until ? { until: options.signalWindow.until } : {}),
         })
       : deltaSignals;

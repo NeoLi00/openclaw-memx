@@ -1377,12 +1377,16 @@ function semanticDraftFamilies(candidate: ClassifiedCandidate): TurnSemanticAsse
   const draft = getSemanticDraft(candidate);
   const draftFamilies = draft?.assertionDrafts.map((entry) => entry.familyHint) ?? [];
   if ((draft?.relationDrafts?.length ?? 0) > 0) {
-    return [...new Set([...draftFamilies, "relation_like"])];
+    return [
+      ...new Set<TurnSemanticAssertionFamilyHint>([...draftFamilies, "relation_like"]),
+    ];
   }
   if (draftFamilies.length > 0) {
-    return [...new Set(draftFamilies)];
+    return [...new Set<TurnSemanticAssertionFamilyHint>(draftFamilies)];
   }
-  return [...new Set(candidate.structuredHints?.semanticFamilies ?? [])];
+  return [
+    ...new Set<TurnSemanticAssertionFamilyHint>(candidate.structuredHints?.semanticFamilies ?? []),
+  ];
 }
 
 function hasSemanticDraftFamily(
@@ -2132,7 +2136,10 @@ export function normalizeCandidate(
   }
 
   const decision = getDecisionHint(candidate);
-  if (shouldMaterializeDecisionSummary(candidate, decision, preference, relations, correction)) {
+  if (
+    decision &&
+    shouldMaterializeDecisionSummary(candidate, decision, preference, relations, correction)
+  ) {
     const guidance = buildDecisionGuidanceFacet(decision);
     outputs.facts.push(
       buildFact({
