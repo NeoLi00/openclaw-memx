@@ -67,7 +67,7 @@ import {
 } from "./sourceWeighting.js";
 import { decideTaskAssignment } from "./taskJudge.js";
 import { resolveWorkingTaskSummary, semanticTaskSummaryText } from "./taskSummary.js";
-import { frameHintsForSourceRef } from "./turnSemanticCompiler.js";
+import { compileTurnSemantics, frameHintsForSourceRef } from "./turnSemanticCompiler.js";
 import { buildVectorDocMetadata } from "./vectorDocMetadata.js";
 import { writeCandidate } from "./write.js";
 
@@ -473,6 +473,57 @@ export class MemxTurnScheduler {
     return this.chain;
   }
 
+  async stageRecallableTurn(
+    ctx: MemoryOperationContext,
+    messages: TurnCaptureMessage[],
+  ): Promise<boolean> {
+    const safeMessages = this.safeMessagesForTurn(ctx, messages);
+    const hasUserMessage = messages.some((message) => message.role === "user");
+    const hasSafeUserMessage = safeMessages.some((message) => message.role === "user");
+    if (safeMessages.length === 0 || (hasUserMessage && !hasSafeUserMessage)) {
+      return false;
+    }
+    const scope = safeMessages[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
+    const activeTask = this.getOrCreateActiveTask(ctx, safeMessages, scope);
+    await this.persistRecallableChunks(ctx, activeTask, safeMessages);
+    return true;
+  }
+
+  private safeMessagesForTurn(
+    ctx: MemoryOperationContext,
+    messages: TurnCaptureMessage[],
+  ): TurnCaptureMessage[] {
+    return messages.filter((message) => !shouldSuppressMessageFromSemanticMemory(ctx, message));
+  }
+
+  private getOrCreateActiveTask(
+    ctx: MemoryOperationContext,
+    safeMessages: TurnCaptureMessage[],
+    scope: string,
+  ): ConversationTask {
+    let activeTask = this.store.taskRepo.getActive({
+      agentId: ctx.agentId,
+      scope,
+      sessionKey: safeMessages[0]!.sessionKey,
+    });
+    if (!activeTask) {
+      activeTask = {
+        taskId: randomId("task"),
+        agentId: ctx.agentId,
+        scope,
+        sessionKey: safeMessages[0]!.sessionKey,
+        title: "Active task",
+        summary: "",
+        status: "active",
+        startedAt: safeMessages[0]!.observedAt,
+        updatedAt: safeMessages[0]!.observedAt,
+        metadataJson: {},
+      };
+      this.store.taskRepo.create(activeTask);
+    }
+    return activeTask;
+  }
+
   private async maybePromoteTaskOutcome(
     ctx: MemoryOperationContext,
     task: ConversationTask,
@@ -617,13 +668,68 @@ export class MemxTurnScheduler {
     return reopenedTask;
   }
 
+  private async persistRecallableChunks(
+    ctx: MemoryOperationContext,
+    activeTask: ConversationTask,
+    messages: TurnCaptureMessage[],
+  ): Promise<void> {
+    for (const [index, message] of messages.entries()) {
+      const contentHash = stableHash([
+        ctx.agentId,
+        message.scope,
+        message.role,
+        normalizeText(message.content),
+      ]);
+      const exact = this.store.chunkRepo.findActiveByHash({
+        agentId: ctx.agentId,
+        scope: message.scope,
+        role: message.role,
+        contentHash,
+      });
+      if (exact) {
+        continue;
+      }
+      const summary = await this.store.reasoner.summarizeChunk(message.content, message.role, {
+        stage: inferWriteLlmStage(message.role),
+        audit: ctx.llmBudgetAudit,
+        allowLlm: false,
+      });
+      const chunk: ConversationChunk = {
+        chunkId: randomId("chunk"),
+        agentId: ctx.agentId,
+        scope: message.scope,
+        sessionKey: message.sessionKey,
+        turnId: message.turnId,
+        seq: index,
+        role: message.role,
+        toolName: message.toolName,
+        chunkKind: message.role === "tool" ? "tool_result" : "message",
+        content: message.content,
+        summary,
+        contentHash,
+        taskId: activeTask.taskId,
+        dedupStatus: "active",
+        mergeCount: 0,
+        sourceRef: message.sourceRef,
+        createdAt: message.observedAt,
+        updatedAt: message.observedAt,
+      };
+      this.store.chunkRepo.insert(chunk);
+      const sourceSegments = buildSourceSegmentsForChunk(chunk);
+      this.store.sourceSegmentRepo.insertMany(sourceSegments);
+      const taskChunks = this.store.chunkRepo.listByTask(activeTask.taskId);
+      this.store.retrievalBackend.upsertDocs([
+        buildChunkVectorDoc(chunk, taskChunks),
+        ...buildSourceSegmentVectorDocs({ chunk, segments: sourceSegments }),
+      ]);
+    }
+  }
+
   private async processTurn(
     ctx: MemoryOperationContext,
     messages: TurnCaptureMessage[],
   ): Promise<void> {
-    const safeMessages = messages.filter(
-      (message) => !shouldSuppressMessageFromSemanticMemory(ctx, message),
-    );
+    const safeMessages = this.safeMessagesForTurn(ctx, messages);
     const hasUserMessage = messages.some((message) => message.role === "user");
     const hasSafeUserMessage = safeMessages.some((message) => message.role === "user");
     if (safeMessages.length === 0 || (hasUserMessage && !hasSafeUserMessage)) {
@@ -631,11 +737,8 @@ export class MemxTurnScheduler {
     }
 
     const scope = safeMessages[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
-    let activeTask = this.store.taskRepo.getActive({
-      agentId: ctx.agentId,
-      scope,
-      sessionKey: safeMessages[0]!.sessionKey,
-    });
+    let activeTask = this.getOrCreateActiveTask(ctx, safeMessages, scope);
+    await this.persistRecallableChunks(ctx, activeTask, safeMessages);
     const activeChunks = activeTask ? this.store.chunkRepo.listByTask(activeTask.taskId) : [];
     const recentTasks = this.store.taskRepo.listRecent({
       agentId: ctx.agentId,
@@ -647,17 +750,17 @@ export class MemxTurnScheduler {
     const recentChunksByTask = Object.fromEntries(
       recentTasks.map((task) => [task.taskId, this.store.chunkRepo.listByTask(task.taskId)]),
     );
-    const taskProposal: TurnSemanticFrame["taskProposal"] | undefined = undefined;
-    const turnSemanticFrame: TurnSemanticFrame | undefined = undefined;
-    recordMemoryLlmBudgetCall(ctx.llmBudgetAudit, {
-      label: "turn-semantic-compile",
-      stage: safeMessages.some((message) => message.role === "assistant")
-        ? "post_answer_writeback"
-        : "write_hot_path",
-      provenance: "deterministic",
-      mode: "deferred",
-      detail: "turn semantic extraction is deferred to maintenance source-segment LLM scanning",
+    const turnSemanticFrame = await compileTurnSemantics({
+      messages: safeMessages,
+      ctx,
+      activeTask,
+      activeChunks,
+      recentTasks,
+      recentChunksByTask,
+      reasoner: this.store.reasoner,
     });
+    const taskProposal: TurnSemanticFrame["taskProposal"] | undefined =
+      turnSemanticFrame?.taskProposal;
     const assignment = await decideTaskAssignment({
       activeTask,
       activeChunks,
@@ -779,12 +882,15 @@ export class MemxTurnScheduler {
       role: message.role,
       contentHash,
     });
-    const summary = await this.store.reasoner.summarizeChunk(message.content, message.role, {
-      stage: inferWriteLlmStage(message.role),
-      audit: ctx.llmBudgetAudit,
-    });
+    const summary =
+      exact?.summary ??
+      (await this.store.reasoner.summarizeChunk(message.content, message.role, {
+        stage: inferWriteLlmStage(message.role),
+        audit: ctx.llmBudgetAudit,
+        allowLlm: false,
+      }));
 
-    let chunk: ConversationChunk = {
+    let chunk: ConversationChunk = exact ?? {
       chunkId: randomId("chunk"),
       agentId: ctx.agentId,
       scope: message.scope,
@@ -804,15 +910,9 @@ export class MemxTurnScheduler {
       createdAt: message.observedAt,
       updatedAt: message.observedAt,
     };
+    let sourceSegments = exact ? this.store.sourceSegmentRepo.listByChunk(exact.chunkId) : [];
 
-    if (exact) {
-      chunk = {
-        ...chunk,
-        dedupStatus: "duplicate",
-        dedupTarget: exact.chunkId,
-        dedupReason: "exact content hash match",
-      };
-    } else {
+    if (!exact) {
       const recent = this.store.chunkRepo.listRecentActive({
         agentId: ctx.agentId,
         scopes: [message.scope],
@@ -852,11 +952,13 @@ export class MemxTurnScheduler {
       }
     }
 
-    this.store.chunkRepo.insert(chunk);
-    const sourceSegments = buildSourceSegmentsForChunk(chunk);
-    this.store.sourceSegmentRepo.insertMany(sourceSegments);
+    if (!exact) {
+      this.store.chunkRepo.insert(chunk);
+      sourceSegments = buildSourceSegmentsForChunk(chunk);
+      this.store.sourceSegmentRepo.insertMany(sourceSegments);
+    }
     const taskChunks = this.store.chunkRepo.listByTask(activeTask.taskId);
-    if (chunk.dedupStatus === "active") {
+    if (!exact && chunk.dedupStatus === "active") {
       this.store.retrievalBackend.upsertDocs([
         buildChunkVectorDoc(chunk, taskChunks),
         ...buildSourceSegmentVectorDocs({ chunk, segments: sourceSegments }),

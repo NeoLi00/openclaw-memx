@@ -403,9 +403,9 @@ export function buildLongTurnSemanticScanInputFromSegments(
 }
 
 function compileStage(messages: TurnCaptureMessage[]): MemoryLlmCallStage {
-  return messages.some((message) => message.role === "user" || message.role === "tool")
-    ? "write_hot_path"
-    : "post_answer_writeback";
+  return messages.some((message) => message.role === "assistant")
+    ? "post_answer_writeback"
+    : "write_hot_path";
 }
 
 function scaffoldTurnSemantics(params: CompileTurnSemanticsParams): TurnSemanticFrame {

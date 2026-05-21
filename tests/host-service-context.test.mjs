@@ -104,3 +104,85 @@ test("native recall context can focus injected evidence on LLM query entities", 
     ["packet-claude"],
   );
 });
+
+test("native recall context trusts source-grounded assembled evidence", async () => {
+  const { assessNativeContextEligibility } = await import("../dist/.runtime/src/host/service.mjs");
+
+  const result = assessNativeContextEligibility(
+    "上次确认的默认数据库是什么？",
+    {
+      queryEntities: [],
+      suppressedEntities: [],
+    },
+    {
+      routeType: "mixed",
+      routeConfidence: 0.32,
+      states: [],
+      tasks: [],
+      facts: [],
+      events: [],
+      graph: { nodes: [], edges: [], pathCandidates: [], paths: [] },
+      alternates: [],
+      diagnostics: [],
+      behavioralGuidance: [],
+      recalledChunkIds: [],
+      recalledChunkTexts: [],
+      promptEvidence: [],
+      evidencePackets: [
+        {
+          ...packet("packet-db", "InvoicePilot 默认数据库是 PostgreSQL"),
+          coverage: { filled: false, missing: ["query_context"], confidence: 0.44 },
+          grade: {
+            retrievalScore: 0.48,
+            answerScore: 0.45,
+            contextBindingScore: 0.36,
+            slotCoverageScore: 0.42,
+            authorityScore: 0.7,
+            finalScore: 0.42,
+          },
+          displayLines: ["[answer] InvoicePilot 默认数据库是 PostgreSQL"],
+          sourceRefs: ["chunk:user:turn-1:0"],
+        },
+      ],
+      renderedBlock: "[answer] InvoicePilot 默认数据库是 PostgreSQL",
+    },
+  );
+
+  assert.equal(result.eligible, true);
+  assert.equal(result.reason, "assembled-source-evidence");
+});
+
+test("native recall context can inject direct facts when packet assembly is sparse", async () => {
+  const { assessNativeContextEligibility } = await import("../dist/.runtime/src/host/service.mjs");
+
+  const result = assessNativeContextEligibility(
+    "AuroraAccept 现在默认数据库、告警渠道和导出格式分别是什么？",
+    {
+      queryEntities: [],
+      suppressedEntities: [],
+    },
+    {
+      routeType: "mixed",
+      routeConfidence: 0.22,
+      states: [],
+      tasks: [],
+      facts: [
+        row("fact-db", "AuroraAccept 默认数据库是 PostgreSQL"),
+        row("fact-channel", "AuroraAccept 告警渠道是 Slack"),
+      ],
+      events: [],
+      graph: { nodes: [], edges: [], pathCandidates: [], paths: [] },
+      alternates: [],
+      diagnostics: [],
+      behavioralGuidance: [],
+      recalledChunkIds: [],
+      recalledChunkTexts: [],
+      promptEvidence: [],
+      evidencePackets: [],
+      renderedBlock: "AuroraAccept 默认数据库是 PostgreSQL",
+    },
+  );
+
+  assert.equal(result.eligible, true);
+  assert.equal(result.reason, "direct-structured-evidence");
+});

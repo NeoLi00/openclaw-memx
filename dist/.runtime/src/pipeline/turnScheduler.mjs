@@ -17,7 +17,7 @@ import { computeConfidence } from "./normalize.mjs";
 import { writeCandidate } from "./write.mjs";
 import { classifyAction } from "./classify.mjs";
 import { evaluatePolicy } from "./policy.mjs";
-import { frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
+import { compileTurnSemantics, frameHintsForSourceRef } from "./turnSemanticCompiler.mjs";
 import { buildCandidate } from "./extract.mjs";
 import { decideTaskAssignment } from "./taskJudge.mjs";
 //#region src/pipeline/turnScheduler.ts
@@ -293,6 +293,42 @@ var MemxTurnScheduler = class {
 	flush() {
 		return this.chain;
 	}
+	async stageRecallableTurn(ctx, messages) {
+		const safeMessages = this.safeMessagesForTurn(ctx, messages);
+		const hasUserMessage = messages.some((message) => message.role === "user");
+		const hasSafeUserMessage = safeMessages.some((message) => message.role === "user");
+		if (safeMessages.length === 0 || hasUserMessage && !hasSafeUserMessage) return false;
+		const scope = safeMessages[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
+		const activeTask = this.getOrCreateActiveTask(ctx, safeMessages, scope);
+		await this.persistRecallableChunks(ctx, activeTask, safeMessages);
+		return true;
+	}
+	safeMessagesForTurn(ctx, messages) {
+		return messages.filter((message) => !shouldSuppressMessageFromSemanticMemory(ctx, message));
+	}
+	getOrCreateActiveTask(ctx, safeMessages, scope) {
+		let activeTask = this.store.taskRepo.getActive({
+			agentId: ctx.agentId,
+			scope,
+			sessionKey: safeMessages[0].sessionKey
+		});
+		if (!activeTask) {
+			activeTask = {
+				taskId: randomId("task"),
+				agentId: ctx.agentId,
+				scope,
+				sessionKey: safeMessages[0].sessionKey,
+				title: "Active task",
+				summary: "",
+				status: "active",
+				startedAt: safeMessages[0].observedAt,
+				updatedAt: safeMessages[0].observedAt,
+				metadataJson: {}
+			};
+			this.store.taskRepo.create(activeTask);
+		}
+		return activeTask;
+	}
 	async maybePromoteTaskOutcome(ctx, task, taskChunks, observedAt, stage, proposal) {
 		const promotedOutcome = proposal ? buildPromotedOutcome(task, taskChunks, proposal) : void 0;
 		let emitted = false;
@@ -392,17 +428,63 @@ var MemxTurnScheduler = class {
 		this.store.retrievalBackend.upsertDocs([buildTaskVectorDoc(reopenedTask, this.store.chunkRepo.listByTask(reopenedTask.taskId))]);
 		return reopenedTask;
 	}
+	async persistRecallableChunks(ctx, activeTask, messages) {
+		for (const [index, message] of messages.entries()) {
+			const contentHash = stableHash([
+				ctx.agentId,
+				message.scope,
+				message.role,
+				normalizeText(message.content)
+			]);
+			if (this.store.chunkRepo.findActiveByHash({
+				agentId: ctx.agentId,
+				scope: message.scope,
+				role: message.role,
+				contentHash
+			})) continue;
+			const summary = await this.store.reasoner.summarizeChunk(message.content, message.role, {
+				stage: inferWriteLlmStage(message.role),
+				audit: ctx.llmBudgetAudit,
+				allowLlm: false
+			});
+			const chunk = {
+				chunkId: randomId("chunk"),
+				agentId: ctx.agentId,
+				scope: message.scope,
+				sessionKey: message.sessionKey,
+				turnId: message.turnId,
+				seq: index,
+				role: message.role,
+				toolName: message.toolName,
+				chunkKind: message.role === "tool" ? "tool_result" : "message",
+				content: message.content,
+				summary,
+				contentHash,
+				taskId: activeTask.taskId,
+				dedupStatus: "active",
+				mergeCount: 0,
+				sourceRef: message.sourceRef,
+				createdAt: message.observedAt,
+				updatedAt: message.observedAt
+			};
+			this.store.chunkRepo.insert(chunk);
+			const sourceSegments = buildSourceSegmentsForChunk(chunk);
+			this.store.sourceSegmentRepo.insertMany(sourceSegments);
+			const taskChunks = this.store.chunkRepo.listByTask(activeTask.taskId);
+			this.store.retrievalBackend.upsertDocs([buildChunkVectorDoc(chunk, taskChunks), ...buildSourceSegmentVectorDocs({
+				chunk,
+				segments: sourceSegments
+			})]);
+		}
+	}
 	async processTurn(ctx, messages) {
-		const safeMessages = messages.filter((message) => !shouldSuppressMessageFromSemanticMemory(ctx, message));
+		const safeMessages = this.safeMessagesForTurn(ctx, messages);
 		const hasUserMessage = messages.some((message) => message.role === "user");
 		const hasSafeUserMessage = safeMessages.some((message) => message.role === "user");
 		if (safeMessages.length === 0 || hasUserMessage && !hasSafeUserMessage) return;
 		const scope = safeMessages[0]?.scope ?? ctx.scopes[0] ?? `agent:${ctx.agentId}`;
-		let activeTask = this.store.taskRepo.getActive({
-			agentId: ctx.agentId,
-			scope,
-			sessionKey: safeMessages[0].sessionKey
-		});
+		let activeTask = this.getOrCreateActiveTask(ctx, safeMessages, scope);
+		await this.persistRecallableChunks(ctx, activeTask, safeMessages);
 		const activeChunks = activeTask ? this.store.chunkRepo.listByTask(activeTask.taskId) : [];
 		const recentTasks = this.store.taskRepo.listRecent({
 			agentId: ctx.agentId,
@@ -412,15 +494,16 @@ var MemxTurnScheduler = class {
 			includeSkipped: false
 		});
 		const recentChunksByTask = Object.fromEntries(recentTasks.map((task) => [task.taskId, this.store.chunkRepo.listByTask(task.taskId)]));
-		const taskProposal = void 0;
-		const turnSemanticFrame = void 0;
-		recordMemoryLlmBudgetCall(ctx.llmBudgetAudit, {
-			label: "turn-semantic-compile",
-			stage: safeMessages.some((message) => message.role === "assistant") ? "post_answer_writeback" : "write_hot_path",
-			provenance: "deterministic",
-			mode: "deferred",
-			detail: "turn semantic extraction is deferred to maintenance source-segment LLM scanning"
+		const turnSemanticFrame = await compileTurnSemantics({
+			messages: safeMessages,
+			ctx,
+			activeTask,
+			activeChunks,
+			recentTasks,
+			recentChunksByTask,
+			reasoner: this.store.reasoner
 		});
+		const taskProposal = turnSemanticFrame?.taskProposal;
 		const assignment = await decideTaskAssignment({
 			activeTask,
 			activeChunks,
@@ -492,11 +575,12 @@ var MemxTurnScheduler = class {
 			role: message.role,
 			contentHash
 		});
-		const summary = await this.store.reasoner.summarizeChunk(message.content, message.role, {
+		const summary = exact?.summary ?? await this.store.reasoner.summarizeChunk(message.content, message.role, {
 			stage: inferWriteLlmStage(message.role),
-			audit: ctx.llmBudgetAudit
+			audit: ctx.llmBudgetAudit,
+			allowLlm: false
 		});
-		let chunk = {
+		let chunk = exact ?? {
 			chunkId: randomId("chunk"),
 			agentId: ctx.agentId,
 			scope: message.scope,
@@ -516,13 +600,8 @@ var MemxTurnScheduler = class {
 			createdAt: message.observedAt,
 			updatedAt: message.observedAt
 		};
-		if (exact) chunk = {
-			...chunk,
-			dedupStatus: "duplicate",
-			dedupTarget: exact.chunkId,
-			dedupReason: "exact content hash match"
-		};
-		else {
+		let sourceSegments = exact ? this.store.sourceSegmentRepo.listByChunk(exact.chunkId) : [];
+		if (!exact) {
 			const recent = this.store.chunkRepo.listRecentActive({
 				agentId: ctx.agentId,
 				scopes: [message.scope],
@@ -547,11 +626,13 @@ var MemxTurnScheduler = class {
 				dedupReason: `conservative similarity duplicate=${similar.score.toFixed(3)}`
 			};
 		}
-		this.store.chunkRepo.insert(chunk);
-		const sourceSegments = buildSourceSegmentsForChunk(chunk);
-		this.store.sourceSegmentRepo.insertMany(sourceSegments);
+		if (!exact) {
+			this.store.chunkRepo.insert(chunk);
+			sourceSegments = buildSourceSegmentsForChunk(chunk);
+			this.store.sourceSegmentRepo.insertMany(sourceSegments);
+		}
 		const taskChunks = this.store.chunkRepo.listByTask(activeTask.taskId);
-		if (chunk.dedupStatus === "active") {
+		if (!exact && chunk.dedupStatus === "active") {
 			this.store.retrievalBackend.upsertDocs([buildChunkVectorDoc(chunk, taskChunks), ...buildSourceSegmentVectorDocs({
 				chunk,
 				segments: sourceSegments

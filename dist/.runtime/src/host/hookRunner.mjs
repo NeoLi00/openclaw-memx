@@ -158,10 +158,15 @@ async function runMemxHook(argv = process.argv.slice(2)) {
 			} else debug(`memx hook recall failed: ${contextResult.reason instanceof Error ? contextResult.reason.message : String(contextResult.reason)}`);
 		}
 		if (hookShouldStorePending(eventName)) return;
-		const pending = hookShouldFlushPending(eventName) ? await readPendingTurn(envelope) : null;
-		const completedEnvelope = hookShouldFlushPending(eventName) ? await completeEnvelopeFromTranscript(envelope, pending) : envelope;
-		const observeEnvelope = hookShouldFlushPending(eventName) ? mergePendingTurn(completedEnvelope, pending) : completedEnvelope;
-		if (hookShouldFlushPending(eventName) && pending && !hasAssistantMessage(observeEnvelope)) {
+		const shouldFlushPending = hookShouldFlushPending(eventName);
+		const pending = shouldFlushPending ? await readPendingTurn(envelope) : null;
+		if (eventName === "SessionEnd" && !pending) {
+			debug("memx hook observe skipped: SessionEnd has no pending user turn");
+			return;
+		}
+		const completedEnvelope = shouldFlushPending ? await completeEnvelopeFromTranscript(envelope, pending) : envelope;
+		const observeEnvelope = shouldFlushPending ? mergePendingTurn(completedEnvelope, pending) : completedEnvelope;
+		if (shouldFlushPending && pending && !hasAssistantMessage(observeEnvelope)) {
 			debug("memx hook observe deferred: assistant output is not available yet");
 			return;
 		}
@@ -170,7 +175,7 @@ async function runMemxHook(argv = process.argv.slice(2)) {
 			status: "rejected",
 			reason
 		}));
-		if (observeResult.status === "fulfilled" && hookShouldFlushPending(eventName)) await clearPendingTurn(envelope);
+		if (observeResult.status === "fulfilled" && shouldFlushPending) await clearPendingTurn(envelope);
 		if (observeResult.status === "rejected") debug(`memx hook observe failed: ${observeResult.reason instanceof Error ? observeResult.reason.message : String(observeResult.reason)}`);
 	} catch (error) {
 		debug(`memx hook failed: ${error instanceof Error ? error.message : String(error)}`);

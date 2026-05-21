@@ -25,6 +25,7 @@ import type {
   MemoryPluginConfig,
   MemxLogger,
   PluginActorContext,
+  TurnCaptureMessage,
 } from "./types.js";
 
 export type MemxStoreBundle = {
@@ -56,6 +57,11 @@ function maintenanceKey(agentId: string, dbPath: string, sessionKey: string): st
 }
 
 type MaintenanceContextTemplate = MemoryOperationContext;
+type StagedRecallableTurn = {
+  turnId: string;
+  observedAt: string;
+  text: string;
+};
 
 export function resolveDbPath(
   config: MemoryPluginConfig,
@@ -110,6 +116,7 @@ export class MemxRuntimeManager {
   private readonly storeContexts = new Map<string, MaintenanceContextTemplate>();
   private readonly sessionCursors = new Map<string, number>();
   private readonly lastRecall = new Map<string, { chunkIds: string[]; texts: string[] }>();
+  private readonly stagedRecallableTurns = new Map<string, StagedRecallableTurn[]>();
   private readonly maintenanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly maintenanceContexts = new Map<string, MaintenanceContextTemplate>();
   private readonly maintenanceLoops = new Map<string, Promise<void>>();
@@ -154,6 +161,7 @@ export class MemxRuntimeManager {
     this.storeContexts.clear();
     this.sessionCursors.clear();
     this.lastRecall.clear();
+    this.stagedRecallableTurns.clear();
     this.maintenanceContexts.clear();
     this.maintenanceLoops.clear();
   }
@@ -196,6 +204,39 @@ export class MemxRuntimeManager {
     const payload = this.lastRecall.get(key) ?? { chunkIds: [], texts: [] };
     this.lastRecall.delete(key);
     return payload;
+  }
+
+  rememberStagedRecallableTurn(
+    ctx: Pick<MemoryOperationContext, "agentId" | "sessionKey">,
+    messages: TurnCaptureMessage[],
+  ): void {
+    const sessionKey = ctx.sessionKey ?? "default";
+    const text = messages
+      .map((message) => `[${message.role}] ${message.content.trim()}`)
+      .filter((entry) => entry.trim().length > 0)
+      .join("\n");
+    if (!text.trim()) {
+      return;
+    }
+    const key = `${ctx.agentId}:${sessionKey}`;
+    const turnId = messages[0]?.turnId ?? randomId("staged-turn");
+    const observedAt = messages.at(-1)?.observedAt ?? nowIso();
+    const existing = (this.stagedRecallableTurns.get(key) ?? []).filter(
+      (entry) => entry.turnId !== turnId,
+    );
+    existing.push({ turnId, observedAt, text });
+    this.stagedRecallableTurns.set(key, existing.slice(-6));
+  }
+
+  recentStagedRecallableTurns(
+    ctx: Pick<MemoryOperationContext, "agentId" | "sessionKey">,
+    limit = 4,
+  ): StagedRecallableTurn[] {
+    const sessionKey = ctx.sessionKey ?? "default";
+    const key = `${ctx.agentId}:${sessionKey}`;
+    return [...(this.stagedRecallableTurns.get(key) ?? [])]
+      .sort((left, right) => right.observedAt.localeCompare(left.observedAt))
+      .slice(0, Math.max(1, Math.min(Math.trunc(limit), 8)));
   }
 
   async recordMaintenanceTurn(

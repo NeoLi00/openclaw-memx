@@ -29,8 +29,11 @@ import type {
   TaskAssignmentDecision,
   TaskAssignmentSnapshot,
   TurnCaptureMessage,
+  TurnSemanticAssertionFamilyHint,
   TurnSemanticFrame,
   TurnSemanticRelationDraft,
+  TurnSemanticTaskProposal,
+  TurnSemanticTimeframeHint,
   MemxLogger,
   MemoryCallProvenance,
   MemoryLlmBudgetAudit,
@@ -77,7 +80,10 @@ type ReasonerCallAuditOptions = {
 };
 
 function shouldRetrySemanticCompile(options: ReasonerCallAuditOptions): boolean {
-  return options.stage === "maintenance_async" && !options.signal?.aborted;
+  return (
+    (options.stage === "post_answer_writeback" || options.stage === "maintenance_async") &&
+    !options.signal?.aborted
+  );
 }
 
 export type DedupDecision = {
@@ -1255,6 +1261,9 @@ function buildTurnSemanticCompilePrompt(
       "输入里的 recentReferenceContext 是只读的最近对话焦点，只能用于解析“这个/那个/它/that/it”等当前轮指代；它不是可写事实来源。",
       "所有 sourceRefs、supportSpans、resourceAssertions.sourceRef、adviceSignals.sourceRefs 和 relationDrafts.sourceRef 都只能引用当前 turnMessageEnvelope.messages 里的 sourceRef，不能引用 recentReferenceContext 里的 sourceRef。",
       "如果用户当前轮用“这个/那个/它”表达保留、排除、纠偏、停止考虑等意图，你可以用当前 assistant 或 recentReferenceContext 解析所指实体，但必须把可写 signal 归因到表达该意图的当前 user/tool sourceRef。",
+      "如果当前轮把“这个/那个/它”的某个属性改成新值，必须输出一个已解析实体的 assertionDraft：familyHint=\"fact_like\"、timeframeHint=\"current\"、entityHints 包含实体和新值实体、slotHints 包含稳定英文 snake_case 槽名、valueHint 是该属性的新短值；同时输出 correctionDraft，canonicalKey 用 \"实体名.slot\"，predicate 用 \"has_<slot>\" 或 \"uses_<slot>\"，priorValue/nextValue 只写旧值/新值。",
+      "当用户明确确认、设定、改动或固定某个项目/服务/工具的配置、默认值、通道、provider、格式、数据库、队列、缓存、负责人、约束时，这就是高价值 durable fact_like；如果 assistant 在同一轮复述确认，可用 assistant 文本辅助解析 valueHint，但 sourceRef 仍归因到当前 user sourceRef。",
+      "对于实体属性事实，slotHints 必须写短的稳定 snake_case 槽名，例如 default_database、export_format、alert_channel、queue、cache、provider；valueHint 必须只写该槽的短值，例如 PostgreSQL、Arrow IPC、Slack。一个属性对应一个 assertionDraft；不要把多个不同属性塞进同一个 assertionDraft。",
       "你不能输出 final action、classification、owner、supersede、slotReplacement。",
       "你不能直接决定 durable state/fact/event/graph relation，也不能改写 canonical truth。",
       "sourceRefs 必须是数组，且只能引用输入里已有的 sourceRef，不能发明新的 sourceRef。",
@@ -1276,12 +1285,265 @@ function buildTurnSemanticCompilePrompt(
       'compilerProvenance 可以省略；如果返回它，只允许 {"source":"llm"}；其余 provenance 由运行时覆盖。',
       "保守策略：纯提问、假设、条件句、引用第三方内容，不要输出高置信 assertionDraft。",
       "如果一句话是否构成 assertion 不确定，宁可降低 confidence，或不输出对应 assertionDraft。",
-      "一条 source 可以产出多个 assertionDraft，但不要为了看起来完整而补造草案；整个输出里 assertionDraft 最多 2 条，correctionDraft 最多 1 条。",
+      "一条 source 可以产出多个 assertionDraft，但不要为了看起来完整而补造草案；整个输出里 assertionDraft 最多 8 条，correctionDraft 最多 3 条。",
       "如果本轮没有值得写入的语义信号，可以返回 {}；这表示没有 compiler-confirmed semantic signals，不表示接受任何本地语义 hints。",
       "只输出 JSON。",
     ].join("\n"),
     user: `当前轮次 turnMessageEnvelope：\n${JSON.stringify(compilerInput, null, 2)}\n\n当前非语义 scaffold 摘要：\n${JSON.stringify(compactFallback, null, 2)}`,
   };
+}
+
+function compactTurnMessagePayload(
+  messages: TurnCaptureMessage[],
+  fallback: TurnSemanticFrame,
+): Record<string, unknown> {
+  const compilerInput = buildTurnSemanticCompilerInput(messages, fallback.referenceContext);
+  return {
+    messages: compilerInput.messages.map((message) => ({
+      role: message.role,
+      sourceRef: message.sourceRef,
+      text: message.windows.map((window) => window.text).join("\n...\n"),
+      omittedChars: message.omittedChars,
+    })),
+    recentReferenceContext: compilerInput.recentReferenceContext,
+    sourceRefs: fallback.sourceRefs,
+  };
+}
+
+function buildCompactTurnSemanticPrompt(
+  messages: TurnCaptureMessage[],
+  fallback: TurnSemanticFrame,
+): { system: string; user: string } {
+  return {
+    system: [
+      "Extract reusable memory signals from one current conversation turn. Return only valid JSON.",
+      "Do not explain. Do not use markdown. Do not copy long text.",
+      "Use only sourceRef values from the input messages. Prefer the current user sourceRef for facts confirmed by the assistant.",
+      "recentReferenceContext is only for resolving pronouns such as this/that/it/这个/那个; it is not a writable source.",
+      "Output schema:",
+      '{"assertions":[{"sourceRef":string,"subject":string,"subjectType"?:string,"slot":string,"value":string,"family"?:string,"timeframe"?:string,"confidence"?:number,"supportText"?:string}],"corrections":[{"sourceRef":string,"subject":string,"slot":string,"priorValue"?:string,"nextValue":string,"predicate"?:string,"canonicalKey"?:string,"confidence"?:number,"supportText"?:string}],"relations":[{"sourceRef":string,"subject":string,"predicate":string,"object":string,"polarity"?:string,"slot"?:string,"confidence"?:number,"reason"?:string,"supportText"?:string}],"resourceAssertions":[],"adviceSignals":[],"taskProposal"?:object}',
+      "assertions are durable semantic facts/preferences/workflow states. Use family=fact_like and timeframe=current for project/service/tool defaults, provider, database, queue, cache, channel, format, owner, and constraints.",
+      "For entity attributes, make one assertion per property. Examples: subject=AuroraAccept slot=default_database value=PostgreSQL; subject=AuroraAccept slot=alert_channel value=Slack; subject=AuroraAccept slot=export_format value=Arrow IPC.",
+      "slot must be a short stable snake_case English slot such as default_database, alert_channel, export_format, queue, cache, provider, owner, constraint.",
+      "If the turn changes a previous value, output both an assertion for the new current value and a correction with subject, slot, priorValue when visible, and nextValue.",
+      "Do not output assertions for pure questions, hypotheticals, quoted third-party claims, or unsupported assistant guesses.",
+      "Maximum: assertions 8, corrections 3, relations 4, resourceAssertions 3, adviceSignals 2.",
+      "If there is no reusable memory signal, return {}.",
+    ].join("\n"),
+    user: JSON.stringify(compactTurnMessagePayload(messages, fallback)),
+  };
+}
+
+function buildCompactLongTurnSemanticPrompt(
+  input: LongTurnSemanticScanInput,
+  fallback: TurnSemanticFrame,
+): { system: string; user: string } {
+  return {
+    system: [
+      "Extract reusable memory signals from persisted source segments. Return only valid JSON.",
+      "Use the same compact schema as the turn compiler: assertions, corrections, relations, resourceAssertions, adviceSignals, taskProposal.",
+      "Use only sourceRef values from longTurnSegmentScan.messages. recentReferenceContext is read-only and only resolves pronouns.",
+      "For project/service/tool defaults, provider, database, queue, cache, channel, format, owner, and constraints, output one fact_like current assertion per property with subject, slot, and value.",
+      "If a segment changes a previous value, output both the new assertion and a correction.",
+      "Do not invent facts from omitted text. Do not summarize a user question as an answer.",
+      "Maximum: assertions 8, corrections 3, relations 4, resourceAssertions 3, adviceSignals 2.",
+      "If there is no reusable memory signal, return {}.",
+    ].join("\n"),
+    user: JSON.stringify({
+      messages: input.messages.map((message) => ({
+        role: message.role,
+        sourceRef: message.sourceRef,
+        turnId: message.turnId,
+        segments: message.segments.map((segment) => ({
+          index: segment.index,
+          text: segment.text,
+        })),
+      })),
+      recentReferenceContext: input.recentReferenceContext,
+      sourceRefs: fallback.sourceRefs,
+    }),
+  };
+}
+
+function compactSlot(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const slot = normalizeText(value.replace(/([a-z0-9])([A-Z])/g, "$1_$2"))
+    .replace(/[^\p{L}\p{N}]+/gu, "_")
+    .replace(/^_+|_+$/g, "");
+  const aliases: Record<string, string> = {
+    alertchannel: "alert_channel",
+    defaultdatabase: "default_database",
+    exportformat: "export_format",
+  };
+  return aliases[slot] ?? (slot || undefined);
+}
+
+function compactConfidence(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? clamp01(value) : fallback;
+}
+
+function compactEntityType(value: unknown): string | undefined {
+  return typeof value === "string" && TURN_ENTITY_HINT_TYPES.has(value) ? value : undefined;
+}
+
+function compactFamily(value: unknown): TurnSemanticAssertionFamilyHint {
+  return normalizeTurnSemanticFamilyHint(value) ?? "fact_like";
+}
+
+function compactTimeframe(value: unknown): TurnSemanticTimeframeHint {
+  return normalizeTurnSemanticTimeframeHint(value) ?? "current";
+}
+
+function compactSupportSpan(sourceRef: string, text: unknown): Array<{ text: string }> | undefined {
+  if (typeof text !== "string" || !text.trim()) {
+    return undefined;
+  }
+  return [{ text: truncateText(text.trim(), 180) }];
+}
+
+function compactSemanticResultToPatch(result: CompactTurnSemanticResult): Partial<TurnSemanticFrame> {
+  const assertionDrafts = Array.isArray(result.assertions)
+    ? result.assertions
+        .map((entry, index) => {
+          const subject = typeof entry?.subject === "string" ? entry.subject.trim() : "";
+          const value = typeof entry?.value === "string" ? entry.value.trim() : "";
+          const slot = compactSlot(entry?.slot);
+          if (!subject || !value || !slot) {
+            return null;
+          }
+          const entityHints = [
+            {
+              name: truncateText(subject, 120),
+              ...(compactEntityType(entry.subjectType) ? { type: compactEntityType(entry.subjectType) } : {}),
+            },
+            { name: truncateText(value, 120), type: "concept" },
+          ];
+          return {
+            draftId: `${entry.sourceRef ?? "source"}:${slot}:${index}`,
+            sourceRef: entry.sourceRef ?? "",
+            familyHint: compactFamily(entry.family),
+            timeframeHint: compactTimeframe(entry.timeframe),
+            entityHints,
+            slotHints: [slot],
+            valueHint: truncateText(value, 160),
+            supportSpans: compactSupportSpan(entry.sourceRef ?? "", entry.supportText),
+            confidence: compactConfidence(entry.confidence, 0.82),
+            lineage: {
+              sourceKind: "chunk" as const,
+              sourceId: entry.sourceRef ?? "compact-semantic",
+              sourceRef: entry.sourceRef,
+            },
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : undefined;
+  const correctionDrafts = Array.isArray(result.corrections)
+    ? result.corrections
+        .map((entry) => {
+          const subject = typeof entry?.subject === "string" ? entry.subject.trim() : "";
+          const slot = compactSlot(entry?.slot);
+          const nextValue = typeof entry?.nextValue === "string" ? entry.nextValue.trim() : "";
+          if (!subject || !slot || !nextValue) {
+            return null;
+          }
+          return {
+            sourceRef: entry.sourceRef ?? "",
+            correction: {
+              timeframe: "current" as const,
+              targetKind: "fact" as const,
+              canonicalKey:
+                typeof entry.canonicalKey === "string" && entry.canonicalKey.trim()
+                  ? entry.canonicalKey.trim()
+                  : `${subject}.${slot}`,
+              predicate:
+                typeof entry.predicate === "string" && entry.predicate.trim()
+                  ? entry.predicate.trim()
+                  : `has_${slot}`,
+              ...(typeof entry.priorValue === "string" && entry.priorValue.trim()
+                ? { priorValue: truncateText(entry.priorValue.trim(), 160) }
+                : {}),
+              nextValue: truncateText(nextValue, 160),
+              confidence: compactConfidence(entry.confidence, 0.82),
+              ...(typeof entry.supportText === "string" && entry.supportText.trim()
+                ? { reason: truncateText(entry.supportText.trim(), 180) }
+                : {}),
+            },
+            supportSpans: compactSupportSpan(entry.sourceRef ?? "", entry.supportText),
+            confidence: compactConfidence(entry.confidence, 0.82),
+            lineage: {
+              sourceKind: "chunk" as const,
+              sourceId: entry.sourceRef ?? "compact-semantic",
+              sourceRef: entry.sourceRef,
+            },
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : undefined;
+  const relationDrafts = Array.isArray(result.relations)
+    ? result.relations
+        .map((entry) => {
+          const subject = typeof entry?.subject === "string" ? entry.subject.trim() : "";
+          const object = typeof entry?.object === "string" ? entry.object.trim() : "";
+          const predicate = typeof entry?.predicate === "string" ? entry.predicate.trim() : "";
+          if (!subject || !object || !predicate) {
+            return null;
+          }
+          const normalizedPredicate = normalizeGraphRelationType(predicate);
+          return {
+            sourceRef: entry.sourceRef ?? "",
+            relation: {
+              subject,
+              predicate: normalizedPredicate?.relationType ?? "related_to",
+              object,
+              polarity: entry.polarity === "negated" ? ("negated" as const) : ("affirmed" as const),
+              rawPredicate: normalizedPredicate?.rawPredicate ?? predicate,
+              ...(typeof entry.slot === "string" && entry.slot.trim()
+                ? { relationSlot: entry.slot.trim() }
+                : {}),
+              confidence: compactConfidence(entry.confidence, 0.72),
+              ...(typeof entry.reason === "string" && entry.reason.trim()
+                ? { reason: truncateText(entry.reason.trim(), 180) }
+                : {}),
+            },
+            supportSpans: compactSupportSpan(entry.sourceRef ?? "", entry.supportText),
+            confidence: compactConfidence(entry.confidence, 0.72),
+            lineage: {
+              sourceKind: "chunk" as const,
+              sourceId: entry.sourceRef ?? "compact-semantic",
+              sourceRef: entry.sourceRef,
+            },
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    : undefined;
+  return {
+    ...(assertionDrafts ? { assertionDrafts } : {}),
+    ...(correctionDrafts ? { correctionDrafts } : {}),
+    ...(relationDrafts ? { relationDrafts } : {}),
+    ...(Array.isArray(result.resourceAssertions)
+      ? { resourceAssertions: result.resourceAssertions }
+      : {}),
+    ...(Array.isArray(result.adviceSignals) ? { adviceSignals: result.adviceSignals } : {}),
+    ...(result.taskProposal ? { taskProposal: result.taskProposal as TurnSemanticTaskProposal } : {}),
+  };
+}
+
+function hasRecognizedCompactSemanticResult(value: CompactTurnSemanticResult): boolean {
+  const keys = Object.keys(value as Record<string, unknown>);
+  if (keys.length === 0) {
+    return true;
+  }
+  const allowed = new Set([
+    "assertions",
+    "corrections",
+    "relations",
+    "resourceAssertions",
+    "adviceSignals",
+    "taskProposal",
+  ]);
+  return keys.some((key) => allowed.has(key));
 }
 
 function buildLongTurnSemanticScanPrompt(
@@ -1297,6 +1559,8 @@ function buildLongTurnSemanticScanPrompt(
       "这些 segments 是待维护的源消息机械切片，不是旧记忆。你不能输出 final action、classification、owner、supersede、slotReplacement。",
       "semantic 字段必须由你显式输出；运行时不会把本地 regex 语义自动补回来。",
       'entityHints 是唯一实体抽取入口；如果当前 segment 有稳定、可复现的具名实体，请在相关 assertionDrafts 上返回 entityHints，格式为 {"name":"...","type":"person|project|tool|service|language|framework|concept|organization|unknown"}。',
+      "用户明确确认、设定、改动或固定项目/服务/工具配置、默认值、通道、provider、格式、数据库、队列、缓存、负责人、约束时，是高价值 durable fact_like；不要因句子短而省略。",
+      "实体属性类 assertionDraft 必须带 slotHints 和 valueHint：slotHints 是稳定英文 snake_case 槽名，valueHint 是该槽短值；不要把整句当 valueHint。",
       "不要把代词、泛指词、完整句子、临时变量、数学符号、代码局部变量或只在本句临时成立的描述当 entity。",
       "relationDrafts 只用于明确实体关系；subject/object 必须是可稳定复现的具名实体，predicate 必须表达真实关系。",
       "resourceAssertions 只用于用户明确拥有、使用、刚获得、正在考虑的具体资源、工具、账号、服务、能力或约束。",
@@ -1695,6 +1959,18 @@ function normalizeCompiledTurnSemanticPatch(
   const messageIndex = new Map(
     messages.map((message) => [sourceRefForReasonerMessage(message), message]),
   );
+  const writableSourceRefs = messages
+    .filter((message) => message.role === "user" || message.role === "tool")
+    .map((message) => sourceRefForReasonerMessage(message))
+    .filter(Boolean);
+  const defaultWritableSourceRef =
+    writableSourceRefs.length === 1 ? writableSourceRefs[0] : undefined;
+  const resolvePatchSourceRef = (value: unknown): string | undefined => {
+    if (typeof value === "string" && messageIndex.has(value)) {
+      return value;
+    }
+    return defaultWritableSourceRef;
+  };
   const withLineage = (sourceRef: string) => {
     const message = messageIndex.get(sourceRef);
     if (!message) {
@@ -1714,7 +1990,7 @@ function normalizeCompiledTurnSemanticPatch(
   const chunkDrafts = Array.isArray(patch.chunkDrafts)
     ? patch.chunkDrafts
         .map((entry) => {
-          const sourceRef = typeof entry?.sourceRef === "string" ? entry.sourceRef : undefined;
+          const sourceRef = resolvePatchSourceRef(entry?.sourceRef);
           const summary = typeof entry?.summary === "string" ? entry.summary.trim() : "";
           const lineage = sourceRef ? withLineage(sourceRef) : undefined;
           if (!sourceRef || !summary || !lineage) {
@@ -1757,10 +2033,34 @@ function normalizeCompiledTurnSemanticPatch(
             : {}),
         }
       : undefined;
+  const normalizeCorrectionTimeframe = (value: unknown): "current" | "historical" | "compare" =>
+    value === "historical" || value === "compare" || value === "current" ? value : "current";
+  const normalizeCorrectionTargetKind = (
+    value: unknown,
+    correction: Record<string, unknown>,
+  ): "state" | "fact" | "relation" | "project_profile" | "unknown" => {
+    if (
+      value === "state" ||
+      value === "fact" ||
+      value === "relation" ||
+      value === "project_profile" ||
+      value === "unknown"
+    ) {
+      return value;
+    }
+    if (
+      typeof correction.predicate === "string" ||
+      typeof correction.canonicalKey === "string" ||
+      typeof correction.nextValue === "string"
+    ) {
+      return "fact";
+    }
+    return "unknown";
+  };
   const assertionDrafts = Array.isArray(patch.assertionDrafts)
     ? patch.assertionDrafts
         .map((entry, index) => {
-          const sourceRef = typeof entry?.sourceRef === "string" ? entry.sourceRef : undefined;
+          const sourceRef = resolvePatchSourceRef(entry?.sourceRef);
           const familyHint = normalizeTurnSemanticFamilyHint(entry?.familyHint);
           const timeframeHint = normalizeTurnSemanticTimeframeHint(entry?.timeframeHint);
           const entityHints = normalizeTurnSemanticEntityHints(entry?.entityHints);
@@ -1784,6 +2084,9 @@ function normalizeCompiledTurnSemanticPatch(
                   ),
                 }
               : {}),
+            ...(typeof entry?.valueHint === "string" && entry.valueHint.trim()
+              ? { valueHint: truncateText(entry.valueHint.trim(), 160) }
+              : {}),
             ...(Array.isArray(entry?.supportSpans) ? { supportSpans: entry.supportSpans } : {}),
             ...(typeof entry?.confidence === "number" && Number.isFinite(entry.confidence)
               ? { confidence: clamp01(entry.confidence) }
@@ -1796,7 +2099,7 @@ function normalizeCompiledTurnSemanticPatch(
   const correctionDrafts = Array.isArray(patch.correctionDrafts)
     ? patch.correctionDrafts
         .map((entry) => {
-          const sourceRef = typeof entry?.sourceRef === "string" ? entry.sourceRef : undefined;
+          const sourceRef = resolvePatchSourceRef(entry?.sourceRef);
           const correction =
             entry?.correction && typeof entry.correction === "object"
               ? entry.correction
@@ -1805,9 +2108,17 @@ function normalizeCompiledTurnSemanticPatch(
           if (!sourceRef || !correction || !lineage) {
             return null;
           }
+          const correctionRecord = correction as Record<string, unknown>;
           return {
             sourceRef,
-            correction,
+            correction: {
+              ...correctionRecord,
+              timeframe: normalizeCorrectionTimeframe(correctionRecord.timeframe),
+              targetKind: normalizeCorrectionTargetKind(
+                correctionRecord.targetKind,
+                correctionRecord,
+              ),
+            },
             ...(Array.isArray(entry?.supportSpans) ? { supportSpans: entry.supportSpans } : {}),
             ...(typeof entry?.confidence === "number" && Number.isFinite(entry.confidence)
               ? { confidence: clamp01(entry.confidence) }
@@ -1826,7 +2137,7 @@ function normalizeCompiledTurnSemanticPatch(
             return null;
           }
           const record = entry as Record<string, unknown>;
-          const sourceRef = typeof record.sourceRef === "string" ? record.sourceRef : undefined;
+          const sourceRef = resolvePatchSourceRef(record.sourceRef);
           const relation = normalizeRelationHint(record.relation);
           const lineage = sourceRef ? withLineage(sourceRef) : undefined;
           if (!sourceRef || !relation || !lineage) {
@@ -2114,6 +2425,52 @@ type ClusterValidationResult = {
 
 const QUERY_COMPILE_PROMPT_VERSION = "query-compile/v6";
 const TURN_SEMANTIC_COMPILE_PROMPT_VERSION = "turn-semantic-compile/v3";
+const TURN_SEMANTIC_COMPACT_PROMPT_VERSION = "turn-semantic-compact/v1";
+
+type CompactSemanticAssertion = {
+  sourceRef?: string;
+  subject?: string;
+  subjectType?: string;
+  slot?: string;
+  value?: string;
+  family?: TurnSemanticAssertionFamilyHint;
+  timeframe?: TurnSemanticTimeframeHint;
+  confidence?: number;
+  supportText?: string;
+};
+
+type CompactSemanticCorrection = {
+  sourceRef?: string;
+  subject?: string;
+  slot?: string;
+  priorValue?: string;
+  nextValue?: string;
+  predicate?: string;
+  canonicalKey?: string;
+  confidence?: number;
+  supportText?: string;
+};
+
+type CompactSemanticRelation = {
+  sourceRef?: string;
+  subject?: string;
+  predicate?: string;
+  object?: string;
+  polarity?: "affirmed" | "negated";
+  slot?: string;
+  confidence?: number;
+  reason?: string;
+  supportText?: string;
+};
+
+type CompactTurnSemanticResult = {
+  assertions?: CompactSemanticAssertion[];
+  corrections?: CompactSemanticCorrection[];
+  relations?: CompactSemanticRelation[];
+  resourceAssertions?: MemoryResourceAssertionHint[];
+  adviceSignals?: MemoryAdviceSignalHint[];
+  taskProposal?: Partial<TurnSemanticTaskProposal>;
+};
 
 function buildStrategyClusterValidationPrompt(
   entries: Array<{ domain: string; resolution: string }>,
@@ -2867,6 +3224,46 @@ export class MemxReasoner {
     fallback: TurnSemanticFrame,
     options: ReasonerCallAuditOptions = {},
   ): Promise<Partial<TurnSemanticFrame> | null> {
+    let compactResult = await this.callJson<CompactTurnSemanticResult>(
+      "turn-semantic-compact",
+      buildCompactTurnSemanticPrompt(messages, fallback),
+      "degraded",
+      {
+        ...options,
+        maxTokens: Math.min(options.maxTokens ?? 900, 900),
+        jsonMode: true,
+        temperature: 0,
+      },
+    );
+    if (!compactResult && shouldRetrySemanticCompile(options)) {
+      compactResult = await this.callJson<CompactTurnSemanticResult>(
+        "turn-semantic-compact-retry",
+        buildCompactTurnSemanticPrompt(messages, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 900, 900),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
+    if (compactResult && hasRecognizedCompactSemanticResult(compactResult)) {
+      const normalizedCompact = normalizeCompiledTurnSemanticPatch(
+        messages,
+        compactSemanticResultToPatch(compactResult),
+      );
+      return {
+        ...normalizedCompact,
+        compilerProvenance: {
+          source: "llm",
+          mode: "llm",
+          promptVersion: TURN_SEMANTIC_COMPACT_PROMPT_VERSION,
+          model: this.judgeModel?.model,
+        },
+      };
+    }
+
     let result = await this.callJson<Partial<TurnSemanticFrame>>(
       "turn-semantic-compile",
       buildTurnSemanticCompilePrompt(messages, fallback),
@@ -2891,10 +3288,7 @@ export class MemxReasoner {
         },
       );
     }
-    if (!result) {
-      return null;
-    }
-    if (!hasRecognizedTurnSemanticPatch(result)) {
+    if (!result || !hasRecognizedTurnSemanticPatch(result)) {
       return null;
     }
     const normalized = normalizeCompiledTurnSemanticPatch(messages, result);
@@ -2914,36 +3308,6 @@ export class MemxReasoner {
     fallback: TurnSemanticFrame,
     options: ReasonerCallAuditOptions = {},
   ): Promise<Partial<TurnSemanticFrame> | null> {
-    let result = await this.callJson<Partial<TurnSemanticFrame>>(
-      "turn-semantic-long-scan",
-      buildLongTurnSemanticScanPrompt(input, fallback),
-      "degraded",
-      {
-        ...options,
-        maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
-        jsonMode: true,
-        temperature: 0,
-      },
-    );
-    if (!result && shouldRetrySemanticCompile(options)) {
-      result = await this.callJson<Partial<TurnSemanticFrame>>(
-        "turn-semantic-long-scan-retry",
-        buildLongTurnSemanticScanPrompt(input, fallback),
-        "degraded",
-        {
-          ...options,
-          maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
-          jsonMode: false,
-          temperature: 0,
-        },
-      );
-    }
-    if (!result) {
-      return null;
-    }
-    if (!hasRecognizedTurnSemanticPatch(result)) {
-      return null;
-    }
     const messagesBySourceRef = new Map<string, TurnCaptureMessage>(
       fallback.sourceRefs.map((sourceRef) => [
         sourceRef,
@@ -2972,8 +3336,77 @@ export class MemxReasoner {
     for (const message of syntheticMessages) {
       messagesBySourceRef.set(message.sourceRef, message);
     }
+    const syntheticFrameMessages = [...messagesBySourceRef.values()];
+    let compactResult = await this.callJson<CompactTurnSemanticResult>(
+      "turn-semantic-long-scan-compact",
+      buildCompactLongTurnSemanticPrompt(input, fallback),
+      "degraded",
+      {
+        ...options,
+        maxTokens: Math.min(options.maxTokens ?? 1000, 1000),
+        jsonMode: true,
+        temperature: 0,
+      },
+    );
+    if (!compactResult && shouldRetrySemanticCompile(options)) {
+      compactResult = await this.callJson<CompactTurnSemanticResult>(
+        "turn-semantic-long-scan-compact-retry",
+        buildCompactLongTurnSemanticPrompt(input, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 1000, 1000),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
+    if (compactResult && hasRecognizedCompactSemanticResult(compactResult)) {
+      const normalizedCompact = normalizeCompiledTurnSemanticPatch(
+        syntheticFrameMessages,
+        compactSemanticResultToPatch(compactResult),
+      );
+      return {
+        ...normalizedCompact,
+        compilerProvenance: {
+          source: "llm",
+          mode: "llm",
+          promptVersion: `${TURN_SEMANTIC_COMPACT_PROMPT_VERSION}:long-turn-scan`,
+          model: this.judgeModel?.model,
+          reasons: ["long-turn-semantic-scan"],
+        },
+      };
+    }
+
+    let result = await this.callJson<Partial<TurnSemanticFrame>>(
+      "turn-semantic-long-scan",
+      buildLongTurnSemanticScanPrompt(input, fallback),
+      "degraded",
+      {
+        ...options,
+        maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
+        jsonMode: true,
+        temperature: 0,
+      },
+    );
+    if (!result && shouldRetrySemanticCompile(options)) {
+      result = await this.callJson<Partial<TurnSemanticFrame>>(
+        "turn-semantic-long-scan-retry",
+        buildLongTurnSemanticScanPrompt(input, fallback),
+        "degraded",
+        {
+          ...options,
+          maxTokens: Math.min(options.maxTokens ?? 1400, 1400),
+          jsonMode: false,
+          temperature: 0,
+        },
+      );
+    }
+    if (!result || !hasRecognizedTurnSemanticPatch(result)) {
+      return null;
+    }
     const normalized = normalizeCompiledTurnSemanticPatch(
-      [...messagesBySourceRef.values()],
+      syntheticFrameMessages,
       result,
     );
     return {

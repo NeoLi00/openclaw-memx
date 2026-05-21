@@ -830,6 +830,131 @@ function shouldMaterializeDecisionSummary(candidate, decision, preference, relat
 	if ((candidate.structuredHints?.timeHints?.length ?? 0) > 0 || candidate.rawText.trim().length > 160) return false;
 	return DURABLE_DECISION_SUMMARY_PATTERN.test(candidate.rawText) || DURABLE_DECISION_SUMMARY_PATTERN_ZH.test(candidate.rawText);
 }
+function semanticAssertionSupportText(candidate, draft, assertion) {
+	const directSpan = assertion.supportSpans?.find((span) => span.text.trim())?.text;
+	const draftSpan = draft.supportSpans.find((span) => span.sourceRef === assertion.sourceRef && span.text.trim())?.text;
+	return truncateText((directSpan || draftSpan || candidate.rawText).trim(), 520);
+}
+function semanticAssertionSubject(assertion) {
+	return (assertion.entityHints?.find((entity) => entity.name.trim()))?.name.trim() || subjectUser();
+}
+const SEMANTIC_FACT_VERB_PREFIXES = new Set([
+	"has",
+	"uses",
+	"prefers",
+	"depends"
+]);
+const CANONICAL_ATTRIBUTE_SLOT_ALIASES = {
+	alertchannel: "alert_channel",
+	alert_channel: "alert_channel",
+	notificationchannel: "alert_channel",
+	notification_channel: "alert_channel",
+	defaultdatabase: "default_database",
+	default_database: "default_database",
+	defaultdb: "default_database",
+	default_db: "default_database",
+	exportformat: "export_format",
+	export_format: "export_format",
+	outputformat: "export_format",
+	output_format: "export_format",
+	messagequeue: "queue",
+	message_queue: "queue",
+	msgqueue: "queue",
+	msg_queue: "queue",
+	queue: "queue",
+	cache: "cache",
+	owner: "owner",
+	provider: "provider",
+	constraint: "constraint"
+};
+function canonicalAttributeSlot(slot) {
+	const parts = slot.split("_");
+	const tail = SEMANTIC_FACT_VERB_PREFIXES.has(parts[0] ?? "") ? parts.slice(1).join("_") : slot;
+	const compactTail = tail.replace(/_/g, "");
+	return CANONICAL_ATTRIBUTE_SLOT_ALIASES[tail] ?? CANONICAL_ATTRIBUTE_SLOT_ALIASES[compactTail];
+}
+function normalizeSemanticFactPredicate(value) {
+	const raw = value?.trim();
+	if (!raw) return;
+	const slot = (raw.split(/[.:/#|]+/u).map((entry) => entry.trim()).filter(Boolean).at(-1) ?? raw).normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+	if (!slot) return;
+	const attributeSlot = canonicalAttributeSlot(slot);
+	if (attributeSlot) return `has_${attributeSlot}`;
+	const verb = slot.split("_")[0];
+	return SEMANTIC_FACT_VERB_PREFIXES.has(verb) ? slot : `has_${slot}`;
+}
+function semanticAssertionSlots(assertion) {
+	const seen = /* @__PURE__ */ new Set();
+	const slots = [];
+	for (const slot of assertion.slotHints ?? []) {
+		const predicate = normalizeSemanticFactPredicate(slot);
+		if (!predicate || seen.has(predicate)) continue;
+		seen.add(predicate);
+		slots.push(predicate);
+	}
+	return slots;
+}
+function semanticAssertionObjectForSlot(params) {
+	if (params.assertion.valueHint?.trim()) return params.assertion.valueHint.trim();
+	const subjectKey = normalizeName(params.subject);
+	const objectEntities = (params.assertion.entityHints ?? []).map((entity) => entity.name.trim()).filter((name) => name && normalizeName(name) !== subjectKey);
+	if (params.hasExplicitSlot) return objectEntities[params.slotIndex] ?? objectEntities[0] ?? params.supportText;
+	return params.supportText;
+}
+function shouldMaterializeSemanticAssertionFact(params) {
+	if (params.candidate.classification !== "stable-fact" || params.assertion.familyHint !== "fact_like" || params.preference || params.decision || params.correction || params.relations.length > 0 || params.workflowHints.length > 0 || (params.candidate.structuredHints?.resourceAssertions?.length ?? 0) > 0 || (params.candidate.structuredHints?.adviceSignals?.length ?? 0) > 0) return false;
+	return Boolean(semanticAssertionSubject(params.assertion));
+}
+function buildSemanticAssertionFacts(ctx, candidate, draft, assertion) {
+	const supportText = semanticAssertionSupportText(candidate, draft, assertion);
+	if (!supportText) return [];
+	const subject = semanticAssertionSubject(assertion);
+	const slotPredicates = semanticAssertionSlots(assertion);
+	return (slotPredicates.length > 0 ? slotPredicates : ["reported_detail"]).map((predicate, index) => {
+		return buildFact({
+			ctx,
+			candidate,
+			subject,
+			predicate,
+			object: semanticAssertionObjectForSlot({
+				assertion,
+				subject,
+				supportText,
+				slotIndex: index,
+				hasExplicitSlot: slotPredicates.length > 0
+			}),
+			confidence: assertion.confidence,
+			sourceRef: assertion.sourceRef,
+			provenanceText: supportText,
+			objectValueJson: {
+				semanticAssertion: {
+					familyHint: assertion.familyHint,
+					timeframeHint: assertion.timeframeHint,
+					entityHints: assertion.entityHints ?? [],
+					slotHints: assertion.slotHints ?? [],
+					...assertion.valueHint ? { valueHint: assertion.valueHint } : {},
+					materializedPredicate: predicate,
+					supportText
+				},
+				supportContentRefs: [...new Set([assertion.sourceRef, sourceRefForCandidate(candidate)])],
+				currentnessHint: assertion.timeframeHint
+			}
+		});
+	});
+}
+function relatedCorrectionAssertions(draft, sourceRef) {
+	return (draft?.assertionDrafts ?? []).filter((entry) => entry.sourceRef === sourceRef);
+}
+function correctionSubjectFromCanonicalKey(canonicalKey) {
+	const parts = canonicalKey?.split(/[.:/#|]+/u).map((entry) => entry.trim()).filter(Boolean);
+	return parts && parts.length > 1 ? parts[0] : void 0;
+}
+function correctionSubject(correction, assertions) {
+	return assertions.map((assertion) => semanticAssertionSubject(assertion)).find((subject) => subject !== subjectUser()) ?? correctionSubjectFromCanonicalKey(correction.canonicalKey) ?? subjectUser();
+}
+function correctionPredicate(correction, assertions) {
+	return normalizeSemanticFactPredicate(correction.predicate) ?? normalizeSemanticFactPredicate(correction.canonicalKey) ?? assertions.flatMap((assertion) => semanticAssertionSlots(assertion))[0];
+}
 const STRUCTURAL_TOPOLOGY_PREDICATES = new Set([
 	"depends_on",
 	"uses",
@@ -1164,12 +1289,15 @@ function normalizeCandidate(candidate, ctx) {
 		}));
 	}
 	const materializationHint = getMaterializationHint(candidate);
-	if (correction && correction.targetKind === "fact" && correction.nextValue?.trim() && correction.predicate?.trim() && (!correction.priorValue || normalizeText(correction.priorValue) !== normalizeText(correction.nextValue.trim()))) {
+	const semanticDraft = getSemanticDraft(candidate);
+	if (correction && correction.targetKind === "fact" && correction.nextValue?.trim() && (!correction.priorValue || normalizeText(correction.priorValue) !== normalizeText(correction.nextValue.trim()))) {
+		const correctionAssertions = relatedCorrectionAssertions(semanticDraft, semanticDraft?.correctionDrafts[0]?.sourceRef ?? sourceRefForCandidate(candidate));
+		const predicate = correctionPredicate(correction, correctionAssertions);
 		const correctionFact = buildFact({
 			ctx,
 			candidate,
-			subject: subjectUser(),
-			predicate: correction.predicate.trim(),
+			subject: correctionSubject(correction, correctionAssertions),
+			predicate: predicate ?? "reported_detail",
 			object: correction.nextValue.trim(),
 			objectValueJson: {
 				correction: {
@@ -1180,7 +1308,8 @@ function normalizeCandidate(candidate, ctx) {
 				replacement: {
 					mode: materializationHint?.replacementMode ?? "none",
 					targetKind: correction.targetKind,
-					predicate: correction.predicate.trim(),
+					...predicate ? { predicate } : {},
+					...correction.canonicalKey ? { canonicalKey: correction.canonicalKey } : {},
 					...correction.priorValue ? { priorValue: correction.priorValue } : {},
 					nextValue: correction.nextValue.trim()
 				}
@@ -1201,6 +1330,18 @@ function normalizeCandidate(candidate, ctx) {
 			object: decision.summary,
 			objectValueJson: guidance ? { guidance } : void 0
 		}));
+	}
+	if (semanticDraft) for (const assertion of semanticDraft.assertionDrafts) {
+		if (!shouldMaterializeSemanticAssertionFact({
+			candidate,
+			assertion,
+			preference,
+			decision,
+			relations,
+			correction,
+			workflowHints
+		})) continue;
+		for (const assertionFact of buildSemanticAssertionFacts(ctx, candidate, semanticDraft, assertion)) if (!outputs.facts.some((entry) => entry.predicate === assertionFact.predicate && entry.canonicalSubject === assertionFact.canonicalSubject && entry.canonicalObject === assertionFact.canonicalObject && entry.sourceRef === assertionFact.sourceRef)) outputs.facts.push(assertionFact);
 	}
 	for (const workflow of workflowHints) {
 		const canonicalProjectCode = projectCodeFromStateKey(workflow.key) || (typeof workflow.value.projectCode === "string" ? workflow.value.projectCode.trim() : void 0);

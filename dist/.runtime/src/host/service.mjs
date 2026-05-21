@@ -133,6 +133,65 @@ function injectedPackets(bundle) {
 function bestInjectedPacketScore(packets) {
 	return packets.reduce((best, packet) => Math.max(best, packet.grade?.finalScore ?? packet.score ?? packet.coverage.confidence ?? 0), 0);
 }
+function bestEvidenceRowScore(rows) {
+	return rows.reduce((best, row) => Math.max(best, typeof row.score === "number" && Number.isFinite(row.score) ? row.score : 0, typeof row.confidence === "number" && Number.isFinite(row.confidence) ? row.confidence : 0), 0);
+}
+function directEvidenceEligibility(bundle) {
+	const states = Array.isArray(bundle.states) ? bundle.states : [];
+	const facts = Array.isArray(bundle.facts) ? bundle.facts : [];
+	const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
+	const behavioralGuidance = Array.isArray(bundle.behavioralGuidance) ? bundle.behavioralGuidance : [];
+	const events = Array.isArray(bundle.events) ? bundle.events : [];
+	const promptEvidence = Array.isArray(bundle.promptEvidence) ? bundle.promptEvidence : [];
+	const routeConfidence = typeof bundle.routeConfidence === "number" && Number.isFinite(bundle.routeConfidence) ? bundle.routeConfidence : 0;
+	const structuredRows = [...states, ...facts];
+	if (structuredRows.length > 0) return {
+		eligible: true,
+		reason: "direct-structured-evidence",
+		bestScore: Math.max(bestEvidenceRowScore(structuredRows), routeConfidence)
+	};
+	if (graphPaths.length > 0 || behavioralGuidance.length > 0) return {
+		eligible: true,
+		reason: "direct-graph-or-guidance-evidence",
+		bestScore: routeConfidence
+	};
+	const sourceRows = [...events, ...promptEvidence];
+	const bestSourceScore = bestEvidenceRowScore(sourceRows);
+	if (sourceRows.length > 0 && (bestSourceScore >= .25 || routeConfidence >= .35)) return {
+		eligible: true,
+		reason: "direct-source-evidence",
+		bestScore: Math.max(bestSourceScore, routeConfidence)
+	};
+	return null;
+}
+function appendStagedPendingEvidence(bundle, stagedTurns, ctx) {
+	if (stagedTurns.length === 0) return bundle;
+	const stagedRows = stagedTurns.map((turn) => ({
+		id: `pending-staged:${turn.turnId}`,
+		text: turn.text,
+		score: .62,
+		scope: ctx.scopes[0] ?? `agent:${ctx.agentId}`,
+		confidence: .62,
+		observedAt: turn.observedAt,
+		sourceRef: `pending-staged:${turn.turnId}`,
+		lineage: {
+			sourceKind: "chunk",
+			sourceId: turn.turnId,
+			sourceRef: `pending-staged:${turn.turnId}`
+		}
+	}));
+	return {
+		...bundle,
+		events: [...stagedRows, ...bundle.events],
+		recalledChunkTexts: [...stagedRows.map((row) => row.text), ...bundle.recalledChunkTexts],
+		diagnostics: [...bundle.diagnostics, "pending-staged-turn-evidence"]
+	};
+}
+function packetHasSourceGroundedEvidence(packet) {
+	const hasSource = packet.sourceRefs.length > 0 || (packet.allSourceRefs?.length ?? 0) > 0 || (packet.answerUnits ?? []).some((unit) => unit.sourceRefs.length > 0) || (packet.contextUnits ?? []).some((unit) => unit.sourceRefs.length > 0) || (packet.supportUnits ?? []).some((unit) => unit.sourceRefs.length > 0);
+	const hasRenderableEvidence = packet.primaryText.trim().length > 0 || packet.supportingTexts.some((text) => text.trim().length > 0) || (packet.displayLines ?? []).some((line) => line.trim().length > 0);
+	return hasSource && hasRenderableEvidence;
+}
 function packetTextForSuppression(packet) {
 	return [
 		packet.primaryText,
@@ -207,7 +266,7 @@ function focusRecallBundleForQueryEntities(queryAnalysis, bundle) {
 }
 function assessNativeContextEligibility(_query, queryAnalysis, bundle) {
 	const packets = injectedPackets(bundle);
-	if (packets.length === 0) return {
+	if (packets.length === 0) return directEvidenceEligibility(bundle) ?? {
 		eligible: false,
 		reason: "no-injected-packets",
 		bestScore: 0
@@ -228,6 +287,16 @@ function assessNativeContextEligibility(_query, queryAnalysis, bundle) {
 		reason: "entity-supported-evidence",
 		bestScore
 	};
+	if (packets.some((packet) => packetHasSourceGroundedEvidence(packet) && (packet.grade?.finalScore ?? packet.score ?? 0) >= .32 && packet.coverage.confidence >= .35)) return {
+		eligible: true,
+		reason: "assembled-source-evidence",
+		bestScore
+	};
+	const directEligibility = directEvidenceEligibility(bundle);
+	if (directEligibility) return {
+		...directEligibility,
+		bestScore: Math.max(directEligibility.bestScore, bestScore)
+	};
 	return {
 		eligible: false,
 		reason: "weak-evidence",
@@ -238,13 +307,45 @@ var MemxHostService = class {
 	config;
 	logger;
 	manager;
+	pendingWrites = /* @__PURE__ */ new Map();
 	constructor(options = {}) {
 		this.config = options.config ?? createServiceConfigFromEnv();
 		this.logger = loggerOrConsole(options.logger);
 		this.manager = new MemxRuntimeManager(this.logger);
 	}
 	async close() {
+		await Promise.allSettled([...this.pendingWrites.values()]);
 		await this.manager.closeAll();
+	}
+	pendingWriteKey(ctx) {
+		return `${ctx.agentId}\u0000${ctx.sessionKey ?? "default"}`;
+	}
+	hasPendingWrite(ctx) {
+		return this.pendingWrites.has(this.pendingWriteKey(ctx));
+	}
+	enqueuePendingWrite(ctx, work) {
+		const key = this.pendingWriteKey(ctx);
+		const tracked = (this.pendingWrites.get(key) ?? Promise.resolve()).catch(() => {}).then(work).catch((error) => {
+			this.logger.warn(`memx: host observe flush failed (${String(error)})`);
+		});
+		this.pendingWrites.set(key, tracked);
+		tracked.finally(() => {
+			if (this.pendingWrites.get(key) === tracked) this.pendingWrites.delete(key);
+		});
+	}
+	async waitForPendingWrites(ctx, hotPathTimeoutMs) {
+		const pending = this.pendingWrites.get(this.pendingWriteKey(ctx));
+		if (!pending) return 0;
+		const startedAt = performance.now();
+		const configuredBudget = Number.isFinite(hotPathTimeoutMs ?? NaN) ? Math.max(0, Number(hotPathTimeoutMs)) : 0;
+		const timeoutMs = configuredBudget > 0 ? Math.max(0, Math.min(5e3, configuredBudget - 1500)) : 2500;
+		if (timeoutMs <= 0) return 0;
+		let timeout;
+		await Promise.race([pending, new Promise((resolve) => {
+			timeout = setTimeout(resolve, timeoutMs);
+		})]);
+		if (timeout) clearTimeout(timeout);
+		return Math.round(performance.now() - startedAt);
 	}
 	async observe(input) {
 		const envelope = normalizeObservePayload(input);
@@ -270,12 +371,18 @@ var MemxHostService = class {
 			accepted: false,
 			reason: "no-capturable-messages"
 		};
-		store.turnScheduler.enqueue(ctx, captured).then(() => this.manager.recordMaintenanceTurn(ctx, {
-			store,
-			turnId,
-			observedAt: captured.at(-1)?.observedAt ?? ctx.now
-		})).catch((error) => {
-			this.logger.warn(`memx: host observe flush failed (${String(error)})`);
+		try {
+			if (await store.turnScheduler.stageRecallableTurn(ctx, captured)) this.manager.rememberStagedRecallableTurn(ctx, captured);
+		} catch (error) {
+			this.logger.warn?.(`memx: fast turn staging failed (${String(error)})`);
+		}
+		this.enqueuePendingWrite(ctx, async () => {
+			await store.turnScheduler.enqueue(ctx, captured);
+			await this.manager.recordMaintenanceTurn(ctx, {
+				store,
+				turnId,
+				observedAt: captured.at(-1)?.observedAt ?? ctx.now
+			});
 		});
 		return {
 			ok: true,
@@ -303,6 +410,7 @@ var MemxHostService = class {
 			}]
 		};
 		const ctx = asEnvelopeContext(this.config, envelope);
+		const waitElapsedMs = await this.waitForPendingWrites(ctx, request.hotPathTimeoutMs);
 		const store = await this.manager.getStore({
 			...ctx,
 			readEpoch: 0
@@ -311,13 +419,14 @@ var MemxHostService = class {
 			...ctx,
 			readEpoch: store.client.currentMemoryEpoch(ctx.agentId)
 		};
+		const remainingHotPathTimeoutMs = typeof request.hotPathTimeoutMs === "number" && Number.isFinite(request.hotPathTimeoutMs) ? Math.max(500, request.hotPathTimeoutMs - waitElapsedMs) : request.hotPathTimeoutMs;
 		const compiled = await compileQuery({
 			query: request.query,
 			ctx: recallCtx,
 			reasoner: store.reasoner,
-			hotPathTimeoutMs: request.hotPathTimeoutMs
+			hotPathTimeoutMs: remainingHotPathTimeoutMs
 		});
-		const focusedBundle = focusRecallBundleForQueryEntities(compiled, await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, { queryAnalysis: compiled }));
+		const focusedBundle = appendStagedPendingEvidence(focusRecallBundleForQueryEntities(compiled, await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, { queryAnalysis: compiled })), this.hasPendingWrite(ctx) ? this.manager.recentStagedRecallableTurns(ctx, 4) : [], ctx);
 		const limit = Math.max(1, Math.min(Math.trunc(request.limit ?? 6), 24));
 		const contextEligibility = assessNativeContextEligibility(request.query, compiled, focusedBundle);
 		const graphPaths = Array.isArray(focusedBundle.graph?.paths) ? focusedBundle.graph.paths : [];

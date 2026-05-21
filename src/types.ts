@@ -596,6 +596,7 @@ export type TurnSemanticAssertionDraft = {
   timeframeHint: TurnSemanticTimeframeHint;
   entityHints?: Array<{ name: string; type?: string }>;
   slotHints?: string[];
+  valueHint?: string;
   supportSpans?: Array<{ text: string; start?: number; end?: number }>;
   confidence?: number;
   lineage: LineageRef;

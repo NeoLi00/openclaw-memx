@@ -258,6 +258,102 @@ function bestInjectedPacketScore(packets: EvidencePacket[]): number {
   );
 }
 
+function bestEvidenceRowScore(rows: Array<Record<string, unknown>>): number {
+  return rows.reduce(
+    (best, row) =>
+      Math.max(
+        best,
+        typeof row.score === "number" && Number.isFinite(row.score) ? row.score : 0,
+        typeof row.confidence === "number" && Number.isFinite(row.confidence)
+          ? row.confidence
+          : 0,
+      ),
+    0,
+  );
+}
+
+function directEvidenceEligibility(bundle: EvidenceBundle): NativeContextEligibility | null {
+  const states = Array.isArray(bundle.states) ? bundle.states : [];
+  const facts = Array.isArray(bundle.facts) ? bundle.facts : [];
+  const graphPaths = Array.isArray(bundle.graph?.paths) ? bundle.graph.paths : [];
+  const behavioralGuidance = Array.isArray(bundle.behavioralGuidance) ? bundle.behavioralGuidance : [];
+  const events = Array.isArray(bundle.events) ? bundle.events : [];
+  const promptEvidence = Array.isArray(bundle.promptEvidence) ? bundle.promptEvidence : [];
+  const routeConfidence =
+    typeof bundle.routeConfidence === "number" && Number.isFinite(bundle.routeConfidence)
+      ? bundle.routeConfidence
+      : 0;
+  const structuredRows = [...states, ...facts];
+  if (structuredRows.length > 0) {
+    return {
+      eligible: true,
+      reason: "direct-structured-evidence",
+      bestScore: Math.max(bestEvidenceRowScore(structuredRows), routeConfidence),
+    };
+  }
+  if (graphPaths.length > 0 || behavioralGuidance.length > 0) {
+    return {
+      eligible: true,
+      reason: "direct-graph-or-guidance-evidence",
+      bestScore: routeConfidence,
+    };
+  }
+  const sourceRows = [...events, ...promptEvidence];
+  const bestSourceScore = bestEvidenceRowScore(sourceRows);
+  if (sourceRows.length > 0 && (bestSourceScore >= 0.25 || routeConfidence >= 0.35)) {
+    return {
+      eligible: true,
+      reason: "direct-source-evidence",
+      bestScore: Math.max(bestSourceScore, routeConfidence),
+    };
+  }
+  return null;
+}
+
+function appendStagedPendingEvidence(
+  bundle: EvidenceBundle,
+  stagedTurns: Array<{ turnId: string; observedAt: string; text: string }>,
+  ctx: Pick<MemoryOperationContext, "agentId" | "scopes">,
+): EvidenceBundle {
+  if (stagedTurns.length === 0) {
+    return bundle;
+  }
+  const stagedRows: EvidenceBundle["events"] = stagedTurns.map((turn) => ({
+    id: `pending-staged:${turn.turnId}`,
+    text: turn.text,
+    score: 0.62,
+    scope: ctx.scopes[0] ?? `agent:${ctx.agentId}`,
+    confidence: 0.62,
+    observedAt: turn.observedAt,
+    sourceRef: `pending-staged:${turn.turnId}`,
+    lineage: {
+      sourceKind: "chunk",
+      sourceId: turn.turnId,
+      sourceRef: `pending-staged:${turn.turnId}`,
+    },
+  }));
+  return {
+    ...bundle,
+    events: [...stagedRows, ...bundle.events],
+    recalledChunkTexts: [...stagedRows.map((row) => row.text), ...bundle.recalledChunkTexts],
+    diagnostics: [...bundle.diagnostics, "pending-staged-turn-evidence"],
+  };
+}
+
+function packetHasSourceGroundedEvidence(packet: EvidencePacket): boolean {
+  const hasSource =
+    packet.sourceRefs.length > 0 ||
+    (packet.allSourceRefs?.length ?? 0) > 0 ||
+    (packet.answerUnits ?? []).some((unit) => unit.sourceRefs.length > 0) ||
+    (packet.contextUnits ?? []).some((unit) => unit.sourceRefs.length > 0) ||
+    (packet.supportUnits ?? []).some((unit) => unit.sourceRefs.length > 0);
+  const hasRenderableEvidence =
+    packet.primaryText.trim().length > 0 ||
+    packet.supportingTexts.some((text) => text.trim().length > 0) ||
+    (packet.displayLines ?? []).some((line) => line.trim().length > 0);
+  return hasSource && hasRenderableEvidence;
+}
+
 function packetTextForSuppression(packet: EvidencePacket): string {
   return [
     packet.primaryText,
@@ -385,7 +481,11 @@ export function assessNativeContextEligibility(
 ): NativeContextEligibility {
   const packets = injectedPackets(bundle);
   if (packets.length === 0) {
-    return { eligible: false, reason: "no-injected-packets", bestScore: 0 };
+    return directEvidenceEligibility(bundle) ?? {
+      eligible: false,
+      reason: "no-injected-packets",
+      bestScore: 0,
+    };
   }
   const bestScore = bestInjectedPacketScore(packets);
   if (packets.some((packet) => packetMentionsSuppressedEntity(packet, queryAnalysis))) {
@@ -408,6 +508,23 @@ export function assessNativeContextEligibility(
   ) {
     return { eligible: true, reason: "entity-supported-evidence", bestScore };
   }
+  if (
+    packets.some(
+      (packet) =>
+        packetHasSourceGroundedEvidence(packet) &&
+        (packet.grade?.finalScore ?? packet.score ?? 0) >= 0.32 &&
+        packet.coverage.confidence >= 0.35,
+    )
+  ) {
+    return { eligible: true, reason: "assembled-source-evidence", bestScore };
+  }
+  const directEligibility = directEvidenceEligibility(bundle);
+  if (directEligibility) {
+    return {
+      ...directEligibility,
+      bestScore: Math.max(directEligibility.bestScore, bestScore),
+    };
+  }
   return { eligible: false, reason: "weak-evidence", bestScore };
 }
 
@@ -415,6 +532,7 @@ export class MemxHostService {
   private readonly config: MemoryPluginConfig;
   private readonly logger: MemxLogger;
   private readonly manager: MemxRuntimeManager;
+  private readonly pendingWrites = new Map<string, Promise<void>>();
 
   constructor(options: MemxServiceOptions = {}) {
     this.config = options.config ?? createServiceConfigFromEnv();
@@ -423,7 +541,63 @@ export class MemxHostService {
   }
 
   async close(): Promise<void> {
+    await Promise.allSettled([...this.pendingWrites.values()]);
     await this.manager.closeAll();
+  }
+
+  private pendingWriteKey(ctx: Pick<MemoryOperationContext, "agentId" | "sessionKey">): string {
+    return `${ctx.agentId}\u0000${ctx.sessionKey ?? "default"}`;
+  }
+
+  private hasPendingWrite(ctx: Pick<MemoryOperationContext, "agentId" | "sessionKey">): boolean {
+    return this.pendingWrites.has(this.pendingWriteKey(ctx));
+  }
+
+  private enqueuePendingWrite(ctx: MemoryOperationContext, work: () => Promise<void>): void {
+    const key = this.pendingWriteKey(ctx);
+    const previous = this.pendingWrites.get(key) ?? Promise.resolve();
+    const tracked = previous
+      .catch(() => {})
+      .then(work)
+      .catch((error) => {
+        this.logger.warn(`memx: host observe flush failed (${String(error)})`);
+      });
+    this.pendingWrites.set(key, tracked);
+    void tracked.finally(() => {
+      if (this.pendingWrites.get(key) === tracked) {
+        this.pendingWrites.delete(key);
+      }
+    });
+  }
+
+  private async waitForPendingWrites(
+    ctx: Pick<MemoryOperationContext, "agentId" | "sessionKey">,
+    hotPathTimeoutMs?: number,
+  ): Promise<number> {
+    const pending = this.pendingWrites.get(this.pendingWriteKey(ctx));
+    if (!pending) {
+      return 0;
+    }
+    const startedAt = performance.now();
+    const configuredBudget = Number.isFinite(hotPathTimeoutMs ?? Number.NaN)
+      ? Math.max(0, Number(hotPathTimeoutMs))
+      : 0;
+    const timeoutMs =
+      configuredBudget > 0 ? Math.max(0, Math.min(5000, configuredBudget - 1500)) : 2500;
+    if (timeoutMs <= 0) {
+      return 0;
+    }
+    let timeout: NodeJS.Timeout | undefined;
+    await Promise.race([
+      pending,
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    return Math.round(performance.now() - startedAt);
   }
 
   async observe(input: unknown): Promise<Record<string, unknown>> {
@@ -448,18 +622,22 @@ export class MemxHostService {
     if (captured.length === 0) {
       return { ok: true, accepted: false, reason: "no-capturable-messages" };
     }
-    void store.turnScheduler
-      .enqueue(ctx, captured)
-      .then(() =>
-        this.manager.recordMaintenanceTurn(ctx, {
+    try {
+      const staged = await store.turnScheduler.stageRecallableTurn(ctx, captured);
+      if (staged) {
+        this.manager.rememberStagedRecallableTurn(ctx, captured);
+      }
+    } catch (error) {
+      this.logger.warn?.(`memx: fast turn staging failed (${String(error)})`);
+    }
+    this.enqueuePendingWrite(ctx, async () => {
+      await store.turnScheduler.enqueue(ctx, captured);
+      await this.manager.recordMaintenanceTurn(ctx, {
           store,
           turnId,
           observedAt: captured.at(-1)?.observedAt ?? ctx.now,
-        }),
-      )
-      .catch((error) => {
-        this.logger.warn(`memx: host observe flush failed (${String(error)})`);
       });
+    });
     return {
       ok: true,
       accepted: true,
@@ -486,6 +664,7 @@ export class MemxHostService {
       messages: [{ role: "user", content: request.query }],
     };
     const ctx = asEnvelopeContext(this.config, envelope);
+    const waitElapsedMs = await this.waitForPendingWrites(ctx, request.hotPathTimeoutMs);
     const store = await this.manager.getStore({
       ...ctx,
       readEpoch: 0,
@@ -494,16 +673,24 @@ export class MemxHostService {
       ...ctx,
       readEpoch: store.client.currentMemoryEpoch(ctx.agentId),
     };
+    const remainingHotPathTimeoutMs =
+      typeof request.hotPathTimeoutMs === "number" && Number.isFinite(request.hotPathTimeoutMs)
+        ? Math.max(500, request.hotPathTimeoutMs - waitElapsedMs)
+        : request.hotPathTimeoutMs;
     const compiled = await compileQuery({
       query: request.query,
       ctx: recallCtx,
       reasoner: store.reasoner,
-      hotPathTimeoutMs: request.hotPathTimeoutMs,
+      hotPathTimeoutMs: remainingHotPathTimeoutMs,
     });
     const bundle = await retrieveEvidence(store, recallCtx, request.query, compiled.focusedQuery, {
       queryAnalysis: compiled,
     });
-    const focusedBundle = focusRecallBundleForQueryEntities(compiled, bundle);
+    const focusedBundle = appendStagedPendingEvidence(
+      focusRecallBundleForQueryEntities(compiled, bundle),
+      this.hasPendingWrite(ctx) ? this.manager.recentStagedRecallableTurns(ctx, 4) : [],
+      ctx,
+    );
     const limit = Math.max(1, Math.min(Math.trunc(request.limit ?? 6), 24));
     const contextEligibility = assessNativeContextEligibility(request.query, compiled, focusedBundle);
     const graphPaths = Array.isArray(focusedBundle.graph?.paths) ? focusedBundle.graph.paths : [];

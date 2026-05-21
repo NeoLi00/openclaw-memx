@@ -64,6 +64,7 @@ var MemxRuntimeManager = class {
 	storeContexts = /* @__PURE__ */ new Map();
 	sessionCursors = /* @__PURE__ */ new Map();
 	lastRecall = /* @__PURE__ */ new Map();
+	stagedRecallableTurns = /* @__PURE__ */ new Map();
 	maintenanceTimers = /* @__PURE__ */ new Map();
 	maintenanceContexts = /* @__PURE__ */ new Map();
 	maintenanceLoops = /* @__PURE__ */ new Map();
@@ -105,6 +106,7 @@ var MemxRuntimeManager = class {
 		this.storeContexts.clear();
 		this.sessionCursors.clear();
 		this.lastRecall.clear();
+		this.stagedRecallableTurns.clear();
 		this.maintenanceContexts.clear();
 		this.maintenanceLoops.clear();
 	}
@@ -137,6 +139,26 @@ var MemxRuntimeManager = class {
 		};
 		this.lastRecall.delete(key);
 		return payload;
+	}
+	rememberStagedRecallableTurn(ctx, messages) {
+		const sessionKey = ctx.sessionKey ?? "default";
+		const text = messages.map((message) => `[${message.role}] ${message.content.trim()}`).filter((entry) => entry.trim().length > 0).join("\n");
+		if (!text.trim()) return;
+		const key = `${ctx.agentId}:${sessionKey}`;
+		const turnId = messages[0]?.turnId ?? randomId("staged-turn");
+		const observedAt = messages.at(-1)?.observedAt ?? nowIso();
+		const existing = (this.stagedRecallableTurns.get(key) ?? []).filter((entry) => entry.turnId !== turnId);
+		existing.push({
+			turnId,
+			observedAt,
+			text
+		});
+		this.stagedRecallableTurns.set(key, existing.slice(-6));
+	}
+	recentStagedRecallableTurns(ctx, limit = 4) {
+		const sessionKey = ctx.sessionKey ?? "default";
+		const key = `${ctx.agentId}:${sessionKey}`;
+		return [...this.stagedRecallableTurns.get(key) ?? []].sort((left, right) => right.observedAt.localeCompare(left.observedAt)).slice(0, Math.max(1, Math.min(Math.trunc(limit), 8)));
 	}
 	async recordMaintenanceTurn(ctx, params) {
 		if (!ctx.config.advanced.enableMaintenanceJobs) return;

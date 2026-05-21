@@ -28,8 +28,13 @@ declare class MemxHostService {
   private readonly config;
   private readonly logger;
   private readonly manager;
+  private readonly pendingWrites;
   constructor(options?: MemxServiceOptions);
   close(): Promise<void>;
+  private pendingWriteKey;
+  private hasPendingWrite;
+  private enqueuePendingWrite;
+  private waitForPendingWrites;
   observe(input: unknown): Promise<Record<string, unknown>>;
   recall(request: MemxRecallRequest): Promise<Record<string, unknown>>;
   remember(request: Record<string, unknown>): Promise<Record<string, unknown>>;

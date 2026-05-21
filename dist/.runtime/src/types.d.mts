@@ -381,6 +381,7 @@ type TurnSemanticAssertionDraft = {
     type?: string;
   }>;
   slotHints?: string[];
+  valueHint?: string;
   supportSpans?: Array<{
     text: string;
     start?: number;

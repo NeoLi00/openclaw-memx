@@ -181,6 +181,102 @@ test("query compiler retries one unparsable LLM JSON response before degrading",
   );
 });
 
+test("post-answer turn semantic compiler retries one unparsable LLM JSON response", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const responses = [
+    "not-json",
+    JSON.stringify({
+      assertions: [
+        {
+          sourceRef: "wrong-source-ref",
+          subject: "InvoicePilot",
+          subjectType: "project",
+          slot: "export_format",
+          value: "Arrow IPC",
+          family: "fact_like",
+          timeframe: "current",
+          confidence: 0.94,
+        },
+      ],
+      corrections: [
+        {
+          sourceRef: "wrong-source-ref",
+          subject: "InvoicePilot",
+          slot: "export_format",
+          canonicalKey: "InvoicePilot.export_format",
+          predicate: "has_export_format",
+          priorValue: "Parquet",
+          nextValue: "Arrow IPC",
+          confidence: 0.94,
+        },
+      ],
+    }),
+  ];
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    const content = responses[fetchCalls] ?? responses.at(-1);
+    fetchCalls += 1;
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content } }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const config = minimalConfig();
+  config.advanced.llmClassifierEnabled = true;
+  config.advanced.llmProvider = "openai-compatible";
+  config.advanced.llmBaseURL = "https://llm.example.com/v1";
+  config.advanced.llmClassifierModel = "fast-memory-model";
+  config.advanced.llmApiKey = "sk-test";
+  const reasoner = new MemxReasoner(config, {
+    debug() {},
+    info() {},
+    warn() {},
+  });
+
+  const frame = await compileTurnSemantics({
+    messages: [
+      {
+        role: "user",
+        content: "这个导出格式以后改成 Arrow IPC，不要再用 Parquet。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-post-answer",
+        sourceRef: "user:turn-post-answer",
+        observedAt,
+      },
+      {
+        role: "assistant",
+        content: "好的，后续 InvoicePilot 的导出格式按 Arrow IPC 处理。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-post-answer",
+        sourceRef: "assistant:turn-post-answer",
+        observedAt,
+      },
+    ],
+    ctx: minimalCtx(),
+    reasoner,
+  });
+
+  assert.equal(fetchCalls, 2);
+  assert.equal(frame?.assertionDrafts[0]?.sourceRef, "user:turn-post-answer");
+  assert.equal(frame?.assertionDrafts[0]?.entityHints?.[0]?.name, "InvoicePilot");
+  assert.equal(frame?.assertionDrafts[0]?.slotHints?.[0], "export_format");
+  assert.equal(frame?.assertionDrafts[0]?.valueHint, "Arrow IPC");
+  assert.equal(frame?.correctionDrafts[0]?.correction.targetKind, "fact");
+  assert.equal(frame?.correctionDrafts[0]?.correction.timeframe, "current");
+  assert.equal(
+    reasoner.getTrace().some((entry) => entry.label === "turn-semantic-compact-retry"),
+    true,
+  );
+});
+
 test("turn semantic fallback does not synthesize deterministic entity hints or relation drafts", async () => {
   const frame = await compileTurnSemantics({
     messages: [
@@ -208,6 +304,104 @@ test("turn semantic fallback does not synthesize deterministic entity hints or r
   assert.equal(
     frame.assertionDrafts.some((draft) => (draft.entityHints?.length ?? 0) > 0),
     false,
+  );
+});
+
+test("compact LLM turn compiler can return multiple entity attribute facts", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                assertions: [
+                  {
+                    sourceRef: "user:turn-multi",
+                    subject: "AuroraAccept",
+                    subjectType: "project",
+                    slot: "default_database",
+                    value: "PostgreSQL",
+                    confidence: 0.93,
+                  },
+                  {
+                    sourceRef: "user:turn-multi",
+                    subject: "AuroraAccept",
+                    subjectType: "project",
+                    slot: "alert_channel",
+                    value: "Slack",
+                    confidence: 0.92,
+                  },
+                  {
+                    sourceRef: "user:turn-multi",
+                    subject: "AuroraAccept",
+                    subjectType: "project",
+                    slot: "export_format",
+                    value: "Parquet",
+                    confidence: 0.91,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const config = minimalConfig();
+  config.advanced.llmClassifierEnabled = true;
+  config.advanced.llmProvider = "openai-compatible";
+  config.advanced.llmBaseURL = "https://llm.example.com/v1";
+  config.advanced.llmClassifierModel = "fast-memory-model";
+  config.advanced.llmApiKey = "sk-test";
+  const reasoner = new MemxReasoner(config, {
+    debug() {},
+    info() {},
+    warn() {},
+  });
+
+  const frame = await compileTurnSemantics({
+    messages: [
+      {
+        role: "user",
+        content: "AuroraAccept 的默认数据库是 PostgreSQL，告警渠道是 Slack，导出格式先用 Parquet。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-multi",
+        sourceRef: "user:turn-multi",
+        observedAt,
+      },
+      {
+        role: "assistant",
+        content: "已确认这三个默认配置。",
+        scope: "agent:main",
+        sessionKey: "s1",
+        turnId: "turn-multi",
+        sourceRef: "assistant:turn-multi",
+        observedAt,
+      },
+    ],
+    ctx: minimalCtx(),
+    reasoner,
+  });
+
+  assert.equal(frame?.compilerProvenance.promptVersion, "turn-semantic-compact/v1");
+  assert.deepEqual(
+    frame?.assertionDrafts.map((draft) => [draft.slotHints?.[0], draft.valueHint]),
+    [
+      ["default_database", "PostgreSQL"],
+      ["alert_channel", "Slack"],
+      ["export_format", "Parquet"],
+    ],
+  );
+  assert.deepEqual(
+    frame?.assertionDrafts.map((draft) => draft.entityHints?.[0]?.name),
+    ["AuroraAccept", "AuroraAccept", "AuroraAccept"],
   );
 });
 
@@ -913,6 +1107,315 @@ test("normalization does not synthesize reported_detail facts without LLM assert
   );
 
   assert.equal(outputs.facts.some((fact) => fact.predicate === "reported_detail"), false);
+});
+
+test("normalization materializes LLM fact-like assertions even without relation drafts", () => {
+  const outputs = normalizeCandidate(
+    {
+      candidateId: "candidate_llm_fact_assertion",
+      source: {
+        kind: "user",
+        sessionKey: "s1",
+      },
+      observedAt,
+      rawText: "InvoicePilot 默认数据库是 PostgreSQL。",
+      normalizedText: "invoicepilot 默认数据库是 postgresql",
+      eventType: "conversation_turn",
+      structuredHints: {
+        entities: [
+          { name: "InvoicePilot", type: "project" },
+          { name: "PostgreSQL", type: "service" },
+        ],
+        semanticDraft: {
+          sourceRef: "user:turn-llm-fact",
+          assertionDrafts: [
+            {
+              draftId: "draft-llm-fact",
+              sourceRef: "user:turn-llm-fact",
+              familyHint: "fact_like",
+              timeframeHint: "current",
+              entityHints: [
+                { name: "InvoicePilot", type: "project" },
+                { name: "PostgreSQL", type: "service" },
+              ],
+              slotHints: ["default_database"],
+              valueHint: "PostgreSQL",
+              confidence: 0.95,
+              lineage: {
+                sourceKind: "chunk",
+                sourceId: "chunk-llm-fact",
+                sourceRef: "user:turn-llm-fact",
+              },
+            },
+          ],
+          correctionDrafts: [],
+          relationDrafts: [],
+          supportSpans: [{ sourceRef: "user:turn-llm-fact", text: "InvoicePilot 默认数据库是 PostgreSQL。" }],
+          compilerProvenance: {
+            source: "llm",
+            mode: "llm",
+          },
+        },
+        materializationHint: {
+          sourceRef: "user:turn-llm-fact",
+          primaryFamily: "fact_like",
+          timeframeHint: "current",
+        },
+      },
+      metadata: {
+        sourceRef: "user:turn-llm-fact",
+      },
+      classification: "stable-fact",
+      policy: {
+        salienceScore: 0.95,
+        expectedFutureUtility: 0.9,
+        sensitivityScore: 0,
+        stabilityScore: 0.9,
+        action: "stable_fact",
+        reasons: ["semantic-draft-adapter:stable-fact"],
+        explicitIntent: true,
+        captureAuthorized: true,
+      },
+      confidence: 0.95,
+      scope: "agent:main",
+    },
+    minimalCtx(),
+  );
+
+  assert.equal(outputs.facts.length, 1);
+  assert.equal(outputs.facts[0].predicate, "has_default_database");
+  assert.equal(outputs.facts[0].canonicalSubject, "invoicepilot");
+  assert.equal(outputs.facts[0].canonicalObject, "postgresql");
+  assert.match(outputs.facts[0].provenanceText, /PostgreSQL/);
+  assert.ok(outputs.vectorDocs.some((doc) => doc.docKind === "fact" && /postgresql/i.test(doc.text)));
+});
+
+test("normalization materializes LLM deictic corrections onto the resolved entity slot", () => {
+  const outputs = normalizeCandidate(
+    {
+      candidateId: "candidate_llm_deictic_update",
+      source: {
+        kind: "user",
+        sessionKey: "s1",
+      },
+      observedAt,
+      rawText: "这个导出格式以后改成 Arrow IPC，不要再用 Parquet。",
+      normalizedText: "这个导出格式以后改成 arrow ipc 不要再用 parquet",
+      eventType: "conversation_turn",
+      structuredHints: {
+        entities: [
+          { name: "InvoicePilot", type: "project" },
+          { name: "Arrow IPC", type: "concept" },
+        ],
+        semanticDraft: {
+          sourceRef: "user:turn-llm-correction",
+          assertionDrafts: [
+            {
+              draftId: "draft-llm-correction-assertion",
+              sourceRef: "user:turn-llm-correction",
+              familyHint: "fact_like",
+              timeframeHint: "current",
+              entityHints: [
+                { name: "InvoicePilot", type: "project" },
+                { name: "Arrow IPC", type: "concept" },
+              ],
+              slotHints: ["export_format"],
+              valueHint: "Arrow IPC",
+              confidence: 0.94,
+              lineage: {
+                sourceKind: "chunk",
+                sourceId: "chunk-llm-correction",
+                sourceRef: "user:turn-llm-correction",
+              },
+            },
+          ],
+          correctionDrafts: [
+            {
+              sourceRef: "user:turn-llm-correction",
+              correction: {
+                timeframe: "current",
+                targetKind: "fact",
+                canonicalKey: "InvoicePilot.export_format",
+                predicate: "has_export_format",
+                priorValue: "Parquet",
+                nextValue: "Arrow IPC",
+                confidence: 0.94,
+              },
+              confidence: 0.94,
+              lineage: {
+                sourceKind: "chunk",
+                sourceId: "chunk-llm-correction",
+                sourceRef: "user:turn-llm-correction",
+              },
+            },
+          ],
+          relationDrafts: [],
+          supportSpans: [
+            {
+              sourceRef: "user:turn-llm-correction",
+              text: "这个导出格式以后改成 Arrow IPC，不要再用 Parquet。",
+            },
+          ],
+          compilerProvenance: {
+            source: "llm",
+            mode: "llm",
+          },
+        },
+        materializationHint: {
+          sourceRef: "user:turn-llm-correction",
+          primaryFamily: "fact_like",
+          timeframeHint: "current",
+          replacementMode: "supersede_fact",
+        },
+        correctionHint: true,
+        correction: {
+          timeframe: "current",
+          targetKind: "fact",
+          canonicalKey: "InvoicePilot.export_format",
+          predicate: "has_export_format",
+          priorValue: "Parquet",
+          nextValue: "Arrow IPC",
+          confidence: 0.94,
+        },
+      },
+      metadata: {
+        sourceRef: "user:turn-llm-correction",
+      },
+      classification: "stable-fact",
+      policy: {
+        salienceScore: 0.95,
+        expectedFutureUtility: 0.9,
+        sensitivityScore: 0,
+        stabilityScore: 0.9,
+        action: "stable_fact",
+        reasons: ["semantic-draft-adapter:fact-correction"],
+        explicitIntent: true,
+        captureAuthorized: true,
+      },
+      confidence: 0.94,
+      scope: "agent:main",
+    },
+    minimalCtx(),
+  );
+
+  assert.ok(
+    outputs.facts.some(
+      (fact) =>
+        fact.canonicalSubject === "invoicepilot" &&
+        fact.predicate === "has_export_format" &&
+        fact.canonicalObject === "arrow ipc",
+    ),
+  );
+  assert.equal(
+    outputs.facts.some(
+      (fact) => fact.canonicalSubject === "user" && fact.predicate === "has_export_format",
+    ),
+    false,
+  );
+});
+
+test("normalization canonicalizes LLM attribute predicate aliases before materialization", () => {
+  const outputs = normalizeCandidate(
+    {
+      candidateId: "candidate_llm_attribute_alias",
+      source: {
+        kind: "user",
+        sessionKey: "s1",
+      },
+      observedAt,
+      rawText: "这个导出格式改成 JSONL，不再用 CSV。",
+      normalizedText: "这个导出格式改成 jsonl 不再用 csv",
+      eventType: "conversation_turn",
+      structuredHints: {
+        entities: [
+          { name: "BeaconAccept", type: "project" },
+          { name: "JSONL", type: "concept" },
+        ],
+        semanticDraft: {
+          sourceRef: "user:turn-llm-alias",
+          assertionDrafts: [
+            {
+              draftId: "draft-llm-alias-assertion",
+              sourceRef: "user:turn-llm-alias",
+              familyHint: "fact_like",
+              timeframeHint: "current",
+              entityHints: [
+                { name: "BeaconAccept", type: "project" },
+                { name: "JSONL", type: "concept" },
+              ],
+              slotHints: ["uses_export_format"],
+              valueHint: "JSONL",
+              confidence: 0.92,
+            },
+          ],
+          correctionDrafts: [
+            {
+              sourceRef: "user:turn-llm-alias",
+              correction: {
+                timeframe: "current",
+                targetKind: "fact",
+                canonicalKey: "BeaconAccept.exportFormat",
+                predicate: "uses_export_format",
+                priorValue: "CSV",
+                nextValue: "JSONL",
+                confidence: 0.92,
+              },
+              confidence: 0.92,
+            },
+          ],
+          relationDrafts: [],
+          supportSpans: [{ sourceRef: "user:turn-llm-alias", text: "这个导出格式改成 JSONL，不再用 CSV。" }],
+          compilerProvenance: {
+            source: "llm",
+            mode: "llm",
+          },
+        },
+        materializationHint: {
+          sourceRef: "user:turn-llm-alias",
+          primaryFamily: "fact_like",
+          timeframeHint: "current",
+          replacementMode: "supersede_fact",
+        },
+        correctionHint: true,
+        correction: {
+          timeframe: "current",
+          targetKind: "fact",
+          canonicalKey: "BeaconAccept.exportFormat",
+          predicate: "uses_export_format",
+          priorValue: "CSV",
+          nextValue: "JSONL",
+          confidence: 0.92,
+        },
+      },
+      metadata: {
+        sourceRef: "user:turn-llm-alias",
+      },
+      classification: "stable-fact",
+      policy: {
+        salienceScore: 0.95,
+        expectedFutureUtility: 0.9,
+        sensitivityScore: 0,
+        stabilityScore: 0.9,
+        action: "stable_fact",
+        reasons: ["semantic-draft-adapter:fact-correction"],
+        explicitIntent: true,
+        captureAuthorized: true,
+      },
+      confidence: 0.92,
+      scope: "agent:main",
+    },
+    minimalCtx(),
+  );
+
+  assert.ok(
+    outputs.facts.some(
+      (fact) =>
+        fact.canonicalSubject === "beaconaccept" &&
+        fact.predicate === "has_export_format" &&
+        fact.canonicalObject === "jsonl",
+    ),
+  );
+  assert.equal(outputs.facts.some((fact) => fact.predicate === "uses_export_format"), false);
 });
 
 test("reasoner summaries and topic judgments do not rebuild semantics without LLM", async () => {

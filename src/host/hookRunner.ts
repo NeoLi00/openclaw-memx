@@ -230,14 +230,19 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
       return;
     }
 
-    const pending = hookShouldFlushPending(eventName) ? await readPendingTurn(envelope) : null;
-    const completedEnvelope = hookShouldFlushPending(eventName)
+    const shouldFlushPending = hookShouldFlushPending(eventName);
+    const pending = shouldFlushPending ? await readPendingTurn(envelope) : null;
+    if (eventName === "SessionEnd" && !pending) {
+      debug("memx hook observe skipped: SessionEnd has no pending user turn");
+      return;
+    }
+    const completedEnvelope = shouldFlushPending
       ? await completeEnvelopeFromTranscript(envelope, pending)
       : envelope;
-    const observeEnvelope = hookShouldFlushPending(eventName)
+    const observeEnvelope = shouldFlushPending
       ? mergePendingTurn(completedEnvelope, pending)
       : completedEnvelope;
-    if (hookShouldFlushPending(eventName) && pending && !hasAssistantMessage(observeEnvelope)) {
+    if (shouldFlushPending && pending && !hasAssistantMessage(observeEnvelope)) {
       debug("memx hook observe deferred: assistant output is not available yet");
       return;
     }
@@ -250,7 +255,7 @@ export async function runMemxHook(argv = process.argv.slice(2)): Promise<void> {
         () => ({ status: "fulfilled" as const }),
         (reason) => ({ status: "rejected" as const, reason }),
       );
-    if (observeResult.status === "fulfilled" && hookShouldFlushPending(eventName)) {
+    if (observeResult.status === "fulfilled" && shouldFlushPending) {
       await clearPendingTurn(envelope);
     }
     if (observeResult.status === "rejected") {
